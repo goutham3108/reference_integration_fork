@@ -1,0 +1,4 @@
+[submodule "sdv-runtime-fork"]
+	path = sdv-runtime-fork
+	url = https://github.com/jayantadn/sdv-runtime-fork.git
+	branch = rpi-kuksa-syncer-cpp-porting

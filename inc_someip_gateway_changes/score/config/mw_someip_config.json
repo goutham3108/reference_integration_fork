@@ -1,0 +1,250 @@
+{
+    "service_types": [
+        {
+            "service_type_name": "window_control",
+            "service_id": 1,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "window_control",
+                    "event_id": 1,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    }
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "gatewayd/application_window_control",
+                    "instance_id": 1
+                }
+            ]
+        },
+        {
+            "service_type_name": "echo_request",
+            "service_id": 4660,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "echo_request_tiny",
+                    "event_id": 34680,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    }
+                },
+                {
+                    "event_name": "echo_request_small",
+                    "event_id": 2,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 88
+                    }
+                },
+                {
+                    "event_name": "echo_request_medium",
+                    "event_id": 3,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048
+                    }
+                },
+                {
+                    "event_name": "echo_request_large",
+                    "event_id": 4,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 8216
+                    }
+                },
+                {
+                    "event_name": "echo_request_xlarge",
+                    "event_id": 5,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 65560
+                    }
+                },
+                {
+                    "event_name": "echo_request_xxlarge",
+                    "event_id": 6,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048600
+                    }
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "gatewayd/application_echo_request",
+                    "instance_id": 22136
+                }
+            ]
+        },
+        {
+            "service_type_name": "echo_response",
+            "service_id": 17185,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "echo_response_tiny",
+                    "event_id": 34680,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    }
+                },
+                {
+                    "event_name": "echo_response_small",
+                    "event_id": 2,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 88
+                    }
+                },
+                {
+                    "event_name": "echo_response_medium",
+                    "event_id": 3,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048
+                    }
+                },
+                {
+                    "event_name": "echo_response_large",
+                    "event_id": 4,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 8216
+                    }
+                },
+                {
+                    "event_name": "echo_response_xlarge",
+                    "event_id": 5,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 65560
+                    }
+                },
+                {
+                    "event_name": "echo_response_xxlarge",
+                    "event_id": 6,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048600
+                    }
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "benchmark/echo_response",
+                    "instance_id": 22136
+                }
+            ]
+        },
+        {
+            "service_type_name": "tire_pressure",
+            "service_id": 16640,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "tire_pressure",
+                    "event_id": 33808,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 64
+                    },
+                    "eventgroup_ids": [
+                        33808
+                    ]
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "gatewayd/tire_pressure",
+                    "instance_id": 4096
+                }
+            ]
+        },
+        {
+            "service_type_name": "headlight",
+            "service_id": 16896,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "headlight",
+                    "event_id": 33824,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33824
+                    ]
+                }
+            ],
+            "remote_service_instances": [
+                {
+                    "instance_specifier": "gatewayd/headlight",
+                    "instance_id": 4097
+                }
+            ]
+        },
+        {
+            "service_type_name": "kuksa_tire_pressure",
+            "service_id": 16641,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "tire_pressure",
+                    "event_id": 33809,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 4
+                    },
+                    "eventgroup_ids": [
+                        33809
+                    ]
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "kuksa/tire_pressure",
+                    "instance_id": 4098
+                }
+            ]
+        },
+        {
+            "service_type_name": "kuksa_headlight",
+            "service_id": 16897,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "headlight",
+                    "event_id": 33825,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33825
+                    ]
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "kuksa/headlight",
+                    "instance_id": 4099
+                }
+            ]
+        }
+    ]
+}

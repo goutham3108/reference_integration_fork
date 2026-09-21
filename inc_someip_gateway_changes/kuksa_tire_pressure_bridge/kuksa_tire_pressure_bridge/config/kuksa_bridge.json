@@ -1,0 +1,9 @@
+{
+  "kuksa_endpoint": "127.0.0.1:55555",
+  "signals": {
+    "front_left": "Vehicle.Chassis.Axle.Row1.Wheel.Left.Tire.Pressure",
+    "front_right": "Vehicle.Chassis.Axle.Row1.Wheel.Right.Tire.Pressure",
+    "rear_left": "Vehicle.Chassis.Axle.Row2.Wheel.Left.Tire.Pressure",
+    "rear_right": "Vehicle.Chassis.Axle.Row2.Wheel.Right.Tire.Pressure"
+  }
+}
