@@ -14,6 +14,12 @@ module(
     name = "score_ref_int",
 )
 
+bazel_dep(name = "score_someip_gateway", version = "0.0.0", dev_dependency = True)
+local_path_override(
+    module_name = "score_someip_gateway",
+    path = "inc_someip_gateway",
+)
+
 # Include common modules
 include("//bazel_common:score_basic_bazel.MODULE.bazel")
 
