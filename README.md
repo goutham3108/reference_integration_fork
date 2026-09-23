@@ -3,7 +3,7 @@
 This workspace integrates multiple Eclipse S-CORE modules (baselibs, communication, persistency, kyron, etc.) to validate cross-repository builds and detect integration issues early in the development cycle.
 
 ## Overview
-
+``git clone --recurse-submodules -b sdv-hack https://github.com/goutham3108/reference_integration_fork.git``
 The reference integration workspace serves as a unified Bazel build environment for:
 
 - Validating cross-module dependency graphs and boundary issues
