@@ -1,0 +1,4 @@
+[submodule "inc_someip_gateway"]
+	path = inc_someip_gateway
+	url = https://github.boschdevcloud.com/goutham3108/sdv-hackathon.git
+	branch = score-imp
