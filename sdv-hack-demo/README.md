@@ -66,6 +66,20 @@ Then start it from the demo folder:
 The demo runs five long-lived processes. Open five terminals and keep each
 process running while starting the next one.
 
+Before running the commands, use these working directories:
+
+- Terminals 1-4: `inc_someip_gateway`
+- Terminal 5: the reference-integration root
+
+For example, from the reference-integration root:
+
+```bash
+cd inc_someip_gateway
+```
+
+Run that once in terminals 1-4. In terminal 5, use the reference-integration
+root directory.
+
 ### 1. Stop a Previous Run
 
 Run this from any directory before starting the demo:
@@ -77,15 +91,12 @@ rm -f /tmp/vsomeip*.lck
 
 ### 2. Build the Binaries
 
-From the reference-integration root, set a shell variable used by the remaining
-commands:
+From the reference-integration root:
 
 ```bash
-export REPO_ROOT="$PWD"
-
 bazel build //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
 
-cd "$REPO_ROOT/inc_someip_gateway"
+cd inc_someip_gateway
 bazel build \
 	//score/config:config_file \
 	//score/someipd \
@@ -99,7 +110,6 @@ bazel build \
 In terminal 1:
 
 ```bash
-cd "$REPO_ROOT/inc_someip_gateway"
 VSOMEIP_CONFIGURATION="$PWD/tests/integration/vsomeip-gateway-services.json" \
 bazel run //score/someipd -- \
 	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin"
@@ -110,7 +120,6 @@ bazel run //score/someipd -- \
 In terminal 2:
 
 ```bash
-cd "$REPO_ROOT/inc_someip_gateway"
 bazel run //score/gatewayd -- \
 	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin" \
 	--service_instance_manifest "$PWD/score/gatewayd/etc/mw_com_config.json"
@@ -123,7 +132,6 @@ Wait for `Gateway started, waiting for shutdown signal...`.
 In terminal 3:
 
 ```bash
-cd "$REPO_ROOT/inc_someip_gateway"
 VEHICLE_DOMAIN_CONFIG="$PWD/tests/integration/vsomeip-gateway-services.json" \
 REMOTE_DOMAIN_CONFIG="$PWD/tests/integration/vsomeip-remote-domain.json" \
 bazel run //tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge
@@ -142,7 +150,6 @@ Bridge subscribed to vehicle high-beam updates
 In terminal 4:
 
 ```bash
-cd "$REPO_ROOT/inc_someip_gateway"
 VSOMEIP_CONFIGURATION="$PWD/tests/integration/vsomeip-remote-domain.json" \
 bazel run //tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
 ```
@@ -151,12 +158,17 @@ The remote sensor begins by publishing `false`, then publishes its current
 state every two seconds. The bridge prints `Bridge subscribed to remote
 high-beam updates` after the remote service is available.
 
+The remote sensor persists its latest state with SCORE Persistency. By default
+its KVS files are stored in `/tmp/score_high_beam_sensor`; set
+`HIGH_BEAM_KVS_DIR` before starting the remote app to choose another directory.
+When a process is started by SCORE Lifecycle, set `PROCESSIDENTIFIER` so the
+application reports its running state to the Launch Manager.
+
 ### 7. Start the Vehicle Application
 
 In terminal 5:
 
 ```bash
-cd "$REPO_ROOT"
 bazel run //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com -- \
 	--configuration "$PWD/inc_someip_gateway/score/gatewayd/etc/mw_com_config.json"
 ```

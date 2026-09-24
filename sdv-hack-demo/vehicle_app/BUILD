@@ -12,6 +12,8 @@ cc_binary(
     data = ["@score_someip_gateway//score/gatewayd:etc/mw_com_config.json"],
     visibility = ["//visibility:public"],
     deps = [
+        "@score_lifecycle//score/launch_manager:lifecycle_cc",
+        "@score_logging//score/mw/log:log",
         "@score_communication//score/mw/com",
         "@score_someip_gateway//score/serializer:pre_serialized_data",
     ],

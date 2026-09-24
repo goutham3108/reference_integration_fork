@@ -16,6 +16,8 @@
 
 #include "score/mw/com/runtime.h"
 #include "score/mw/com/types.h"
+#include "score/mw/lifecycle/report_running.h"
+#include "score/mw/log/logging.h"
 #include "score/serializer/pre_serialized_data.h"
 
 namespace {
@@ -70,7 +72,7 @@ class VehicleHighBeamApplication {
     int Run() {
         const std::string manifest = ResolveConfigurationPath(configuration_path_);
         if (!std::filesystem::exists(manifest)) {
-            std::cerr << "Cannot locate mw::com configuration: " << configuration_path_ << std::endl;
+            score::mw::log::LogError() << "Cannot locate mw::com configuration: " << configuration_path_;
             return EXIT_FAILURE;
         }
         score::mw::com::runtime::InitializeRuntime(score::mw::com::runtime::RuntimeConfiguration{manifest});
@@ -78,16 +80,19 @@ class VehicleHighBeamApplication {
             Cleanup();
             return EXIT_FAILURE;
         }
+        if (std::getenv("PROCESSIDENTIFIER") != nullptr) {
+            score::mw::lifecycle::report_running();
+        }
 
         std::ifstream terminal_input{"/dev/tty"};
         std::istream& input_stream = terminal_input.is_open() ? static_cast<std::istream&>(terminal_input)
                                                                : std::cin;
-        std::cout << "Vehicle input ready. Enter true or false, then press Enter." << std::endl;
+        score::mw::log::LogWarn() << "Vehicle input ready. Enter true or false, then press Enter.";
         std::string input;
         while (std::getline(input_stream, input)) {
             const auto value = ParseBooleanInput(input);
             if (!value.has_value()) {
-                std::cerr << "Invalid input. Enter true or false." << std::endl;
+                score::mw::log::LogWarn() << "Invalid input. Enter true or false.";
                 continue;
             }
             PublishLocalState(value.value());
@@ -137,12 +142,12 @@ class VehicleHighBeamApplication {
 
     void PublishLocalState(const bool value) {
         if (tx_event_ == nullptr) {
-            std::cerr << "Vehicle Tx service is unavailable" << std::endl;
+            score::mw::log::LogError() << "Vehicle Tx service is unavailable";
             return;
         }
         auto sample_result = tx_event_->Allocate();
         if (!sample_result.has_value()) {
-            std::cerr << "Cannot allocate Vehicle high-beam sample" << std::endl;
+            score::mw::log::LogError() << "Cannot allocate Vehicle high-beam sample";
             return;
         }
         auto sample = std::move(sample_result).value();
@@ -150,11 +155,11 @@ class VehicleHighBeamApplication {
         data->size = kPayloadSize;
         data->data[0] = value ? std::byte{0x01} : std::byte{0x00};
         if (!tx_event_->Send(std::move(sample)).has_value()) {
-            std::cerr << "Cannot publish Vehicle high-beam state" << std::endl;
+            score::mw::log::LogError() << "Cannot publish Vehicle high-beam state";
             return;
         }
-        std::cout << "Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn="
-                  << (value ? "true" : "false") << std::endl;
+        score::mw::log::LogWarn() << "Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn="
+                      << (value ? "true" : "false");
     }
 
     void OnRemoteServiceAvailable(
@@ -177,10 +182,10 @@ class VehicleHighBeamApplication {
         rx_event_ = &event->second;
         if (!rx_event_->SetReceiveHandler([this]() noexcept { OnRemoteState(); }).has_value() ||
             !rx_event_->Subscribe(kMaxSampleCount).has_value()) {
-            std::cerr << "Cannot subscribe to remote high-beam updates" << std::endl;
+            score::mw::log::LogError() << "Cannot subscribe to remote high-beam updates";
             return;
         }
-        std::cout << "Vehicle app subscribed to remote high-beam updates." << std::endl;
+        score::mw::log::LogWarn() << "Vehicle app subscribed to remote high-beam updates.";
     }
 
     void OnRemoteState() noexcept {
@@ -189,15 +194,15 @@ class VehicleHighBeamApplication {
                 const auto* const data = static_cast<const PreSerializedData*>(sample.Get());
                 if (data == nullptr || data->size != kPayloadSize ||
                     (data->data[0] != std::byte{0x00} && data->data[0] != std::byte{0x01})) {
-                    std::cerr << "Invalid remote high-beam payload" << std::endl;
+                    score::mw::log::LogError() << "Invalid remote high-beam payload";
                     return;
                 }
-                std::cout << "Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn="
-                          << (data->data[0] == std::byte{0x01} ? "true" : "false") << std::endl;
+                score::mw::log::LogWarn() << "Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn="
+                                          << (data->data[0] == std::byte{0x01} ? "true" : "false");
             },
             kMaxSampleCount);
         if (!samples.has_value()) {
-            std::cerr << "Cannot retrieve remote high-beam samples" << std::endl;
+            score::mw::log::LogError() << "Cannot retrieve remote high-beam samples";
         }
     }
 
