@@ -17,5 +17,5 @@ if [[ ! -x "${runner}" ]]; then
     exit 1
 fi
 
-export VSOMEIP_CONFIGURATION="${workspace_root}/inc_someip_gateway/tests/integration/vsomeip-gateway-services.json"
+export VSOMEIP_CONFIGURATION="${workspace_root}/inc_someip_gateway/tests/integration/vsomeip-remote-domain.json"
 exec "${runner}"
