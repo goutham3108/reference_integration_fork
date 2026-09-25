@@ -15,6 +15,107 @@ configuration are not demo endpoint artifacts.
 
 The boolean payload is one byte: `0x01` for `true` and `0x00` for `false`.
 
+## Two-RPi Deployment
+
+The current UDP implementation supports this split:
+
+```text
+Vehicle RPi: 172.19.229.101
+	vehicle app, gatewayd, someipd, vehicle_high_beam_bridge
+
+Remote RPi: 172.19.229.79
+	vehicle_high_beam_remote_app
+```
+
+Copy [high_beam_vehicle.env](high_beam_vehicle.env) to the vehicle RPi and
+[high_beam_remote.env](high_beam_remote.env) to the remote RPi, then source the
+appropriate file. The bridge binds UDP port `35000` and sends
+to the remote RPi on port `35001`. The remote app binds port `35001` and sends
+back to the vehicle RPi on port `35000`.
+
+On the vehicle RPi:
+
+```bash
+export HIGH_BEAM_BIND_IP=0.0.0.0
+export HIGH_BEAM_REMOTE_IP=172.19.229.79
+export HIGH_BEAM_BRIDGE_UDP_PORT=35000
+export HIGH_BEAM_REMOTE_UDP_PORT=35001
+```
+
+On the remote RPi:
+
+```bash
+export HIGH_BEAM_BIND_IP=0.0.0.0
+export HIGH_BEAM_BRIDGE_IP=172.19.229.101
+export HIGH_BEAM_BRIDGE_UDP_PORT=35000
+export HIGH_BEAM_REMOTE_UDP_PORT=35001
+```
+
+The vehicle RPi's SOME/IP configuration must advertise its real address, not
+loopback. Create a deployment copy before starting `someipd`:
+
+```bash
+cp tests/integration/vsomeip-gateway-services.json /tmp/vsomeip-rpi-vehicle.json
+sed -i 's/"unicast": "127.0.0.1"/"unicast": "172.19.229.101"/' \
+	/tmp/vsomeip-rpi-vehicle.json
+```
+
+Use that copy for both `someipd` and the bridge:
+
+```bash
+export VSOMEIP_CONFIGURATION=/tmp/vsomeip-rpi-vehicle.json
+export VEHICLE_DOMAIN_CONFIG=/tmp/vsomeip-rpi-vehicle.json
+```
+
+Allow the UDP ports if a firewall is enabled:
+
+```bash
+sudo ufw allow from 172.19.229.79 to any port 35000 proto udp
+sudo ufw allow from 172.19.229.101 to any port 35001 proto udp
+```
+
+After building the binaries, run these processes on the vehicle RPi
+(`172.19.229.101`):
+
+```bash
+# Vehicle RPi: terminal 1
+source ../sdv-hack-demo/high_beam_vehicle.env
+VSOMEIP_CONFIGURATION=/tmp/vsomeip-rpi-vehicle.json \
+bazel run //score/someipd -- \
+	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin"
+```
+
+```bash
+# Vehicle RPi: terminal 2
+bazel run //score/gatewayd -- \
+	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin" \
+	--service_instance_manifest "$PWD/score/gatewayd/etc/mw_com_config.json"
+```
+
+```bash
+# Vehicle RPi: terminal 3
+source ../sdv-hack-demo/high_beam_vehicle.env
+VEHICLE_DOMAIN_CONFIG=/tmp/vsomeip-rpi-vehicle.json \
+bazel run //tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge
+```
+
+```bash
+# Vehicle RPi: terminal 4, from the parent workspace root
+bazel run //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com -- \
+	--configuration "$PWD/inc_someip_gateway/score/gatewayd/etc/mw_com_config.json"
+```
+
+Run only the remote sensor on `172.19.229.79`:
+
+```bash
+# Remote RPi
+source ../sdv-hack-demo/high_beam_remote.env
+bazel run //tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
+```
+
+For this remote command, the remote RPi needs the remote binary and its vSomeIP
+runtime libraries, but it does not need `someipd` or `gatewayd`.
+
 ## Data Flow
 
 The vehicle application accepts `true` or `false` on standard input. The remote
@@ -115,7 +216,6 @@ bazel build \
 In terminal 1:
 
 ```bash
-VSOMEIP_CONFIGURATION="$PWD/tests/integration/vsomeip-gateway-services.json" \
 bazel run //score/someipd -- \
 	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin"
 ```
@@ -137,7 +237,6 @@ Wait for `Gateway started, waiting for shutdown signal...`.
 In terminal 3:
 
 ```bash
-VSOMEIP_CONFIGURATION="$PWD/tests/integration/vsomeip-gateway-services.json" \
 bazel run //tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge
 ```
 
