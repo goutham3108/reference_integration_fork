@@ -29,6 +29,7 @@ ubproject.toml
 /.gita-workspace.csv
 /build
 artifacts
+/sdv-hack-demo/dist/
 
 #Macos
 .DS_Store

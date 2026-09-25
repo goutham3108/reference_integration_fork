@@ -27,23 +27,17 @@ specifier / `high_beam_state`.
 ## Build
 
 ```bash
-bazel build //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
+cd sdv-hack-demo
+bash build-aarch64.sh
 ```
 
-## Local Demonstration
+## Deployment
 
-Build the gateway configuration and binaries in `inc_someip_gateway`, then start
-the processes in this order:
+Use the packaged two-RPi workflow in the parent [SDV High-Beam Demo README](../README.md).
+It builds the gateway components, creates both deployment archives, and starts
+the vehicle and remote applications with the correct library paths and IP
+configuration.
 
-1. `someipd`, with `tests/integration/vsomeip-gateway-services.json` in
-   `VSOMEIP_CONFIGURATION`.
-2. `gatewayd`, with `score/config/mw_someip_config.bin` and
-   `score/gatewayd/etc/mw_com_config.json`.
-3. `vehicle_high_beam_bridge`, which bridges the vehicle and remote SOME/IP domains.
-4. `vehicle_high_beam_remote_app`, which publishes its sensor state every two seconds.
-5. This application, passing the gateway `mw_com_config.json` through
-   `--configuration` when it is not already available at the default path.
-
-The Vehicle app publishes either boolean value; the bridge forwards it to the
-remote sensor. The sensor updates its state and publishes the latest value back
-every two seconds, which the Vehicle app receives through SOME/IP and mw::com.
+The Vehicle app publishes either boolean value. The bridge forwards it to the
+remote sensor over UDP, and the sensor sends its latest value back through the
+bridge, SOME/IP, and mw::com.

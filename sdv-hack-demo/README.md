@@ -1,318 +1,347 @@
-# SDV Hack Demo
+# SDV High-Beam Demo
 
-This folder contains the Vehicle-side artifact for the bidirectional
-`Vehicle.Body.Lights.Beam.High.IsOn` SOME/IP demonstration.
+## Overview
 
-| Artifact | Role |
-| --- | --- |
-| [vehicle_app](vehicle_app) | Vehicle-side `mw::com` publisher and subscriber. |
-| [remote_app](remote_app) | Launcher for the remote vSomeIP sensor runner built from `inc_someip_gateway`. |
-| [architecture.drawio](architecture.drawio) | Editable end-to-end architecture diagram. |
+This project demonstrates a bidirectional vehicle high-beam signal across two
+Edge Devices. It uses Eclipse S-CORE `mw::com` shared memory on the Rpi
+side, a SOME/IP gateway, and a compact UDP transport between the vehicle and
+remote device(now we are using RPi need to change to Ardino).
 
-Shared gateway infrastructure remains in `inc_someip_gateway`: `gatewayd`,
-`someipd`, their shared-memory manifest, gateway IPC implementation, and SOME/IP
-configuration are not demo endpoint artifacts.
+The signal is:
 
-The boolean payload is one byte: `0x01` for `true` and `0x00` for `false`.
+```text
+Vehicle.Body.Lights.Beam.High.IsOn
+```
 
-## Two-RPi Deployment
+The vehicle application accepts `true` or `false`. The remote sensor application
+receives that value, updates its state, and sends its current state back every
+two seconds. Both applications also accept manual `true` or `false` input.
 
-The current UDP implementation supports this split:
+## Architecture
 
 ```text
 Vehicle RPi: 172.19.229.101
-	vehicle app, gatewayd, someipd, vehicle_high_beam_bridge
+  vehicle_high_beam_mw_com
+        -> mw::com SHM(accessed by mw::com proxy of gatewayd)
+  gatewayd
+        -> gateway IPC
+  someipd
+        -> SOME/IP event 0x8430
+  vehicle_high_beam_bridge
+        -> UDP 172.19.229.79:35001
 
 Remote RPi: 172.19.229.79
-	vehicle_high_beam_remote_app
+  vehicle_high_beam_remote_app
+        -> UDP 172.19.229.101:35000
 ```
 
-Copy [high_beam_vehicle.env](high_beam_vehicle.env) to the vehicle RPi and
-[high_beam_remote.env](high_beam_remote.env) to the remote RPi, then source the
-appropriate file. The bridge binds UDP port `35000` and sends
-to the remote RPi on port `35001`. The remote app binds port `35001` and sends
-back to the vehicle RPi on port `35000`.
+### Forward Flow: Vehicle to Remote
 
-On the vehicle RPi:
+```text
+Vehicle app publishes High.IsOn
+  -> mw::com GenericSkeleton and SHM
+  -> gatewayd GenericProxy
+  -> someipd
+  -> SOME/IP service 0x4300, instance 0x1000, event 0x8430
+  -> vehicle_high_beam_bridge
+  -> UDP port 35001 on the Remote RPi
+  -> remote sensor application
+```
+
+### Reverse Flow: Remote to Vehicle
+
+```text
+Remote sensor application
+  -> UDP port 35000 on the Vehicle RPi
+  -> vehicle_high_beam_bridge
+  -> SOME/IP service 0x4300, instance 0x1001, event 0x8431
+  -> someipd
+  -> gatewayd GenericSkeleton
+  -> mw::com SHM
+  -> Vehicle app GenericProxy
+```
+
+### Component Roles
+
+| Component | Role |
+| --- | --- |
+| `vehicle_high_beam_mw_com` | Vehicle-side publisher and subscriber using `mw::com`. |
+| `gatewayd` | Uses `GenericProxy` for the local Tx service and `GenericSkeleton` for the local Rx service. |
+| `someipd` | Owns the local SOME/IP/vSomeIP binding and gateway IPC connection. |
+| `vehicle_high_beam_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
+| `vehicle_high_beam_remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
+
+## Prerequisites
+
+### Build Host
+
+- Linux x86_64 host
+- Bazel/Bazelisk
+- SSH and `scp`
+- ARM64 build support configured in this workspace
+- Raspberry Pi addresses reachable from the build host
+
+The build scripts cross-compile with Bazel's `aarch64-linux` configuration.
+The local `$HOME/aarch64_toolchain` is a build-host toolchain and is not copied
+to the RPIs.
+
+### Raspberry Pis
+
+Both devices must run a 64-bit Linux distribution:
 
 ```bash
-export HIGH_BEAM_BIND_IP=0.0.0.0
+uname -m
+```
+
+Expected output:
+
+```text
+aarch64
+```
+
+Install basic runtime and transfer dependencies on both Pis:
+
+```bash
+sudo apt update
+sudo apt install -y rsync openssh-server ca-certificates libstdc++6 libgcc-s1 libc6 libatomic1
+sudo systemctl enable --now ssh
+```
+
+## Build and Package
+
+Run on the build host from the demo folder (all sources are included under `sdv-hack-demo`):
+
+```bash
+cd sdv-hack-demo
+bash build-aarch64.sh
+bash package-aarch64.sh
+```
+
+If you prefer to run the Bazel commands manually (step-by-step), the demo build does these builds in order:
+
+```bash
+# From the workspace root
+bazel build --config=aarch64-linux //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
+
+# Build the gateway and its integration test targets (run from inc_someip_gateway/ or workspace root)
+cd inc_someip_gateway
+bazel build --config=aarch64-linux \
+  //score/config:config_file \
+  //score/gatewayd \
+  //score/serializer:null_serializer \
+  //score/someipd
+
+# Build the demo-local bridge and remote app from the workspace root.
+# --host_copt=-std=gnu11 is required for Bazel's host pkg-config helper.
+cd ..
+bazel build --config=aarch64-linux --host_copt=-std=gnu11 \
+  //sdv-hack-demo/bridge:vehicle_high_beam_bridge \
+  //sdv-hack-demo/remote_app:vehicle_high_beam_remote_app
+
+# Then run packaging
+cd sdv-hack-demo
+bash package-aarch64.sh
+```
+
+The scripts create these Git-ignored archives:
+
+```text
+dist/high-beam-vehicle-aarch64.tar.gz
+dist/high-beam-remote-aarch64.tar.gz
+```
+
+The archives include the executables, required Bazel runfiles, vSomeIP shared
+libraries, `score_com_serializer.so`, configuration files, and launch scripts.
+
+Important build note:
+
+- The `bash build-aarch64.sh` step performs cross-compilation using Bazel and
+  requires the full workspace (not just the `sdv-hack-demo` folder) plus a
+  configured aarch64 cross-toolchain on the build host. The build host must
+  have the workspace root accessible so Bazel can build `someipd`, `gatewayd`,
+  and other dependencies. By default this workspace expects a local toolchain
+  at `$HOME/aarch64_toolchain` to satisfy cross-compilation.
+
+- After `package-aarch64.sh` completes, the produced archives are self-contained
+  for runtime on the RPis — you only need to extract the appropriate archive
+  on each Pi and run the scripts in `~/high-beam/run/` (no Bazel or toolchain is
+  required on the RPis).
+
+- If you want to avoid requiring the full workspace on the build host, you can
+  either: (A) vendor prebuilt `someipd`/`gatewayd` and required libraries into
+  `sdv-hack-demo/prebuilt/` and adjust the packaging script, or (B) add a
+  standalone WORKSPACE and dependency fetching under `sdv-hack-demo` (larger
+  effort). I can implement option A if you prefer a single-folder build flow.
+
+## Deploy
+
+Transfer the archives from the build host. Enter the SSH password directly when
+prompted.
+
+```bash
+scp dist/high-beam-vehicle-aarch64.tar.gz <user>@172.19.229.101:/tmp/
+scp dist/high-beam-remote-aarch64.tar.gz <user>@172.19.229.79:/tmp/
+```
+
+On the Vehicle RPi:
+
+```bash
+rm -rf ~/high-beam
+mkdir -p ~/high-beam
+tar -xzf /tmp/high-beam-vehicle-aarch64.tar.gz -C ~/high-beam
+```
+
+On the Remote RPi:
+
+```bash
+rm -rf ~/high-beam
+mkdir -p ~/high-beam
+tar -xzf /tmp/high-beam-remote-aarch64.tar.gz -C ~/high-beam
+```
+
+Both archives include `~/high-beam/network.env`. Edit that file on either RPi
+when the devices receive new IP addresses:
+
+```bash
+nano ~/high-beam/network.env
+```
+
+```bash
+export HIGH_BEAM_VEHICLE_IP=172.19.229.101
 export HIGH_BEAM_REMOTE_IP=172.19.229.79
 export HIGH_BEAM_BRIDGE_UDP_PORT=35000
 export HIGH_BEAM_REMOTE_UDP_PORT=35001
 ```
 
-On the remote RPi:
+Verify that required libraries were extracted:
 
 ```bash
-export HIGH_BEAM_BIND_IP=0.0.0.0
-export HIGH_BEAM_BRIDGE_IP=172.19.229.101
-export HIGH_BEAM_BRIDGE_UDP_PORT=35000
-export HIGH_BEAM_REMOTE_UDP_PORT=35001
+find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
 ```
 
-The vehicle RPi's SOME/IP configuration must advertise its real address, not
-loopback. Create a deployment copy before starting `someipd`:
+## Run the Demo
+
+### 1. Start the Remote Sensor
+
+On `172.19.229.79`:
 
 ```bash
-cp tests/integration/vsomeip-gateway-services.json /tmp/vsomeip-rpi-vehicle.json
-sed -i 's/"unicast": "127.0.0.1"/"unicast": "172.19.229.101"/' \
-	/tmp/vsomeip-rpi-vehicle.json
+~/high-beam/run/start-remote.sh
 ```
 
-Use that copy for both `someipd` and the bridge:
+The remote app listens on UDP port `35001` and sends sensor frames to
+`172.19.229.101:35000`.
+
+### 2. Start the Vehicle Stack
+
+On `172.19.229.101`:
 
 ```bash
-export VSOMEIP_CONFIGURATION=/tmp/vsomeip-rpi-vehicle.json
-export VEHICLE_DOMAIN_CONFIG=/tmp/vsomeip-rpi-vehicle.json
+~/high-beam/run/start-vehicle.sh
 ```
 
-Allow the UDP ports if a firewall is enabled:
+This launcher:
 
-```bash
-sudo ufw allow from 172.19.229.79 to any port 35000 proto udp
-sudo ufw allow from 172.19.229.101 to any port 35001 proto udp
-```
+1. Creates a vehicle SOME/IP configuration with unicast address `172.19.229.101`.
+2. Starts `someipd` in the background.
+3. Starts `gatewayd` in the background.
+4. Starts the UDP bridge in the background.
+5. Starts the vehicle application in the foreground.
 
-After building the binaries, run these processes on the vehicle RPi
-(`172.19.229.101`):
-
-```bash
-# Vehicle RPi: terminal 1
-source ../sdv-hack-demo/high_beam_vehicle.env
-VSOMEIP_CONFIGURATION=/tmp/vsomeip-rpi-vehicle.json \
-bazel run //score/someipd -- \
-	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin"
-```
-
-```bash
-# Vehicle RPi: terminal 2
-bazel run //score/gatewayd -- \
-	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin" \
-	--service_instance_manifest "$PWD/score/gatewayd/etc/mw_com_config.json"
-```
-
-```bash
-# Vehicle RPi: terminal 3
-source ../sdv-hack-demo/high_beam_vehicle.env
-VEHICLE_DOMAIN_CONFIG=/tmp/vsomeip-rpi-vehicle.json \
-bazel run //tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge
-```
-
-```bash
-# Vehicle RPi: terminal 4, from the parent workspace root
-bazel run //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com -- \
-	--configuration "$PWD/inc_someip_gateway/score/gatewayd/etc/mw_com_config.json"
-```
-
-Run only the remote sensor on `172.19.229.79`:
-
-```bash
-# Remote RPi
-source ../sdv-hack-demo/high_beam_remote.env
-bazel run //tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
-```
-
-For this remote command, the remote RPi needs the remote binary and its vSomeIP
-runtime libraries, but it does not need `someipd` or `gatewayd`.
-
-## Data Flow
-
-The vehicle application accepts `true` or `false` on standard input. The remote
-sensor starts at `false`, updates its state from vehicle events, and publishes
-its latest state every two seconds. The vehicle-side bridge converts SOME/IP
-events to UDP for the remote app and converts remote UDP events back to
-vehicle-side SOME/IP.
+The vehicle application accepts:
 
 ```text
-Vehicle app publisher
-	-> mw::com SHM -> gatewayd GenericProxy -> someipd
-	-> SOME/IP service 0x4300 / event 0x8430
-	-> vehicle_high_beam_bridge -> UDP 127.0.0.1:35001
-	-> remote sensor app -> decoded SOME/IP event
-
-Remote sensor app
-	-> UDP 127.0.0.1:35000
-	-> vehicle_high_beam_bridge -> SOME/IP service 0x4300 / event 0x8431
-	-> someipd -> gatewayd GenericSkeleton -> mw::com SHM
-	-> Vehicle GenericProxy subscriber
+true
+false
 ```
 
-The existing headlight publisher and consumer remain a separate one-way example.
+The remote sensor terminal also accepts `true` or `false`. Its next two-second
+UDP update is delivered to the vehicle app.
 
-## Build
+## Expected Logs
 
-```bash
-bazel build //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
-```
-
-Build the remote runner once from the gateway workspace, which owns the vSomeIP
-toolchain:
-
-```bash
-cd inc_someip_gateway
-bazel build \
-	//score/config:config_file \
-	//score/someipd \
-	//score/gatewayd \
-	//tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge \
-	//tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
-```
-
-The remote runner uses UDP and does not require a remote vSomeIP configuration
-file. Start it from the demo folder:
-
-```bash
-./sdv-hack-demo/remote_app/run_remote_app.sh
-```
-
-## Run Locally
-
-The demo runs five long-lived processes. Open five terminals and keep each
-process running while starting the next one.
-
-Before running the commands, use these working directories:
-
-- Terminals 1-4: `inc_someip_gateway`
-- Terminal 5: the reference-integration root
-
-For example, from the reference-integration root:
-
-```bash
-cd inc_someip_gateway
-```
-
-Run that once in terminals 1-4. In terminal 5, use the reference-integration
-root directory.
-
-### 1. Stop a Previous Run
-
-Run this from any directory before starting the demo:
-
-```bash
-sudo pkill -9 -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null
-rm -f /tmp/vsomeip*.lck
-ss -lunp | grep -E ':35000|:35001' || true
-```
-
-### 2. Build the Binaries
-
-From the reference-integration root:
-
-```bash
-bazel build //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
-
-cd inc_someip_gateway
-bazel build \
-	//score/config:config_file \
-	//score/someipd \
-	//score/gatewayd \
-	//tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge \
-	//tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
-```
-
-### 3. Start the Vehicle SOME/IP Router
-
-In terminal 1:
-
-```bash
-bazel run //score/someipd -- \
-	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin"
-```
-
-### 4. Start the Gateway
-
-In terminal 2:
-
-```bash
-bazel run //score/gatewayd -- \
-	--configuration "$PWD/bazel-bin/score/config/mw_someip_config.bin" \
-	--service_instance_manifest "$PWD/score/gatewayd/etc/mw_com_config.json"
-```
-
-Wait for `Gateway started, waiting for shutdown signal...`.
-
-### 5. Start the SOME/IP-to-UDP Bridge
-
-In terminal 3:
-
-```bash
-bazel run //tests/integration/vehicle_high_beam_bridge:vehicle_high_beam_bridge
-```
-
-The bridge listens for remote UDP frames on port `35000` and sends vehicle
-events to the remote app on port `35001`. Wait for:
-
-```text
-Bridge vehicle-side leg ready [4300.1000/1001]
-Bridge subscribed to vehicle high-beam updates
-```
-
-### 6. Start the Remote Sensor
-
-In terminal 4:
-
-```bash
-bazel run //tests/integration/vehicle_high_beam_remote_app:vehicle_high_beam_remote_app
-```
-
-The remote sensor receives vehicle events over UDP on port `35001`, converts
-them into decoded SOME/IP event payloads, and publishes its sensor state over
-UDP on port `35000` every two seconds. It starts with `false`.
-
-You can also enter `true` or `false` in the remote sensor terminal. This
-manually changes the sensor state and the next UDP update is sent back to the
-vehicle through the bridge.
-
-The remote sensor persists its latest state with SCORE Persistency. By default
-its KVS files are stored in `/tmp/score_high_beam_sensor`; set
-`HIGH_BEAM_KVS_DIR` before starting the remote app to choose another directory.
-When a process is started by SCORE Lifecycle, set `PROCESSIDENTIFIER` so the
-application reports its running state to the Launch Manager.
-
-### 7. Start the Vehicle Application
-
-In terminal 5, use the reference-integration root:
-
-```bash
-bazel run //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com -- \
-	--configuration "$PWD/inc_someip_gateway/score/gatewayd/etc/mw_com_config.json"
-```
-
-If terminal 5 is currently in `inc_someip_gateway`, run this instead:
-
-```bash
-cd ..
-bazel run //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com -- \
-	--configuration "$PWD/inc_someip_gateway/score/gatewayd/etc/mw_com_config.json"
-```
-
-If port `35000` is already in use, stop the previous bridge and remote app
-before restarting them:
-
-```bash
-sudo pkill -9 -f 'vehicle_high_beam_bridge|vehicle_high_beam_remote_app' 2>/dev/null
-```
-
-Enter `true` or `false` in the Vehicle application terminal. For example,
-entering `true` should produce this flow:
+When `true` is entered in the vehicle application, the following messages show
+the forward path:
 
 ```text
 Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn=true
 Bridge forwarded vehicle-to-remote High.IsOn=true
 Remote app converted UDP to SOME/IP High.IsOn=true
+```
+
+When the remote app sends its state, the reverse path produces:
+
+```text
 Remote sensor converted SOME/IP to UDP High.IsOn=true
 Bridge converted UDP to SOME/IP High.IsOn=true
 Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn=true
 ```
 
-### 8. Stop the Demo
+Vehicle-side background logs are stored in:
 
-Press `Ctrl+C` in each terminal, then clean any remaining processes and vSomeIP
-lock files:
+```text
+~/high-beam/someipd.log
+~/high-beam/gatewayd.log
+~/high-beam/bridge.log
+```
+
+## Inspect and Troubleshoot
+
+Check UDP listeners on either Pi:
 
 ```bash
-sudo pkill -9 -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null
+ss -lunp | grep -E ':35000|:35001' || true
+```
+
+Check connectivity:
+
+```bash
+ping -c 3 172.19.229.101
+ping -c 3 172.19.229.79
+```
+
+If a firewall is active, allow UDP:
+
+```bash
+# Vehicle RPi
+sudo ufw allow from 172.19.229.79 to any port 35000 proto udp
+
+# Remote RPi
+sudo ufw allow from 172.19.229.101 to any port 35001 proto udp
+```
+
+If a runtime library is missing, confirm the archive contains real files rather
+than unresolved symlinks:
+
+```bash
+find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
+find ~/high-beam -name 'score_com_serializer.so' -type f -print
+```
+
+## Stop the Demo
+
+On the Vehicle RPi:
+
+```bash
+sudo pkill -9 -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
-pgrep -af 'someipd|gatewayd|vehicle_high_beam' || echo "All demo processes stopped"
+```
+
+On the Remote RPi:
+
+```bash
+pkill -9 -f vehicle_high_beam_remote_app 2>/dev/null || true
+```
+
+## Project Files
+
+```text
+sdv-hack-demo/
+  build-aarch64.sh              Build all ARM64 demo targets
+  package-aarch64.sh            Produce vehicle and remote archives
+  deploy/start-vehicle.sh       Launch vehicle stack on 172.19.229.101
+  deploy/start-remote.sh        Launch remote sensor on 172.19.229.79
+  deploy/network.env            Editable vehicle/remote address configuration
+  vehicle_app/                  Vehicle `mw::com` application source
+  architecture.drawio           Editable architecture diagram
 ```
