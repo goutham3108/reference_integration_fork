@@ -53,3 +53,4 @@ tar -chzf "${dist_dir}/high-beam-remote-aarch64.tar.gz" -C "${remote_dir}" .
 printf 'Created:\n  %s\n  %s\n' \
     "${dist_dir}/high-beam-vehicle-aarch64.tar.gz" \
     "${dist_dir}/high-beam-remote-aarch64.tar.gz"
+cd 

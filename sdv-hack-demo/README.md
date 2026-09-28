@@ -117,32 +117,6 @@ bash build-aarch64.sh
 bash package-aarch64.sh
 ```
 
-If you prefer to run the Bazel commands manually (step-by-step), the demo build does these builds in order:
-
-```bash
-# From the workspace root
-bazel build --config=aarch64-linux //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
-
-# Build the gateway and its integration test targets (run from inc_someip_gateway/ or workspace root)
-cd inc_someip_gateway
-bazel build --config=aarch64-linux \
-  //score/config:config_file \
-  //score/gatewayd \
-  //score/serializer:null_serializer \
-  //score/someipd
-
-# Build the demo-local bridge and remote app from the workspace root.
-# --host_copt=-std=gnu11 is required for Bazel's host pkg-config helper.
-cd ..
-bazel build --config=aarch64-linux --host_copt=-std=gnu11 \
-  //sdv-hack-demo/bridge:vehicle_high_beam_bridge \
-  //sdv-hack-demo/remote_app:vehicle_high_beam_remote_app
-
-# Then run packaging
-cd sdv-hack-demo
-bash package-aarch64.sh
-```
-
 The scripts create these Git-ignored archives:
 
 ```text
@@ -283,6 +257,51 @@ Vehicle-side background logs are stored in:
 ~/high-beam/someipd.log
 ~/high-beam/gatewayd.log
 ~/high-beam/bridge.log
+```
+
+## Watch Logs Live
+
+Run these on the Vehicle RPi while the demo is running to follow each
+process's output as it happens.
+
+Follow a single log:
+
+```bash
+tail -f ~/high-beam/someipd.log
+tail -f ~/high-beam/gatewayd.log
+tail -f ~/high-beam/bridge.log
+```
+
+Follow all three vehicle-side logs at once, each line prefixed with its source:
+
+```bash
+tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log
+```
+
+Follow only High.IsOn state changes across all logs:
+
+```bash
+tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log | grep --line-buffered 'High.IsOn'
+```
+
+The vehicle application and the remote sensor run in the foreground, so their
+output appears directly in the terminal where you launched
+`~/high-beam/run/start-vehicle.sh` or `~/high-beam/run/start-remote.sh`. To
+capture that output to a file as well while still seeing it live, restart with
+`tee`:
+
+```bash
+~/high-beam/run/start-vehicle.sh 2>&1 | tee ~/high-beam/vehicle_app.log
+```
+
+```bash
+~/high-beam/run/start-remote.sh 2>&1 | tee ~/high-beam/remote_app.log
+```
+
+Check whether the background processes are still running:
+
+```bash
+pgrep -af 'someipd|gatewayd|vehicle_high_beam'
 ```
 
 ## Inspect and Troubleshoot
