@@ -41,3 +41,56 @@ configuration.
 The Vehicle app publishes either boolean value. The bridge forwards it to the
 remote sensor over UDP, and the sensor sends its latest value back through the
 bridge, SOME/IP, and mw::com.
+
+## Local host testing (no RPi required)
+
+You can run the bridge and apps on your PC for fast iteration using localhost
+UDP ports.
+
+1. Create a local copy of the network config and set both IPs to `127.0.0.1`:
+
+```bash
+cp sdv-hack-demo/deploy/network.env sdv-hack-demo/deploy/network.env.local
+# Edit values inside to:
+# HIGH_BEAM_VEHICLE_IP=127.0.0.1
+# HIGH_BEAM_REMOTE_IP=127.0.0.1
+# HIGH_BEAM_BRIDGE_UDP_PORT=35000
+# HIGH_BEAM_REMOTE_UDP_PORT=35001
+nano sdv-hack-demo/deploy/network.env.local
+source sdv-hack-demo/deploy/network.env.local
+```
+
+2. Build host binaries (x86_64):
+
+```bash
+bazel build //sdv-hack-demo/...
+```
+
+3. Run components in separate terminals (or background jobs):
+
+Terminal A — bridge (vehicle-side):
+
+```bash
+bazel run //sdv-hack-demo:vehicle_high_beam_bridge
+```
+
+Terminal B — remote sensor (simulated remote):
+
+```bash
+bazel run //sdv-hack-demo:vehicle_high_beam_remote_app
+```
+
+Terminal C — vehicle app (foreground):
+
+```bash
+bazel run //sdv-hack-demo:vehicle_app
+```
+
+If `bazel run` target names differ, locate the binaries under `bazel-bin/`
+and run them directly.
+
+## TODO (local development)
+- Add `sdv-hack-demo/run-local.sh` to launch bridge + remote + vehicle and
+	capture logs.
+- Provide `remote_app/README.md` with host-run instructions.
+- Add a lightweight host-only integration test asserting message exchange.
