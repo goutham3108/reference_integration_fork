@@ -13,14 +13,23 @@ The signal is:
 Vehicle.Body.Lights.Beam.High.IsOn
 ```
 
-The vehicle application accepts `true` or `false`. The remote sensor application
-receives that value, updates its state, and sends its current state back every
-two seconds. Both applications also accept manual `true` or `false` input.
+The demo also carries the initial vehicle-dynamics signals from the LoLa
+example:
+
+```text
+Vehicle.speed
+Vehicle.speedAck
+```
+
+The vehicle application provides a menu for publishing high-beam booleans or
+speed values. The remote endpoint acknowledges configured non-high-beam
+payloads, so `speed` returns as `speedAck`. New route entries can be added to
+`signal_routes.json` without changing the UDP frame implementation.
 
 ## Architecture
 
 ```text
-Vehicle RPi: 172.19.229.101
+Vehicle RPi: 10.56.121.101
   vehicle_high_beam_mw_com
         -> mw::com SHM(accessed by mw::com proxy of gatewayd)
   gatewayd
@@ -28,11 +37,11 @@ Vehicle RPi: 172.19.229.101
   someipd
         -> SOME/IP event 0x8430
   vehicle_high_beam_bridge
-        -> UDP 172.19.229.79:35001
+      -> UDP 10.56.121.79:35001
 
-Remote RPi: 172.19.229.79
+Remote RPi: 10.56.121.79
   vehicle_high_beam_remote_app
-        -> UDP 172.19.229.101:35000
+        -> UDP 10.56.121.101:35000
 ```
 
 ### Forward Flow: Vehicle to Remote
@@ -147,14 +156,23 @@ Important build note:
   standalone WORKSPACE and dependency fetching under `sdv-hack-demo` (larger
   effort). I can implement option A if you prefer a single-folder build flow.
 
+- `build-aarch64.sh` rebuilds `someipd` and `gatewayd` from
+  [inc_someip_gateway](../inc_someip_gateway) every time, so any change made
+  there (for example to `mw_com_config.json`, `mw_someip_config.json`, or the
+  gateway source) is picked up automatically the next time you run
+  `bash build-aarch64.sh && bash package-aarch64.sh`. Always redeploy both
+  archives after such a change — mixing an old daemon binary with a new
+  `signal_routes.json`/`mw_com_config.json` is a common source of startup
+  failures.
+
 ## Deploy
 
 Transfer the archives from the build host. Enter the SSH password directly when
 prompted.
 
 ```bash
-scp dist/high-beam-vehicle-aarch64.tar.gz <user>@172.19.229.101:/tmp/
-scp dist/high-beam-remote-aarch64.tar.gz <user>@172.19.229.79:/tmp/
+scp dist/high-beam-vehicle-aarch64.tar.gz <user>@10.56.121.101:/tmp/
+scp dist/high-beam-remote-aarch64.tar.gz <user>@10.56.121.79:/tmp/
 ```
 
 On the Vehicle RPi:
@@ -181,8 +199,8 @@ nano ~/high-beam/network.env
 ```
 
 ```bash
-export HIGH_BEAM_VEHICLE_IP=172.19.229.101
-export HIGH_BEAM_REMOTE_IP=172.19.229.79
+export HIGH_BEAM_VEHICLE_IP=10.56.121.101
+export HIGH_BEAM_REMOTE_IP=10.56.121.79
 export HIGH_BEAM_BRIDGE_UDP_PORT=35000
 export HIGH_BEAM_REMOTE_UDP_PORT=35001
 ```
@@ -195,20 +213,32 @@ find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
 
 ## Run the Demo
 
+Both launchers automatically stop stale `someipd`/`gatewayd`/`vehicle_high_beam*`
+processes and remove any leftover `/tmp/vsomeip*.lck` file before starting, and
+they refuse to start if UDP port 35000/35001 is still in use. If you ever start
+the apps manually (not via the launcher), clean up first:
+
+```bash
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+sleep 1
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+rm -f /tmp/vsomeip*.lck
+```
+
 ### 1. Start the Remote Sensor
 
-On `172.19.229.79`:
+On `10.56.121.79`:
 
 ```bash
 ~/high-beam/run/start-remote.sh
 ```
 
 The remote app listens on UDP port `35001` and sends sensor frames to
-`172.19.229.101:35000`.
+`10.56.121.101:35000`.
 
 ### 2. Start the Vehicle Stack
 
-On `172.19.229.101`:
+On `10.56.121.101`:
 
 ```bash
 ~/high-beam/run/start-vehicle.sh
@@ -216,7 +246,7 @@ On `172.19.229.101`:
 
 This launcher:
 
-1. Creates a vehicle SOME/IP configuration with unicast address `172.19.229.101`.
+1. Creates a vehicle SOME/IP configuration with unicast address `10.56.121.101`.
 2. Starts `someipd` in the background.
 3. Starts `gatewayd` in the background.
 4. Starts the UDP bridge in the background.
@@ -229,13 +259,36 @@ true
 false
 ```
 
-The remote sensor terminal also accepts `true` or `false`. Its next two-second
-UDP update is delivered to the vehicle app.
+It also accepts this menu:
+
+```text
+1   Select high-beam and enter true or false
+2   Select speed and enter a numeric value
+q   Quit
+```
+
+The speed payload is the vehicle-dynamics example representation: an 8-byte
+`double` followed by a 1-byte quality value (currently `3`).
+
+The remote sensor also provides a menu:
+
+```text
+1   Select high-beam and enter true or false
+2   Send Vehicle.speedAck to the vehicle (enter a numeric value)
+q   Quit the input menu
+```
+
+The remote endpoint acknowledges incoming `Vehicle.speed` payloads as
+`Vehicle.speedAck`. If you enter `12345` in the remote menu, it sends that
+number on the reverse event; expect `Remote sent Vehicle.speedAck to
+vehicle=12345` remotely and `Vehicle app received Vehicle.speedAck =
+12345.000000` on the vehicle. Its high-beam state continues to send a UDP
+update every two seconds.
 
 ## Expected Logs
 
-When `true` is entered in the vehicle application, the following messages show
-the forward path:
+When `true` is entered in the vehicle application (menu option `1`), the
+following messages show the forward path:
 
 ```text
 Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn=true
@@ -250,6 +303,41 @@ Remote sensor converted SOME/IP to UDP High.IsOn=true
 Bridge converted UDP to SOME/IP High.IsOn=true
 Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn=true
 ```
+
+When a numeric value is entered in the vehicle application (menu option `2`),
+the `Vehicle.speed` round trip produces:
+
+```text
+Vehicle app published Vehicle.speed = 55.000000
+Bridge forwarded vehicle_dynamics vehicle-to-remote value=55
+Remote received Vehicle.speed=55
+Remote acknowledged Vehicle.speedAck=55
+Bridge converted UDP to SOME/IP vehicle_dynamics value=55
+Vehicle app received Vehicle.speedAck = 55.000000
+```
+
+This exact round trip has been confirmed live on hardware; the vehicle app
+receives its own `Vehicle.speedAck` within about a second of publishing.
+
+### Both directions share one acknowledgement channel
+
+`vehicle::VehicleDynamicsService` only defines two events: `speed` (vehicle to
+remote) and `speedAck` (remote to vehicle) — there is no separate "remote's own
+speed" event in this example. This means:
+
+- When the **vehicle** publishes `Vehicle.speed`, the remote decodes it,
+  echoes it straight back, and the vehicle sees its own value arrive as
+  `Vehicle.speedAck`.
+- When you manually enter a value in the **remote** app's menu option `2`, it
+  is sent on that same `speedAck` channel — the vehicle app will show it as
+  `Vehicle app received Vehicle.speedAck=<value>`, not as a new `Vehicle.speed`.
+
+Both directions work and are bidirectional, but they use the same wire event
+in the reverse direction, so a remote-entered value and an echoed
+acknowledgement are indistinguishable to the vehicle app. Adding a genuinely
+independent "remote-originated speed" signal would require a third event in
+`signal_routes.json`/`mw_com_config.json`/`mw_someip_config.json` (for example
+`speedRemote`), which is not part of the current vehicle-dynamics example.
 
 Vehicle-side background logs are stored in:
 
@@ -306,6 +394,36 @@ pgrep -af 'someipd|gatewayd|vehicle_high_beam'
 
 ## Inspect and Troubleshoot
 
+If `someipd` or `gatewayd` crash immediately with:
+
+```text
+Assertion `result && "Instance id exceeds fixed size"' failed.
+```
+
+a service/instance identifier used internally by the gateway exceeded its
+32-character limit. This happens if a service-instance key is derived from a
+long string (for example a full service type name) instead of the short
+numeric instance ID. Rebuild `someipd`/`gatewayd` from
+[inc_someip_gateway](../inc_someip_gateway) after fixing the identifier and
+redeploy — the vehicle and remote apps do not need to change.
+
+If gatewayd logs:
+
+```text
+[gatewayd] Failed to create RemoteServiceInstance for '<instance specifier>'
+```
+
+or someipd logs:
+
+```text
+[someipd] Dropping SOME/IP event: no IPC subscriber connected for event_id=...
+```
+
+repeatedly (not just once at startup), the gateway's IPC binding never
+completed its handshake with someipd for that instance. Stop everything,
+remove `/tmp/vsomeip*.lck`, and restart in the order remote first, then
+vehicle.
+
 Check UDP listeners on either Pi:
 
 ```bash
@@ -315,18 +433,18 @@ ss -lunp | grep -E ':35000|:35001' || true
 Check connectivity:
 
 ```bash
-ping -c 3 172.19.229.101
-ping -c 3 172.19.229.79
+ping -c 3 10.56.121.101
+ping -c 3 10.56.121.79
 ```
 
 If a firewall is active, allow UDP:
 
 ```bash
 # Vehicle RPi
-sudo ufw allow from 172.19.229.79 to any port 35000 proto udp
+sudo ufw allow from 10.56.121.79 to any port 35000 proto udp
 
 # Remote RPi
-sudo ufw allow from 172.19.229.101 to any port 35001 proto udp
+sudo ufw allow from 10.56.121.101 to any port 35001 proto udp
 ```
 
 If a runtime library is missing, confirm the archive contains real files rather
@@ -342,15 +460,24 @@ find ~/high-beam -name 'score_com_serializer.so' -type f -print
 On the Vehicle RPi:
 
 ```bash
-sudo pkill -9 -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+sleep 1
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
 On the Remote RPi:
 
 ```bash
-pkill -9 -f vehicle_high_beam_remote_app 2>/dev/null || true
+pkill -TERM -f vehicle_high_beam_remote_app 2>/dev/null || true
+sleep 1
+pkill -KILL -f vehicle_high_beam_remote_app 2>/dev/null || true
 ```
+
+Always clear the lock file and stop both daemons before extracting a new
+archive over an old one; a stale `/tmp/vsomeip.lck` or leftover `someipd`
+process holding UDP port 35000/35001 is the most common cause of a failed
+restart.
 
 ## Project Files
 
@@ -358,9 +485,10 @@ pkill -9 -f vehicle_high_beam_remote_app 2>/dev/null || true
 sdv-hack-demo/
   build-aarch64.sh              Build all ARM64 demo targets
   package-aarch64.sh            Produce vehicle and remote archives
-  deploy/start-vehicle.sh       Launch vehicle stack on 172.19.229.101
-  deploy/start-remote.sh        Launch remote sensor on 172.19.229.79
+  deploy/start-vehicle.sh       Launch vehicle stack on 10.56.121.101
+  deploy/start-remote.sh        Launch remote sensor on 10.56.121.79
   deploy/network.env            Editable vehicle/remote address configuration
+  signal_routes.json             Configured SOME/IP-to-UDP route mapping
   vehicle_app/                  Vehicle `mw::com` application source
   architecture.drawio           Editable architecture diagram
 ```

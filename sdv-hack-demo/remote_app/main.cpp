@@ -1,12 +1,14 @@
 // This file is a copy of inc_someip_gateway/tests/integration/vehicle_high_beam_remote_app/main.cpp
 // It is packaged here so the demo is self-contained under sdv-hack-demo.
 
+#include <algorithm>
 #include <atomic>
 #include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <netinet/in.h>
@@ -22,6 +24,7 @@
 #include <thread>
 #include <vector>
 
+#include <nlohmann/json.hpp>
 #include <vsomeip/vsomeip.hpp>
 
 #include <kvsbuilder.hpp>
@@ -31,17 +34,19 @@
 
 namespace {
 
-constexpr vsomeip::service_t kService = 0x4300;
-constexpr vsomeip::instance_t kVehicleInstance = 0x1000;
-constexpr vsomeip::instance_t kRemoteInstance = 0x1001;
-constexpr vsomeip::event_t kVehicleEvent = 0x8430;
-constexpr vsomeip::event_t kRemoteEvent = 0x8431;
-constexpr vsomeip::eventgroup_t kVehicleEventgroup = 0x8430;
-constexpr vsomeip::eventgroup_t kRemoteEventgroup = 0x8431;
 constexpr auto kPublishPeriod = std::chrono::seconds{2};
 constexpr char kSensorStateKey[] = "high_beam_state";
 constexpr std::uint16_t kDefaultBridgePort = 35000U;
 constexpr std::uint16_t kDefaultRemotePort = 35001U;
+
+struct Route {
+    std::string name;
+    std::uint16_t service;
+    std::uint16_t vehicle_instance;
+    std::uint16_t remote_instance;
+    std::uint16_t vehicle_event;
+    std::uint16_t remote_event;
+};
 
 std::optional<bool> ParseBooleanInput(const std::string& input) {
     if (input == "true") {
@@ -51,6 +56,27 @@ std::optional<bool> ParseBooleanInput(const std::string& input) {
         return false;
     }
     return std::nullopt;
+}
+
+std::optional<double> ParseSpeedInput(const std::string& input) {
+    try {
+        std::size_t parsed = 0U;
+        const double value = std::stod(input, &parsed);
+        if (parsed != input.size()) {
+            return std::nullopt;
+        }
+        return value;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
+}
+
+void PrintRemoteMenu() {
+    std::cout << "\nRemote menu\n"
+              << "1  High-beam (true/false)\n"
+              << "2  Vehicle.speed (number)\n"
+              << "q  Quit input\n"
+              << "Select: " << std::flush;
 }
 
 std::uint16_t ResolvePort(const char* name, const std::uint16_t fallback) {
@@ -65,6 +91,31 @@ std::string ResolveAddress(const char* name, const char* fallback) {
 
 bool SetAddress(sockaddr_in& address, const std::string& value) {
     return inet_pton(AF_INET, value.c_str(), &address.sin_addr) == 1;
+}
+
+std::optional<std::vector<Route>> LoadRoutes() {
+    const char* const configured = std::getenv("SIGNAL_ROUTE_CONFIG");
+    const std::string path = configured == nullptr || configured[0] == '\0' ? "signal_routes.json" : configured;
+    std::ifstream input{path};
+    if (!input.is_open()) {
+        score::mw::log::LogError() << "Cannot open signal route configuration";
+        return std::nullopt;
+    }
+    try {
+        const auto document = nlohmann::json::parse(input);
+        std::vector<Route> routes;
+        for (const auto& item : document.at("routes")) {
+            routes.push_back(Route{item.at("name").get<std::string>(), item.at("service").get<std::uint16_t>(),
+                                   item.at("vehicleInstance").get<std::uint16_t>(),
+                                   item.at("remoteInstance").get<std::uint16_t>(),
+                                   item.at("vehicleEvent").get<std::uint16_t>(),
+                                   item.at("remoteEvent").get<std::uint16_t>()});
+        }
+        return routes;
+    } catch (const std::exception& error) {
+        score::mw::log::LogError() << "Invalid signal route configuration: " << error.what();
+        return std::nullopt;
+    }
 }
 
 int CreateUdpSocket(const std::uint16_t port, const std::string& bind_ip) {
@@ -89,6 +140,17 @@ int CreateUdpSocket(const std::uint16_t port, const std::string& bind_ip) {
 }  // namespace
 
 int main() {
+    const auto routes = LoadRoutes();
+    if (!routes.has_value() || routes->empty()) {
+        return 1;
+    }
+    const auto high_beam = std::find_if(routes->begin(), routes->end(), [](const Route& route) {
+        return route.name == "high_beam";
+    });
+    if (high_beam == routes->end()) {
+        score::mw::log::LogError() << "Route configuration has no high_beam route";
+        return 1;
+    }
     const char* const configured_kvs_dir = std::getenv("HIGH_BEAM_KVS_DIR");
     const std::string kvs_dir = configured_kvs_dir != nullptr && configured_kvs_dir[0] != '\0'
                                     ? configured_kvs_dir
@@ -130,42 +192,122 @@ int main() {
         score::mw::lifecycle::report_running();
     }
 
-    std::thread input_thread([&sensor_state, &sensor_store]() {
+    std::thread input_thread([&sensor_state, &sensor_store, &routes, &bridge_address, udp_socket]() {
         std::ifstream terminal_input{"/dev/tty"};
         std::istream& input_stream = terminal_input.is_open() ? static_cast<std::istream&>(terminal_input)
                                                                : std::cin;
-        score::mw::log::LogWarn() << "Remote sensor input ready. Enter true or false to change its state.";
+        PrintRemoteMenu();
         std::string input;
         while (std::getline(input_stream, input)) {
-            const auto value = ParseBooleanInput(input);
-            if (!value.has_value()) {
-                score::mw::log::LogWarn() << "Invalid remote sensor input. Enter true or false.";
+            if (input == "q") {
+                break;
+            }
+            if (input == "1") {
+                std::cout << "High-beam value (true/false): " << std::flush;
+                if (!std::getline(input_stream, input)) {
+                    break;
+                }
+                const auto value = ParseBooleanInput(input);
+                if (!value.has_value()) {
+                    score::mw::log::LogWarn() << "Invalid high-beam input. Enter true or false.";
+                    continue;
+                }
+                sensor_state.store(value.value());
+                (void)sensor_store->set_value(kSensorStateKey, score::mw::per::kvs::KvsValue{value.value()});
+                (void)sensor_store->flush();
+                score::mw::log::LogWarn() << "Remote input set High.IsOn="
+                                          << (value.value() ? "true" : "false");
+                PrintRemoteMenu();
                 continue;
             }
-            sensor_state.store(value.value());
-            (void)sensor_store->set_value(kSensorStateKey, score::mw::per::kvs::KvsValue{value.value()});
-            (void)sensor_store->flush();
-            score::mw::log::LogWarn() << "Remote sensor input set High.IsOn="
-                                      << (value.value() ? "true" : "false");
+            if (input == "2") {
+                const auto dynamics = std::find_if(routes->begin(), routes->end(), [](const Route& route) {
+                    return route.name == "vehicle_dynamics";
+                });
+                if (dynamics == routes->end()) {
+                    score::mw::log::LogError() << "Route configuration has no vehicle_dynamics route";
+                    continue;
+                }
+                std::cout << "Vehicle.speed value: " << std::flush;
+                if (!std::getline(input_stream, input)) {
+                    break;
+                }
+                const auto speed = ParseSpeedInput(input);
+                if (!speed.has_value()) {
+                    score::mw::log::LogWarn() << "Invalid speed input. Enter a number.";
+                    continue;
+                }
+                high_beam_udp::Frame frame{dynamics->service, dynamics->remote_instance,
+                                           dynamics->remote_event, 9U, {}};
+                std::memcpy(frame.payload.data(), &speed.value(), sizeof(double));
+                frame.payload[sizeof(double)] = 3U;
+                const auto encoded = high_beam_udp::Encode(frame);
+                (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
+                             reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
+                score::mw::log::LogWarn() << "Remote published Vehicle.speedAck=" << speed.value();
+                PrintRemoteMenu();
+                continue;
+            }
+            score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, or q.";
         }
     });
     input_thread.detach();
 
-    std::thread receive_thread([udp_socket, &sensor_state, &sensor_store]() {
+    std::thread receive_thread([udp_socket, &sensor_state, &sensor_store, &routes, &bridge_address]() {
         std::array<std::uint8_t, high_beam_udp::kFrameSize> bytes{};
         while (true) {
-            const auto received = recvfrom(udp_socket, bytes.data(), bytes.size(), 0, nullptr, nullptr);
+            sockaddr_in sender{};
+            socklen_t sender_size = sizeof(sender);
+            const auto received = recvfrom(udp_socket, bytes.data(), bytes.size(), 0,
+                                           reinterpret_cast<sockaddr*>(&sender), &sender_size);
             if (received <= 0) {
                 continue;
             }
             const auto frame = high_beam_udp::Decode(bytes.data(), static_cast<std::size_t>(received));
-            if (!frame.has_value() || frame->service != kService || frame->instance != kVehicleInstance ||
-                frame->event != kVehicleEvent) {
+            const auto route = frame.has_value()
+                                   ? std::find_if(routes->begin(), routes->end(), [&frame](const Route& candidate) {
+                                         return frame->service == candidate.service &&
+                                                frame->instance == candidate.vehicle_instance &&
+                                                frame->event == candidate.vehicle_event;
+                                     })
+                                   : routes->end();
+            if (!frame.has_value() || route == routes->end()) {
                 score::mw::log::LogError() << "Remote app received invalid UDP SOME/IP frame";
                 continue;
             }
+            char sender_ip[INET_ADDRSTRLEN]{};
+            const char* const sender_address =
+                inet_ntop(AF_INET, &sender.sin_addr, sender_ip, sizeof(sender_ip));
+            if (route->name != "high_beam") {
+                if (frame->payload_size == sizeof(double) + 1U) {
+                    double received_value = 0.0;
+                    std::memcpy(&received_value, frame->payload.data(), sizeof(double));
+                    score::mw::log::LogWarn() << "Remote received Vehicle.speed=" << received_value
+                                              << " from "
+                                              << (sender_address == nullptr ? "<unknown>" : sender_address)
+                                              << ":" << ntohs(sender.sin_port);
+                } else {
+                    score::mw::log::LogWarn() << "Remote received " << route->name
+                                              << " payload_size=" << frame->payload_size;
+                }
+                high_beam_udp::Frame acknowledgement{route->service, route->remote_instance,
+                                                      route->remote_event, frame->payload_size, frame->payload};
+                const auto encoded = high_beam_udp::Encode(acknowledgement);
+                (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
+                             reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
+                if (frame->payload_size == sizeof(double) + 1U) {
+                    double acked_value = 0.0;
+                    std::memcpy(&acked_value, frame->payload.data(), sizeof(double));
+                    score::mw::log::LogWarn() << "Remote acknowledged Vehicle.speedAck=" << acked_value;
+                } else {
+                    score::mw::log::LogWarn() << "Remote acknowledged " << route->name
+                                              << " payload_size=" << frame->payload_size;
+                }
+                continue;
+            }
             auto payload = vsomeip::runtime::get()->create_payload();
-            payload->set_data(std::vector<vsomeip::byte_t>{frame->value});
+            payload->set_data(std::vector<vsomeip::byte_t>(frame->payload.begin(),
+                                                           frame->payload.begin() + frame->payload_size));
             const bool value = payload->get_data()[0] == 1U;
             sensor_state.store(value);
             (void)sensor_store->set_value(kSensorStateKey, score::mw::per::kvs::KvsValue{value});
@@ -177,12 +319,12 @@ int main() {
 
     while (true) {
         const bool value = sensor_state.load();
-        const auto frame = high_beam_udp::Encode({kService, kRemoteInstance, kRemoteEvent,
-                                                  static_cast<std::uint8_t>(value)});
+        high_beam_udp::Frame outbound{high_beam->service, high_beam->remote_instance,
+                          high_beam->remote_event, 1U,
+                          {static_cast<std::uint8_t>(value)}};
+        const auto frame = high_beam_udp::Encode(outbound);
         (void)sendto(udp_socket, frame.data(), frame.size(), 0,
                      reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-        score::mw::log::LogWarn() << "Remote sensor converted SOME/IP to UDP High.IsOn="
-                                  << (value ? "true" : "false");
         std::this_thread::sleep_for(kPublishPeriod);
     }
     receive_thread.join();

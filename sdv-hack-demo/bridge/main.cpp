@@ -1,10 +1,12 @@
 // Copy of inc_someip_gateway/tests/integration/vehicle_high_beam_bridge/main.cpp
 // Packaged here so the demo can be built and packaged entirely from sdv-hack-demo.
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -14,7 +16,9 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <vector>
 
+#include <nlohmann/json.hpp>
 #include <vsomeip/vsomeip.hpp>
 
 #include "high_beam_udp_protocol.h"
@@ -23,15 +27,17 @@
 
 namespace {
 
-constexpr vsomeip::service_t kService = 0x4300;
-constexpr vsomeip::instance_t kVehicleInstance = 0x1000;
-constexpr vsomeip::instance_t kRemoteInstance = 0x1001;
-constexpr vsomeip::event_t kVehicleEvent = 0x8430;
-constexpr vsomeip::event_t kRemoteEvent = 0x8431;
-constexpr vsomeip::eventgroup_t kVehicleEventgroup = 0x8430;
-constexpr vsomeip::eventgroup_t kRemoteEventgroup = 0x8431;
 constexpr std::uint16_t kDefaultBridgePort = 35000U;
 constexpr std::uint16_t kDefaultRemotePort = 35001U;
+
+struct Route {
+    std::string name;
+    vsomeip::service_t service;
+    vsomeip::instance_t vehicle_instance;
+    vsomeip::instance_t remote_instance;
+    vsomeip::event_t vehicle_event;
+    vsomeip::event_t remote_event;
+};
 
 bool IsBooleanPayload(const std::shared_ptr<vsomeip::message>& message) {
     const auto payload = message->get_payload();
@@ -66,6 +72,38 @@ bool SetAddress(sockaddr_in& address, const std::string& value) {
     return inet_pton(AF_INET, value.c_str(), &address.sin_addr) == 1;
 }
 
+std::string ResolveRouteConfigPath() {
+    const char* const configured = std::getenv("SIGNAL_ROUTE_CONFIG");
+    if (configured != nullptr && configured[0] != '\0') {
+        return configured;
+    }
+    return "signal_routes.json";
+}
+
+std::optional<std::vector<Route>> LoadRoutes() {
+    std::ifstream input{ResolveRouteConfigPath()};
+    if (!input.is_open()) {
+        score::mw::log::LogError() << "Cannot open signal route configuration";
+        return std::nullopt;
+    }
+    try {
+        const auto document = nlohmann::json::parse(input);
+        std::vector<Route> routes;
+        for (const auto& item : document.at("routes")) {
+            routes.push_back(Route{item.at("name").get<std::string>(),
+                                   item.at("service").get<vsomeip::service_t>(),
+                                   item.at("vehicleInstance").get<vsomeip::instance_t>(),
+                                   item.at("remoteInstance").get<vsomeip::instance_t>(),
+                                   item.at("vehicleEvent").get<vsomeip::event_t>(),
+                                   item.at("remoteEvent").get<vsomeip::event_t>()});
+        }
+        return routes;
+    } catch (const std::exception& error) {
+        score::mw::log::LogError() << "Invalid signal route configuration: " << error.what();
+        return std::nullopt;
+    }
+}
+
 int CreateUdpSocket(const std::uint16_t port, const std::string& bind_ip) {
     const int socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
     if (socket_fd < 0) {
@@ -88,6 +126,10 @@ int CreateUdpSocket(const std::uint16_t port, const std::string& bind_ip) {
 }  // namespace
 
 int main() {
+    const auto routes = LoadRoutes();
+    if (!routes.has_value() || routes->empty()) {
+        return 1;
+    }
     const std::string vehicle_domain_config =
         ResolveConfigPath("VEHICLE_DOMAIN_CONFIG", "tests/integration/vsomeip-gateway-services.json");
     if (!std::filesystem::exists(vehicle_domain_config)) {
@@ -119,77 +161,100 @@ int main() {
     }
     remote_address.sin_port = htons(remote_port);
 
-    vehicle_side->register_state_handler([&vehicle_side](const vsomeip::state_type_e state) {
+    vehicle_side->register_state_handler([&vehicle_side, &routes](const vsomeip::state_type_e state) {
         if (state != vsomeip::state_type_e::ST_REGISTERED) {
             return;
         }
-        vehicle_side->request_service(kService, kVehicleInstance);
-
-        const std::set<vsomeip::eventgroup_t> remote_groups{kRemoteEventgroup};
-        vehicle_side->offer_event(kService, kRemoteInstance, kRemoteEvent, remote_groups,
-                                  vsomeip::event_type_e::ET_EVENT, std::chrono::milliseconds::zero(), false, true);
-        vehicle_side->offer_service(kService, kRemoteInstance);
-        score::mw::log::LogWarn() << "Bridge vehicle-side leg ready [4300.1000/1001]";
+        for (const auto& route : *routes) {
+            vehicle_side->request_service(route.service, route.vehicle_instance);
+            const std::set<vsomeip::eventgroup_t> remote_groups{route.remote_event};
+            vehicle_side->offer_event(route.service, route.remote_instance, route.remote_event, remote_groups,
+                                      vsomeip::event_type_e::ET_EVENT, std::chrono::milliseconds::zero(), false, true);
+            vehicle_side->offer_service(route.service, route.remote_instance);
+            score::mw::log::LogWarn() << "Bridge route ready: " << route.name;
+        }
     });
 
-    vehicle_side->register_availability_handler(
-        kService, kVehicleInstance,
-        [&vehicle_side](const vsomeip::service_t, const vsomeip::instance_t, const bool available) {
+    for (const auto& route : *routes) {
+        vehicle_side->register_availability_handler(
+        route.service, route.vehicle_instance,
+        [&vehicle_side, route](const vsomeip::service_t, const vsomeip::instance_t, const bool available) {
             if (!available) {
                 return;
             }
-            const std::set<vsomeip::eventgroup_t> vehicle_groups{kVehicleEventgroup};
-            vehicle_side->request_event(kService, kVehicleInstance, kVehicleEvent, vehicle_groups,
+            const std::set<vsomeip::eventgroup_t> vehicle_groups{route.vehicle_event};
+            vehicle_side->request_event(route.service, route.vehicle_instance, route.vehicle_event, vehicle_groups,
                                         vsomeip::event_type_e::ET_EVENT);
-            vehicle_side->subscribe(kService, kVehicleInstance, kVehicleEventgroup);
-            score::mw::log::LogWarn() << "Bridge subscribed to vehicle high-beam updates";
+            vehicle_side->subscribe(route.service, route.vehicle_instance, route.vehicle_event);
+            score::mw::log::LogWarn() << "Bridge subscribed to " << route.name;
         });
 
-    vehicle_side->register_availability_handler(
-        kService, kRemoteInstance,
-        [](const vsomeip::service_t, const vsomeip::instance_t, const bool available) {
-            score::mw::log::LogWarn() << "Bridge vehicle-side reverse service available="
-                                      << (available ? "true" : "false");
-        });
-
-    vehicle_side->register_message_handler(
-        kService, kVehicleInstance, kVehicleEvent,
-        [&remote_address, udp_socket](const std::shared_ptr<vsomeip::message>& message) {
+        vehicle_side->register_message_handler(
+        route.service, route.vehicle_instance, route.vehicle_event,
+        [&remote_address, udp_socket, route](const std::shared_ptr<vsomeip::message>& message) {
             if (!IsBooleanPayload(message)) {
-                score::mw::log::LogError() << "Bridge received invalid vehicle-origin payload";
-                return;
+                const auto payload = message->get_payload();
+                if (payload->get_length() > high_beam_udp::kMaxPayloadSize) {
+                    score::mw::log::LogError() << "Bridge received oversized payload for " << route.name;
+                    return;
+                }
             }
-            const bool value = message->get_payload()->get_data()[0] == 0x01U;
-            const auto frame = high_beam_udp::Encode({kService, kVehicleInstance, kVehicleEvent,
-                                                      static_cast<std::uint8_t>(value)});
+            const auto payload = message->get_payload();
+            high_beam_udp::Frame outbound{route.service, route.vehicle_instance, route.vehicle_event,
+                                          static_cast<std::uint8_t>(payload->get_length()), {}};
+            std::copy(payload->get_data(), payload->get_data() + payload->get_length(), outbound.payload.begin());
+            const auto frame = high_beam_udp::Encode(outbound);
             (void)sendto(udp_socket, frame.data(), frame.size(), 0,
                          reinterpret_cast<const sockaddr*>(&remote_address), sizeof(remote_address));
-            score::mw::log::LogWarn() << "[bridge] Vehicle->Remote: event=0x8430 value="
-                                      << (value ? "true" : "false");
-            score::mw::log::LogWarn()
-                << "Bridge forwarded vehicle-to-remote High.IsOn="
-                << (message->get_payload()->get_data()[0] == 0x01U ? "true" : "false");
+            auto&& trace = score::mw::log::LogWarn();
+            trace << "Bridge forwarded " << route.name
+                  << " vehicle-to-remote payload_size=" << payload->get_length();
+            if (payload->get_length() == sizeof(double) + 1U) {
+                double value = 0.0;
+                std::memcpy(&value, payload->get_data(), sizeof(value));
+                trace << " value=" << value;
+            }
         });
+            }
 
-    std::thread udp_thread([&vehicle_side, udp_socket]() {
+    std::thread udp_thread([&vehicle_side, udp_socket, &routes]() {
         std::array<std::uint8_t, high_beam_udp::kFrameSize> bytes{};
         while (true) {
-            const auto received = recvfrom(udp_socket, bytes.data(), bytes.size(), 0, nullptr, nullptr);
+            sockaddr_in sender{};
+            socklen_t sender_size = sizeof(sender);
+            const auto received = recvfrom(udp_socket, bytes.data(), bytes.size(), 0,
+                                           reinterpret_cast<sockaddr*>(&sender), &sender_size);
             if (received <= 0) {
                 continue;
             }
-            score::mw::log::LogWarn() << "Bridge received UDP frame, size=" << received;
+            char sender_ip[INET_ADDRSTRLEN]{};
+            const char* const sender_address =
+                inet_ntop(AF_INET, &sender.sin_addr, sender_ip, sizeof(sender_ip));
+            score::mw::log::LogWarn() << "Bridge received UDP frame from "
+                                      << (sender_address == nullptr ? "<unknown>" : sender_address)
+                                      << ":" << ntohs(sender.sin_port) << ", size=" << received;
             const auto frame = high_beam_udp::Decode(bytes.data(), static_cast<std::size_t>(received));
-            if (!frame.has_value() || frame->service != kService || frame->instance != kRemoteInstance ||
-                frame->event != kRemoteEvent) {
+            const auto route = std::find_if(routes->begin(), routes->end(), [&frame](const Route& candidate) {
+                return frame->service == candidate.service && frame->instance == candidate.remote_instance &&
+                       frame->event == candidate.remote_event;
+            });
+            if (!frame.has_value() || route == routes->end()) {
                 score::mw::log::LogError() << "Bridge received invalid UDP SOME/IP frame";
                 continue;
             }
             auto payload = vsomeip::runtime::get()->create_payload();
-            payload->set_data(std::vector<vsomeip::byte_t>{frame->value});
-            vehicle_side->notify(kService, kRemoteInstance, kRemoteEvent, payload);
-            score::mw::log::LogWarn() << "Bridge converted UDP to SOME/IP High.IsOn="
-                                      << (frame->value == 1U ? "true" : "false");
+            payload->set_data(std::vector<vsomeip::byte_t>(frame->payload.begin(),
+                                                           frame->payload.begin() + frame->payload_size));
+            vehicle_side->notify(route->service, route->remote_instance, route->remote_event, payload);
+            if (frame->payload_size == sizeof(double) + 1U) {
+                double value = 0.0;
+                std::memcpy(&value, frame->payload.data(), sizeof(double));
+                score::mw::log::LogWarn() << "Bridge converted UDP to SOME/IP " << route->name
+                                          << " value=" << value;
+            } else {
+                score::mw::log::LogWarn() << "Bridge converted UDP to SOME/IP " << route->name
+                                          << " payload_size=" << frame->payload_size;
+            }
         }
     });
     if (std::getenv("PROCESSIDENTIFIER") != nullptr) {

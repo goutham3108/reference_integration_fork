@@ -4,7 +4,17 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${root}/network.env"
 
+# Refuse to start if another vehicle stack is already running; running two
+# stacks at once causes each Vehicle.speed publish to be duplicated and
+# delivered with a second, stale process's state (seen as spurious 0 values).
+exec 9>"${root}/vehicle.lock"
+if ! flock -n 9; then
+    echo "Another vehicle stack is already running (lock held on ${root}/vehicle.lock). Stop it before starting a new one." >&2
+    exit 1
+fi
+
 export HIGH_BEAM_BIND_IP=0.0.0.0
+export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
 
 cp "${root}/vsomeip-gateway-services.json" "${root}/vsomeip-vehicle.json"
 sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${HIGH_BEAM_VEHICLE_IP}\"/" \
@@ -14,18 +24,78 @@ vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -print
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-pkill -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
-rm -f /tmp/vsomeip*.lck
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+for attempt in $(seq 1 20); do
+    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam' >/dev/null; then
+        break
+    fi
+    sleep 0.25
+done
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
+
+# mw::com (LoLa) shared-memory ring buffers and the gateway's counterpart SHM
+# files persist across process restarts. Without clearing them, a freshly
+# started subscriber immediately replays every stale sample left over from
+# earlier runs (seen as a burst of old/garbled values on (re)subscription).
+rm -f /dev/shm/lola-*-0000000000017152-* /dev/shm/lola-*-0000000000006433-* \
+      /dev/shm/*vehicle_high_beam* /dev/shm/*VehicleDynamicsService* 2>/dev/null || true
+
+if ss -Hlun | grep -Eq ':35000([[:space:]]|$)'; then
+    echo "UDP port 35000 is still in use; stop the owning process and retry." >&2
+    exit 1
+fi
 
 VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
-    "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >"${root}/someipd.log" 2>&1 &
+    setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >"${root}/someipd.log" 2>&1 < /dev/null &
+disown
 
-"${root}/gatewayd" \
+setsid nohup "${root}/gatewayd" \
     --configuration "${root}/mw_someip_config.bin" \
-    --service_instance_manifest "${root}/mw_com_config.json" >"${root}/gatewayd.log" 2>&1 &
+    --service_instance_manifest "${root}/mw_com_config.json" >"${root}/gatewayd.log" 2>&1 < /dev/null &
+disown
+
+# gatewayd's connection to someipd's "someipd_gatewayd_ipc" IPC socket has been
+# observed (especially under constrained/virtualized CPU scheduling) to connect
+# once, then get closed by someipd (StopReason::kClosedByPeer) and never
+# reconnect; a fresh gatewayd alone cannot recover, but restarting BOTH someipd
+# and gatewayd together does. Detect the stuck case (repeated retry log lines,
+# no ESTABLISHED abstract socket) and self-heal before proceeding.
+for ipc_attempt in $(seq 1 5); do
+    sleep 3
+    if grep -q "@someipd_gatewayd_ipc" /proc/net/unix 2>/dev/null && \
+       awk '$0 ~ /@someipd_gatewayd_ipc/ { print $6 }' /proc/net/unix | grep -q '^03$'; then
+        break
+    fi
+    echo "gatewayd/someipd IPC not yet connected (attempt ${ipc_attempt}/5); restarting both." >&2
+    # someipd rewrites its cmdline to plain "someipd", so match names, not paths.
+    pkill -KILL -x someipd 2>/dev/null || true
+    pkill -KILL -f 'gatewayd' 2>/dev/null || true
+    for wait_attempt in $(seq 1 20); do
+        if ! pgrep -x someipd >/dev/null && ! pgrep -f 'gatewayd' >/dev/null; then
+            break
+        fi
+        sleep 0.25
+    done
+    rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
+    VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
+        setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >>"${root}/someipd.log" 2>&1 < /dev/null &
+    disown
+    sleep 2
+    setsid nohup "${root}/gatewayd" \
+        --configuration "${root}/mw_someip_config.bin" \
+        --service_instance_manifest "${root}/mw_com_config.json" >>"${root}/gatewayd.log" 2>&1 < /dev/null &
+    disown
+done
 
 VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
 VEHICLE_DOMAIN_CONFIG="${root}/vsomeip-vehicle.json" \
-    "${root}/vehicle_high_beam_bridge" >"${root}/bridge.log" 2>&1 &
+    setsid nohup "${root}/vehicle_high_beam_bridge" >"${root}/bridge.log" 2>&1 < /dev/null &
+disown
+
+# Give gatewayd time to complete its someipd handshake and create the
+# remote-instance shared memory before the vehicle app starts subscribing to
+# it; the app itself also retries proxy creation as a second safeguard.
+sleep 10
 
 exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"

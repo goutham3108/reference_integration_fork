@@ -63,7 +63,7 @@ source sdv-hack-demo/deploy/network.env.local
 2. Build host binaries (x86_64):
 
 ```bash
-bazel build //sdv-hack-demo/...
+bazel build --host_copt=-std=gnu11 //sdv-hack-demo/...
 ```
 
 3. Run components in separate terminals (or background jobs):
@@ -88,6 +88,18 @@ bazel run //sdv-hack-demo:vehicle_app
 
 If `bazel run` target names differ, locate the binaries under `bazel-bin/`
 and run them directly.
+
+When the vehicle application is running, select a signal from its menu:
+
+```text
+1   High-beam; enter true or false
+2   Speed; enter a numeric value
+q   Quit
+```
+
+Speed uses the vehicle-dynamics example payload: an 8-byte `double` followed by
+the 1-byte quality value `3`. The remote endpoint returns the same payload as
+`Vehicle.speedAck`.
 
 ## TODO (local development)
 - Add `sdv-hack-demo/run-local.sh` to launch bridge + remote + vehicle and

@@ -33,3 +33,9 @@ artifacts
 
 #Macos
 .DS_Store
+
+# VM provisioning generated images
+sdv-hack-demo/vm-provisioning/images/*.qcow2
+sdv-hack-demo/vm-provisioning/images/*.img
+sdv-hack-demo/vm-provisioning/*.iso
+sdv-hack-demo/vm-provisioning/nohup.out

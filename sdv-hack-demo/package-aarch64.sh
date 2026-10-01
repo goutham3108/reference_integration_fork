@@ -44,6 +44,8 @@ cp -a "${repo_root}/sdv-hack-demo/deploy/start-vehicle.sh" "${vehicle_dir}/run/"
 cp -a "${repo_root}/sdv-hack-demo/deploy/start-remote.sh" "${remote_dir}/run/"
 cp -a "${repo_root}/sdv-hack-demo/deploy/network.env" "${vehicle_dir}/"
 cp -a "${repo_root}/sdv-hack-demo/deploy/network.env" "${remote_dir}/"
+cp -a "${repo_root}/sdv-hack-demo/signal_routes.json" "${vehicle_dir}/"
+cp -a "${repo_root}/sdv-hack-demo/signal_routes.json" "${remote_dir}/"
 chmod +x "${vehicle_dir}/run/start-vehicle.sh" "${remote_dir}/run/start-remote.sh"
 
 mkdir -p "${dist_dir}"
