@@ -1,0 +1,456 @@
+/********************************************************************************
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation
+ *
+ * See the NOTICE file(s) distributed with this work for additional
+ * information regarding copyright ownership.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Apache License Version 2.0 which is available at
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ ********************************************************************************/
+
+{% import "macros" as macros -%}
+
+use crate::error::MwComProviderError;
+use crate::quality::SignalQuality;
+use crate::score_bindings::{ScoreBinding, ScoreRuntimeAdapter};
+use crate::transport::{MwComMessage, MwComValue};
+use async_trait::async_trait;
+use score_com::{
+    Builder, FindServiceSpecifier, InstanceSpecifier, Interface, LolaRuntimeBuilderImpl,
+    LolaRuntimeImpl, OfferedProducer, Producer, Publisher, Runtime, RuntimeBuilder,
+    SampleContainer, ServiceDiscovery, Subscriber, Subscription,
+};
+use std::path::{Path, PathBuf};
+use std::time::SystemTime;
+
+type LolaRuntime = LolaRuntimeImpl;
+
+{% macro namespace_path(ns, path="") -%}
+{{ path ~ "::" ~ ns.name if path else ns.name }}
+{%- endmacro %}
+
+{% macro rust_type_for_event(ns, event) -%}
+{%- if macros.is_builtin_json_type(event.datatype) == "true" -%}
+{{ macros.to_rust_type(event.datatype) }}
+{%- else -%}
+crate::mw_com_provider_types::{{ namespace_path(ns) }}::{{ macros.to_rust_type(event.datatype) }}
+{%- endif -%}
+{%- endmacro %}
+
+{% macro interface_path(ns, intf) -%}
+crate::mw_com_provider_interfaces::{{ namespace_path(ns) }}::{{ intf.name }}Interface
+{%- endmacro %}
+
+{% macro rust_field_type(ns, event) -%}
+{%- set struct = (ns.structs | default([]) | selectattr("name", "equalto", event.datatype) | list | first) -%}
+{%- set field_name = event.provider.field | default("value") -%}
+{%- if struct -%}
+{%- set member = (struct.members | default([]) | selectattr("name", "equalto", field_name) | list | first) -%}
+{%- if member -%}{{ macros.to_rust_type(member.datatype) }}{%- else -%}unknown{%- endif -%}
+{%- else -%}{{ macros.to_rust_type(event.datatype) }}{%- endif -%}
+{%- endmacro %}
+
+{% macro struct_has_field(ns, event, field_name) -%}
+{%- set struct = (ns.structs | default([]) | selectattr("name", "equalto", event.datatype) | list | first) -%}
+{%- if struct and (struct.members | default([]) | selectattr("name", "equalto", field_name) | list | length) > 0 -%}true{%- else -%}false{%- endif -%}
+{%- endmacro %}
+
+{% macro mw_value_expr(rust_type, expr) -%}
+{%- if rust_type == "bool" -%}
+MwComValue::Bool({{ expr }})
+{%- elif rust_type == "f32" -%}
+MwComValue::F64({{ expr }} as f64)
+{%- elif rust_type == "f64" -%}
+MwComValue::F64({{ expr }})
+{%- elif rust_type in ["i8", "i16", "i32", "i64"] -%}
+MwComValue::I64({{ expr }} as i64)
+{%- elif rust_type in ["u8", "u16", "u32", "u64"] -%}
+MwComValue::U64({{ expr }} as u64)
+{%- else -%}
+compile_error!("unsupported generated LoLa receive field type")
+{%- endif -%}
+{%- endmacro %}
+
+{% macro extract_value_expr(rust_type, expr, binding) -%}
+{%- if rust_type == "bool" -%}
+bool_value({{ expr }}, {{ binding }})
+{%- elif rust_type in ["f32", "f64"] -%}
+numeric_value({{ expr }}, {{ binding }}).map(|value| value as {{ rust_type }})
+{%- elif rust_type in ["i8", "i16", "i32", "i64"] -%}
+numeric_value({{ expr }}, {{ binding }}).map(|value| value as {{ rust_type }})
+{%- elif rust_type in ["u8", "u16", "u32", "u64"] -%}
+numeric_value({{ expr }}, {{ binding }}).map(|value| value as {{ rust_type }})
+{%- else -%}
+Err(MwComProviderError::Transport(format!("{}:{} uses unsupported generated LoLa actuation field type", {{ binding }}.service_name, {{ binding }}.member_name)))
+{%- endif -%}
+{%- endmacro %}
+
+{% macro subscription_alias(ns, intf, event) -%}
+type {{ intf.name }}{{ event.name | replace("_", " ") | title | replace(" ", "") }}Subscription = <<LolaRuntime as Runtime>::Subscriber<{{ rust_type_for_event(ns, event) }}> as Subscriber<
+    {{ rust_type_for_event(ns, event) }},
+    LolaRuntime,
+>>::Subscription;
+{%- endmacro %}
+
+{% macro producer_alias(ns, intf) -%}
+type {{ intf.name }}InterfaceAlias = {{ interface_path(ns, intf) }};
+type {{ intf.name }}Producer = <{{ intf.name }}InterfaceAlias as Interface>::Producer<LolaRuntime>;
+type {{ intf.name }}OfferedProducer = <{{ intf.name }}Producer as Producer<LolaRuntime>>::OfferedProducer;
+{%- endmacro %}
+
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{{ producer_alias(ns, intf) }}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" -%}
+{{ subscription_alias(ns, intf, event) }}
+{% endfor -%}
+{% endfor -%}
+{% endfor %}
+
+pub struct LolaScoreRuntimeAdapter {
+    config_path: PathBuf,
+    runtime: Option<LolaRuntime>,
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+    {{ intf.name | lower }}_{{ event.name }}_subscription: Option<{{ intf.name }}{{ event.name | replace("_", " ") | title | replace(" ", "") }}Subscription>,
+{% endfor -%}
+{% endfor -%}
+{% endfor -%}
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+    {{ intf.name | lower }}_offered_producer: Option<{{ intf.name }}OfferedProducer>,
+    {{ intf.name | lower }}_producer_instance_specifier: Option<String>,
+{% endfor -%}
+{% endfor -%}
+}
+
+// SAFETY: The adapter does not expose references to the native LoLa handles it owns, and provider
+// access to the transport is serialized through mutable operations on the surrounding lock.
+unsafe impl Sync for LolaScoreRuntimeAdapter {}
+
+impl LolaScoreRuntimeAdapter {
+    pub fn new(config_path: impl Into<PathBuf>) -> Self {
+        let config_path = config_path.into();
+        Self {
+            config_path,
+            runtime: None,
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+            {{ intf.name | lower }}_{{ event.name }}_subscription: None,
+{% endfor -%}
+{% endfor -%}
+{% endfor -%}
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+            {{ intf.name | lower }}_offered_producer: None,
+            {{ intf.name | lower }}_producer_instance_specifier: None,
+{% endfor -%}
+{% endfor -%}
+        }
+    }
+
+    pub fn from_score_config_env() -> Result<Self, MwComProviderError> {
+        let config_path = std::env::var_os("SCORE_CONFIG_PATH").ok_or_else(|| {
+            MwComProviderError::Config("SCORE_CONFIG_PATH must point to the LoLa config".into())
+        })?;
+        Ok(Self::new(PathBuf::from(config_path)))
+    }
+
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
+    fn runtime(&self) -> Result<&LolaRuntime, MwComProviderError> {
+        self.runtime.as_ref().ok_or_else(|| {
+            MwComProviderError::Transport("SCORE LoLa runtime is not connected".into())
+        })
+    }
+
+    fn validate_binding(binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+        match binding.service_name {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+            "{{ intf.name }}" => Ok(()),
+{% endfor -%}
+{% endfor %}
+            other => Err(MwComProviderError::Transport(format!(
+                "LolaScoreRuntimeAdapter is not generated for SCORE service {other}"
+            ))),
+        }
+    }
+
+    fn instance_specifier(
+        binding: ScoreBinding<'_>,
+    ) -> Result<InstanceSpecifier, MwComProviderError> {
+        InstanceSpecifier::new(binding.instance_specifier).map_err(|error| {
+            MwComProviderError::Transport(format!(
+                "invalid SCORE instance specifier {}: {error:?}",
+                binding.instance_specifier
+            ))
+        })
+    }
+
+    fn score_error(context: &str, error: impl std::fmt::Debug) -> MwComProviderError {
+        MwComProviderError::Transport(format!("{context}: {error:?}"))
+    }
+
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+    fn ensure_{{ intf.name | lower }}_offered_producer(
+        &mut self,
+        binding: ScoreBinding<'_>,
+    ) -> Result<&{{ intf.name }}OfferedProducer, MwComProviderError> {
+        if binding.service_name != "{{ intf.name }}" {
+            return Err(MwComProviderError::Transport(format!(
+                "{{ intf.name }} producer cannot publish {}",
+                binding.service_name
+            )));
+        }
+
+        if self.{{ intf.name | lower }}_offered_producer.is_none() {
+            let specifier = Self::instance_specifier(binding)?;
+            let producer = self
+                .runtime()?
+                .producer_builder::<{{ intf.name }}InterfaceAlias>(specifier)
+                .build()
+                .map_err(|error| Self::score_error("SCORE producer build failed", error))?;
+            let offered = producer
+                .offer()
+                .map_err(|error| Self::score_error("SCORE producer offer failed", error))?;
+            self.{{ intf.name | lower }}_offered_producer = Some(offered);
+            self.{{ intf.name | lower }}_producer_instance_specifier = Some(binding.instance_specifier.to_string());
+        }
+
+        if self.{{ intf.name | lower }}_producer_instance_specifier.as_deref() != Some(binding.instance_specifier) {
+            return Err(MwComProviderError::Transport(format!(
+                "SCORE producer is already offered for {}, cannot publish {}",
+                self.{{ intf.name | lower }}_producer_instance_specifier
+                    .as_deref()
+                    .unwrap_or("<unknown>"),
+                binding.instance_specifier
+            )));
+        }
+
+        self.{{ intf.name | lower }}_offered_producer
+            .as_ref()
+            .ok_or_else(|| MwComProviderError::Transport("SCORE producer was not offered".into()))
+    }
+
+{% endfor -%}
+{% endfor -%}
+}
+
+#[async_trait]
+impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
+    async fn connect(&mut self) -> Result<(), MwComProviderError> {
+        let mut builder = LolaRuntimeBuilderImpl::new();
+        builder.load_config(&self.config_path);
+        let runtime = builder
+            .build()
+            .map_err(|error| Self::score_error("SCORE LoLa runtime build failed", error))?;
+        self.runtime = Some(runtime);
+        Ok(())
+    }
+
+    async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+    if let Some(subscription) = self.{{ intf.name | lower }}_{{ event.name }}_subscription.take() {
+            let _ = subscription.unsubscribe();
+        }
+{% endfor -%}
+{% endfor -%}
+{% endfor -%}
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+        if let Some(producer) = self.{{ intf.name | lower }}_offered_producer.take() {
+            producer
+                .unoffer()
+                .map_err(|error| Self::score_error("SCORE producer unoffer failed", error))?;
+        }
+        self.{{ intf.name | lower }}_producer_instance_specifier = None;
+{% endfor -%}
+{% endfor -%}
+        self.runtime = None;
+        Ok(())
+    }
+
+    async fn find_service(&self, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
+        Self::validate_binding(binding)?;
+        match binding.service_name {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) %}
+            "{{ intf.name }}" => {
+                let discovery = self.runtime()?.find_service::<{{ intf.name }}InterfaceAlias>(
+                    FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                );
+                let instances = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?;
+                Ok(instances.into_iter().next().is_some())
+            }
+{% endfor -%}
+{% endfor %}
+            other => Err(MwComProviderError::Transport(format!(
+                "LolaScoreRuntimeAdapter is not generated for SCORE service {other}"
+            ))),
+        }
+    }
+
+    async fn subscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+        Self::validate_binding(binding)?;
+        match (binding.service_name, binding.member_name) {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+            ("{{ intf.name }}", "{{ event.name }}") => {
+                if self.{{ intf.name | lower }}_{{ event.name }}_subscription.is_some() {
+                    return Ok(());
+                }
+                let discovery = self.runtime()?.find_service::<{{ intf.name }}InterfaceAlias>(
+                    FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                );
+                let consumer_builder = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        MwComProviderError::Transport(format!(
+                            "SCORE service {} at {} is not available",
+                            binding.service_name, binding.instance_specifier
+                        ))
+                    })?;
+                let consumer = consumer_builder
+                    .build()
+                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
+                self.{{ intf.name | lower }}_{{ event.name }}_subscription = Some(
+                    consumer
+                        .{{ event.name }}
+                        .subscribe(3)
+                        .map_err(|error| Self::score_error("SCORE {{ event.name }} subscribe failed", error))?,
+                );
+                Ok(())
+            }
+{% endfor -%}
+{% endfor -%}
+{% endfor %}
+            _ => Ok(()),
+        }
+    }
+
+    async fn unsubscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+        Self::validate_binding(binding)?;
+        match (binding.service_name, binding.member_name) {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+            ("{{ intf.name }}", "{{ event.name }}") => {
+                if let Some(subscription) = self.{{ intf.name | lower }}_{{ event.name }}_subscription.take() {
+                    let _ = subscription.unsubscribe();
+                }
+                Ok(())
+            }
+{% endfor -%}
+{% endfor -%}
+{% endfor %}
+            _ => Ok(()),
+        }
+    }
+
+    async fn recv(&mut self) -> Result<Option<MwComMessage>, MwComProviderError> {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
+    if let Some(subscription) = self.{{ intf.name | lower }}_{{ event.name }}_subscription.as_ref() {
+            let mut samples = SampleContainer::new(3);
+            let count = subscription
+                .try_receive(&mut samples, 1)
+                .map_err(|error| Self::score_error("SCORE {{ event.name }} receive failed", error))?;
+            if count > 0 {
+                let sample = samples.pop_front().ok_or_else(|| {
+                    MwComProviderError::Transport("SCORE {{ event.name }} receive returned no sample".into())
+                })?;
+                return Ok(Some(MwComMessage {
+                    service: "{{ event.provider.service | default(intf.name) }}".into(),
+                    instance: "{{ event.provider.instance | default(namespace_path(ns)) }}".into(),
+                    member: "{{ event.name }}".into(),
+                    value: {{ mw_value_expr(rust_field_type(ns, event), "sample." ~ (event.provider.field | default("value"))) }},
+                    source_timestamp: Some(SystemTime::now()),
+                    quality: {% if struct_has_field(ns, event, "quality") == "true" %}score_quality(sample.quality)?{% else %}SignalQuality::Valid{% endif %},
+                }));
+            }
+        }
+{% endfor -%}
+{% endfor -%}
+{% endfor %}
+        Ok(None)
+    }
+
+    async fn send_actuation(
+        &mut self,
+        binding: ScoreBinding<'_>,
+        message: MwComMessage,
+    ) -> Result<(), MwComProviderError> {
+        match (binding.service_name, binding.member_name) {
+{% for ns in json.namespaces | default([]) -%}
+{% for intf in ns.interfaces | default([]) -%}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "datapoint" %}
+            ("{{ intf.name }}", "{{ event.name }}") => {
+                let value = {{ extract_value_expr(rust_field_type(ns, event), "&message.value", "binding") }}?;
+                let producer = self.ensure_{{ intf.name | lower }}_offered_producer(binding)?;
+                producer
+                    .{{ event.name }}
+                    .send({{ rust_type_for_event(ns, event) }} { {{ event.provider.field | default("value") }}: value })
+                    .map_err(|error| Self::score_error("SCORE {{ event.name }} publish failed", error))
+            }
+{% endfor -%}
+{% endfor -%}
+{% endfor %}
+            (_, other) => Err(MwComProviderError::Transport(format!(
+                "SCORE actuation is not generated for {}:{}",
+                binding.service_name, other
+            ))),
+        }
+    }
+}
+
+fn score_quality(value: u8) -> Result<SignalQuality, MwComProviderError> {
+    match value {
+        0 => Ok(SignalQuality::Invalid),
+        1 => Ok(SignalQuality::Stale),
+        2 => Ok(SignalQuality::Degraded),
+        3 => Ok(SignalQuality::Valid),
+        other => Err(MwComProviderError::Transport(format!(
+            "unsupported SCORE quality value {other}"
+        ))),
+    }
+}
+
+fn numeric_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<f64, MwComProviderError> {
+    match value {
+        MwComValue::F64(value) => Ok(*value),
+        MwComValue::I64(value) => Ok(*value as f64),
+        MwComValue::U64(value) => Ok(*value as f64),
+        other => Err(MwComProviderError::Transport(format!(
+            "{}:{} requires numeric actuation, got {other:?}",
+            binding.service_name, binding.member_name
+        ))),
+    }
+}
+
+fn bool_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
+    match value {
+        MwComValue::Bool(value) => Ok(*value),
+        other => Err(MwComProviderError::Transport(format!(
+            "{}:{} requires bool actuation, got {other:?}",
+            binding.service_name, binding.member_name
+        ))),
+    }
+}

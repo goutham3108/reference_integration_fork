@@ -1,0 +1,288 @@
+{
+  "namespaces": [
+    {
+      "name": "vehicle",
+      "structs": [
+        {
+          "name": "SpeedSample",
+          "members": [
+            {
+              "name": "value",
+              "datatype": "float",
+              "sample_size": 4,
+              "sample_alignment": 4
+            },
+            {
+              "name": "quality",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1
+            }
+          ]
+        },
+        {
+          "name": "DoorState",
+          "members": [
+            {
+              "name": "is_locked",
+              "datatype": "boolean",
+              "sample_size": 1,
+              "sample_alignment": 1
+            },
+            {
+              "name": "is_open",
+              "datatype": "boolean",
+              "sample_size": 1,
+              "sample_alignment": 1
+            },
+            {
+              "name": "window_position",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1
+            }
+          ]
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "VehicleTelemetryService",
+          "events": [
+            {
+              "name": "vehicle_speed",
+              "datatype": "SpeedSample",
+              "sample_size": 8,
+              "sample_alignment": 4,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "VehicleTelemetryService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1001,
+                  "path": "Vehicle.Speed",
+                  "datatype": "float",
+                  "unit": "km/h",
+                  "scale": 1.0,
+                  "offset": 0.0,
+                  "min": 0.0,
+                  "max": 300.0,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 100
+                }
+              }
+            },
+            {
+              "name": "door_count",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "VehicleTelemetryService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1002,
+                  "path": "Vehicle.Cabin.DoorCount",
+                  "datatype": "uint8",
+                  "min": 0,
+                  "max": 8,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 1000
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "PowertrainService",
+          "events": [
+            {
+              "name": "fuel_level",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "PowertrainService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1101,
+                  "path": "Vehicle.Powertrain.FuelSystem.Level",
+                  "datatype": "uint8",
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 500
+                }
+              }
+            },
+            {
+              "name": "clutch_wear",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "PowertrainService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1102,
+                  "path": "Vehicle.Powertrain.Transmission.ClutchWear",
+                  "datatype": "uint8",
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 1000
+                }
+              }
+            },
+            {
+              "name": "current_gear",
+              "datatype": "int8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "PowertrainService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1103,
+                  "path": "Vehicle.Powertrain.Transmission.CurrentGear",
+                  "datatype": "int8",
+                  "min": -1,
+                  "max": 9,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 100
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "CabinAccessService",
+          "events": [
+            {
+              "name": "row1_left_door_state",
+              "datatype": "DoorState",
+              "sample_size": 3,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "CabinAccessService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1201,
+                  "path": "Vehicle.Cabin.Door.Row1.Left.IsLocked",
+                  "datatype": "boolean",
+                  "required_quality": "valid",
+                  "direction": "bidirectional",
+                  "cycle_time_ms": 250
+                }
+              }
+            },
+            {
+              "name": "row1_driver_door_open",
+              "datatype": "boolean",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "CabinAccessService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1202,
+                  "path": "Vehicle.Cabin.Door.Row1.DriverSide.IsOpen",
+                  "datatype": "boolean",
+                  "required_quality": "valid",
+                  "direction": "bidirectional",
+                  "cycle_time_ms": 250
+                }
+              }
+            },
+            {
+              "name": "row1_left_window_position",
+              "datatype": "uint8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "CabinAccessService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1203,
+                  "path": "Vehicle.Cabin.Door.Row1.Left.Window.Position",
+                  "datatype": "uint8",
+                  "unit": "percent",
+                  "min": 0,
+                  "max": 100,
+                  "required_quality": "valid",
+                  "direction": "bidirectional",
+                  "cycle_time_ms": 250
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "BodyControlService",
+          "events": [
+            {
+              "name": "driver_mirror_tilt",
+              "datatype": "int8",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "BodyControlService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1301,
+                  "path": "Vehicle.Body.Mirrors.DriverSide.Tilt",
+                  "datatype": "int8",
+                  "unit": "percent",
+                  "min": -100,
+                  "max": 100,
+                  "required_quality": "valid",
+                  "direction": "actuator",
+                  "cycle_time_ms": 100
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "CameraInfoService",
+          "events": [
+            {
+              "name": "camera_uri",
+              "datatype": "string",
+              "sample_size": 256,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "CameraInfoService",
+                "instance": "standard_vehicle",
+                "vss": {
+                  "signal_id": 1401,
+                  "path": "Vehicle.Cabin.Camera.URI",
+                  "datatype": "string",
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 1000
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "namespaces": []
+    }
+  ]
+}

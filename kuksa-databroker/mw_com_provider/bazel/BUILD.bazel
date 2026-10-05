@@ -1,0 +1,14 @@
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+	"cargo_provider.sh",
+	"mw_com_provider.bzl",
+])
+
+filegroup(
+	name = "bazel_macros",
+	srcs = [
+		"cargo_provider.sh",
+		"mw_com_provider.bzl",
+	],
+)

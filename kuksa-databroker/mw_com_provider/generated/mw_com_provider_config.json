@@ -1,0 +1,61 @@
+{
+  "provider_name": "mw_com_provider",
+  "queue_capacity": 256,
+  "stale_after_ms": 1000,
+  "mappings": [
+    {
+      "signal_id": 42,
+      "vss_path": "Vehicle.Speed",
+      "datatype": "double",
+      "service": "VehicleDynamicsService",
+      "instance": "front_vehicle",
+      "member": "speed",
+      "field": "value",
+      "unit": "km/h",
+      "scale": 3.6,
+      "offset": 0.0,
+      "min": 0.0,
+      "max": 300.0,
+      "required_quality": "valid",
+      "direction": "datapoint",
+      "cycle_time_ms": 100
+    }
+,
+    {
+      "signal_id": 43,
+      "vss_path": "Vehicle.ADAS.CruiseControl.TargetSpeed",
+      "datatype": "double",
+      "service": "VehicleDynamicsService",
+      "instance": "front_vehicle",
+      "member": "target_speed",
+      "field": "value",
+      "unit": "km/h",
+      "scale": 1.0,
+      "offset": 0.0,
+      "min": 0.0,
+      "max": 180.0,
+      "required_quality": "valid",
+      "direction": "bidirectional",
+      "cycle_time_ms": 100
+    }
+,
+    {
+      "signal_id": 44,
+      "vss_path": "Vehicle.ADAS.CruiseControl.IsEnabled",
+      "datatype": "bool",
+      "service": "VehicleDynamicsService",
+      "instance": "front_vehicle",
+      "member": "cruise_control_enabled",
+      "field": "value",
+      "unit": null,
+      "scale": 1.0,
+      "offset": 0.0,
+      "min": null,
+      "max": null,
+      "required_quality": "valid",
+      "direction": "actuator",
+      "cycle_time_ms": 250
+    }
+
+  ]
+}

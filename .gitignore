@@ -34,8 +34,18 @@ artifacts
 #Macos
 .DS_Store
 
-# VM provisioning generated images
-sdv-hack-demo/vm-provisioning/images/*.qcow2
-sdv-hack-demo/vm-provisioning/images/*.img
-sdv-hack-demo/vm-provisioning/*.iso
-sdv-hack-demo/vm-provisioning/nohup.out
+# VM provisioning stays local
+vm-provisioning/
+
+# Generated build output
+dist/
+node_modules/
+*.pyc
+*.pyo
+/communication/New folder_generatedFilesAfterBuild/
+*.o
+*.obj
+*.so
+*.a
+*.gcda
+*.gcno

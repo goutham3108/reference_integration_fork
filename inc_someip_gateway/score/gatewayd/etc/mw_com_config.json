@@ -1,0 +1,168 @@
+{
+  "serviceTypes": [
+    {
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 17152,
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "eventId": 2115
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 17152,
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "eventId": 2116
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 6433,
+          "events": [
+            {
+              "eventName": "speed",
+              "eventId": 1
+            },
+            {
+              "eventName": "speedAck",
+              "eventId": 2
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "serviceInstances": [
+    {
+      "instanceSpecifier": "vehicle_high_beam/local_tx",
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 4096,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "vehicle_high_beam/network_rx",
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 4097,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/Vehicle/Service1/Instance",
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 1,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "speed",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "speedAck",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/Vehicle/Service2/Instance",
+      "serviceTypeName": "vehicle::VehicleDynamicsService",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 2,
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "speed",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "speedAck",
+              "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "global": {
+    "asil-level": "B"
+  }
+}
