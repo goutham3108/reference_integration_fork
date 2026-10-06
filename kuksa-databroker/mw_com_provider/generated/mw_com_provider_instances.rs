@@ -13,7 +13,7 @@
 
 pub mod vehicle {
     pub const VEHICLE_VEHICLEDYNAMICSSERVICE_SPEED_INSTANCE_SPECIFIER: &str =
-        "/Vehicle/Service1/Instance";
+        "/Vehicle/Service2/Instance";
     pub const VEHICLE_VEHICLEDYNAMICSSERVICE_TARGET_SPEED_INSTANCE_SPECIFIER: &str =
         "/Vehicle/Service1/Instance";
     pub const VEHICLE_VEHICLEDYNAMICSSERVICE_CRUISE_CONTROL_ENABLED_INSTANCE_SPECIFIER: &str =

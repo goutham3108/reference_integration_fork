@@ -87,8 +87,19 @@ fn link_from_bazel_params(bazel_bin: &Path) {
         }
     }
 
-    for library in libraries {
-        println!("cargo:rustc-link-lib=static={library}");
+    if !libraries.is_empty() {
+        println!("cargo:rustc-link-arg=-Wl,--start-group");
+        println!("cargo:rustc-link-arg=-Wl,--whole-archive");
+        for archive in alwayslink_archives {
+            println!("cargo:rerun-if-changed={}", archive.display());
+            println!("cargo:rustc-link-arg={}", archive.display());
+        }
+        println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
+        for library in libraries {
+            println!("cargo:rustc-link-arg=-Wl,-l{library}");
+        }
+        println!("cargo:rustc-link-arg=-Wl,--end-group");
+        println!("cargo:rustc-link-arg=-Wl,-lgcc");
     }
 }
 

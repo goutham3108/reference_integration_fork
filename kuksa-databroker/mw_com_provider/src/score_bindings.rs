@@ -308,13 +308,13 @@ mod tests {
             find_score_binding("VehicleDynamicsService", "front_vehicle", "speed").unwrap();
         let by_score = find_score_binding(
             "VehicleDynamicsService",
-            "/Vehicle/Service1/Instance",
+            "/Vehicle/Service2/Instance",
             "speed",
         )
         .unwrap();
 
         assert_eq!(by_provider, by_score);
-        assert_eq!(by_provider.instance_specifier, "/Vehicle/Service1/Instance");
+        assert_eq!(by_provider.instance_specifier, "/Vehicle/Service2/Instance");
     }
 
     #[test]

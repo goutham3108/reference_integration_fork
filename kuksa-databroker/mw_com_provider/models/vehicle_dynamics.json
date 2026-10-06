@@ -73,7 +73,7 @@
               "provider": {
                 "service": "VehicleDynamicsService",
                 "instance": "front_vehicle",
-                "instance_specifier": "/Vehicle/Service1/Instance",
+                "instance_specifier": "/Vehicle/Service2/Instance",
                 "field": "value",
                 "vss": {
                   "signal_id": 42,

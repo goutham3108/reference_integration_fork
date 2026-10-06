@@ -89,7 +89,7 @@ pub const GENERATED_GENERIC_MW_COM_ELEMENTS: &[GenericMwComElement] = &[
     GenericMwComElement {
         service_name: "VehicleDynamicsService",
         instance_name: "front_vehicle",
-        instance_specifier: "/Vehicle/Service1/Instance",
+        instance_specifier: "/Vehicle/Service2/Instance",
         member_name: "speed",
         element_kind: "event",
         payload_type: "SpeedSample",
