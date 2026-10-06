@@ -1,41 +1,43 @@
-# SDV High-Beam Demo
+# SDV Databroker Speed Demo
 
 ## Overview
 
-This project demonstrates a bidirectional vehicle high-beam signal across two
-Edge Devices. It uses Eclipse S-CORE `mw::com` shared memory on the Rpi
-side, a SOME/IP gateway, and a compact UDP transport between the vehicle and
-remote device(now we are using RPi need to change to Ardino).
+This deployment runs KUKSA Databroker in place of the vehicle app for the
+remote speed signal. It uses Eclipse S-CORE `mw::com` shared memory, a SOME/IP
+gateway, and a compact UDP transport between the vehicle and remote Raspberry
+Pis. The high-beam route remains in the demo assets but is not consumed in this
+speed-only mode.
 
-The signal is:
-
-```text
-Vehicle.Body.Lights.Beam.High.IsOn
-```
-
-The demo also carries the initial vehicle-dynamics signals from the LoLa
-example:
+The broker exposes this VSS path:
 
 ```text
-Vehicle.speed
-Vehicle.speedAck
+Vehicle.Speed
 ```
 
-The vehicle application provides a menu for publishing high-beam booleans or
-speed values. The remote endpoint acknowledges configured non-high-beam
-payloads, so `speed` returns as `speedAck`. New route entries can be added to
-`signal_routes.json` without changing the UDP frame implementation.
+The remote app labels its input event `speedAck`. The gateway remaps that input
+to the installed broker's existing `VehicleDynamicsService.speed` binding on
+Service1; the broker source and binary remain unchanged:
+
+```text
+VehicleDynamicsService.speedAck
+```
+
+When a numeric speed is entered on the remote, it sends `speedAck`. The bridge
+uses SOME/IP event ID 1, and the gateway publishes it as the existing typed
+`speed` sample on Service1. KUKSA maps that sample to `Vehicle.Speed`. New
+route entries can be added to `signal_routes.json` without changing the UDP
+frame implementation.
 
 ## Architecture
 
 ```text
 Vehicle RPi: 10.56.121.101
-  vehicle_high_beam_mw_com
-        -> mw::com SHM(accessed by mw::com proxy of gatewayd)
+  KUKSA Databroker
+        <- mw::com SHM (`VehicleDynamicsService.speed` on Service1)
   gatewayd
         -> gateway IPC
   someipd
-        -> SOME/IP event 0x8430
+    -> SOME/IP service 0x1921, instance 0x0002, event 0x0001
   vehicle_high_beam_bridge
       -> UDP 10.56.121.79:35001
 
@@ -44,40 +46,26 @@ Remote RPi: 10.56.121.79
         -> UDP 10.56.121.101:35000
 ```
 
-### Forward Flow: Vehicle to Remote
+### Remote Speed Flow
 
 ```text
-Vehicle app publishes High.IsOn
-  -> mw::com GenericSkeleton and SHM
-  -> gatewayd GenericProxy
-  -> someipd
-  -> SOME/IP service 0x4300, instance 0x1000, event 0x8430
+Remote user enters speed
+  -> remote app sends `speedAck` over UDP
   -> vehicle_high_beam_bridge
-  -> UDP port 35001 on the Remote RPi
-  -> remote sensor application
-```
-
-### Reverse Flow: Remote to Vehicle
-
-```text
-Remote sensor application
-  -> UDP port 35000 on the Vehicle RPi
-  -> vehicle_high_beam_bridge
-  -> SOME/IP service 0x4300, instance 0x1001, event 0x8431
-  -> someipd
-  -> gatewayd GenericSkeleton
-  -> mw::com SHM
-  -> Vehicle app GenericProxy
+  -> SOME/IP service 0x1921, instance 0x0002, event 0x0001
+  -> someipd and gatewayd
+  -> typed mw::com sample in shared memory
+  -> KUKSA Databroker exposes `Vehicle.Speed`
 ```
 
 ### Component Roles
 
 | Component | Role |
 | --- | --- |
-| `vehicle_high_beam_mw_com` | Vehicle-side publisher and subscriber using `mw::com`. |
-| `gatewayd` | Uses `GenericProxy` for the local Tx service and `GenericSkeleton` for the local Rx service. |
+| `databroker-mw-com-demo` | Uses the existing Service1 `speed` binding and exposes `Vehicle.Speed`. |
+| `gatewayd` | Maps the remote `speedAck` input to a typed Service1 `speed` sample. |
 | `someipd` | Owns the local SOME/IP/vSomeIP binding and gateway IPC connection. |
-| `vehicle_high_beam_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
+| `vehicle_high_beam_bridge` | Converts SOME/IP events to UDP and remote UDP frames to SOME/IP events. |
 | `vehicle_high_beam_remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
 
 ## Prerequisites
@@ -112,19 +100,39 @@ Install basic runtime and transfer dependencies on both Pis:
 
 ```bash
 sudo apt update
-sudo apt install -y rsync openssh-server ca-certificates libstdc++6 libgcc-s1 libc6 libatomic1
+sudo apt install -y rsync openssh-server ca-certificates libstdc++6 libgcc-s1 libc6 libatomic1 libacl1
 sudo systemctl enable --now ssh
 ```
 
 ## Build and Package
 
-Run on the build host from the demo folder (all sources are included under `sdv-hack-demo`):
+KUKSA Databroker is already installed on the vehicle Pi. This workflow does
+not rebuild, copy, or replace its executable. By default,
+`start-vehicle.sh` uses
+`~/vehicle-dynamics-example/bin/databroker-mw-com-demo` and that installation's
+`mw_com_provider/generated/vehicle_dynamics_lola_config.json`.
+
+Build and package the gateway and speed mapping from the workspace root on the
+x86_64 build host:
 
 ```bash
-cd sdv-hack-demo
-bash build-aarch64.sh
-bash package-aarch64.sh
+cd ~/reference_integration_fork
+bash sdv-hack-demo/build-aarch64.sh
+bash sdv-hack-demo/package-aarch64.sh
 ```
+
+On the vehicle Pi, verify the existing installation matches the launcher's
+defaults:
+
+```bash
+test -x ~/vehicle-dynamics-example/bin/databroker-mw-com-demo
+test -f ~/vehicle-dynamics-example/bin/mw_com_provider/generated/vehicle_dynamics_lola_config.json
+```
+
+If both commands succeed, start the vehicle stack with
+`~/high-beam/run/start-vehicle.sh`; no `DATABROKER_BIN` or `SCORE_CONFIG`
+overrides are needed. The separate-terminal broker command later in this guide
+uses these same paths.
 
 The scripts create these Git-ignored archives:
 
@@ -133,8 +141,9 @@ dist/high-beam-vehicle-aarch64.tar.gz
 dist/high-beam-remote-aarch64.tar.gz
 ```
 
-The archives include the executables, required Bazel runfiles, vSomeIP shared
-libraries, `score_com_serializer.so`, configuration files, and launch scripts.
+The archives include the gateway executables, required Bazel runfiles, vSomeIP
+shared libraries, `score_com_serializer.so`, the speed mapping, and launch
+scripts. They do not contain or replace the existing Databroker installation.
 
 Important build note:
 
@@ -145,10 +154,13 @@ Important build note:
   and other dependencies. By default this workspace expects a local toolchain
   at `$HOME/aarch64_toolchain` to satisfy cross-compilation.
 
-- After `package-aarch64.sh` completes, the produced archives are self-contained
-  for runtime on the RPis — you only need to extract the appropriate archive
-  on each Pi and run the scripts in `~/high-beam/run/` (no Bazel or toolchain is
-  required on the RPis).
+- After packaging, deploy the gateway archive to the vehicle Pi and the remote
+  app archive to the remote Pi. Keep the existing Databroker installation in
+  place; no Bazel or build toolchain is required on the Pis.
+
+- The packaged provider maps the gateway's `speed` sample on Service1 to
+  `Vehicle.Speed`. The gateway presents the remote `speedAck` input as that
+  existing binding; no Databroker source edits or binary deployment are needed.
 
 - If you want to avoid requiring the full workspace on the build host, you can
   either: (A) vendor prebuilt `someipd`/`gatewayd` and required libraries into
@@ -213,131 +225,116 @@ find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
 
 ## Run the Demo
 
-Both launchers automatically stop stale `someipd`/`gatewayd`/`vehicle_high_beam*`
-processes and remove any leftover `/tmp/vsomeip*.lck` file before starting, and
-they refuse to start if UDP port 35000/35001 is still in use. If you ever start
-the apps manually (not via the launcher), clean up first:
-
-```bash
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
-sleep 1
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
-rm -f /tmp/vsomeip*.lck
-```
-
-### 1. Start the Remote Sensor
-
-On `10.56.121.79`:
+On the remote Pi (`10.56.121.79`), start the remote application:
 
 ```bash
 ~/high-beam/run/start-remote.sh
 ```
 
-The remote app listens on UDP port `35001` and sends sensor frames to
-`10.56.121.101:35000`.
-
-### 2. Start the Vehicle Stack
-
-On `10.56.121.101`:
+On the vehicle Pi (`10.56.121.101`), start the gateway and Databroker stack:
 
 ```bash
 ~/high-beam/run/start-vehicle.sh
 ```
 
-This launcher:
+This starts `someipd`, `gatewayd`, the UDP bridge, and KUKSA Databroker. It does
+not start the vehicle application. At the remote menu, choose option `2` and
+enter a numeric speed.
 
-1. Creates a vehicle SOME/IP configuration with unicast address `10.56.121.101`.
-2. Starts `someipd` in the background.
-3. Starts `gatewayd` in the background.
-4. Starts the UDP bridge in the background.
-5. Starts the vehicle application in the foreground.
+### Run Each Process Separately
 
-The vehicle application accepts:
+Use these commands instead of `start-vehicle.sh` when you want each vehicle
+process in its own terminal. Do not run both methods at the same time.
 
-```text
-true
-false
+Once on the vehicle Pi, prepare the SOME/IP config:
+
+```bash
+cd ~/high-beam
+source ./network.env
+cp vsomeip-gateway-services.json vsomeip-vehicle.json
+sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${HIGH_BEAM_VEHICLE_IP}\"/" vsomeip-vehicle.json
 ```
 
-It also accepts this menu:
+In **each vehicle-side terminal**, run this setup first:
 
-```text
-1   Select high-beam and enter true or false
-2   Select speed and enter a numeric value
-q   Quit
+```bash
+cd ~/high-beam
+source ./network.env
+vsomeip_lib_dir="$(find "$PWD/someipd.runfiles" -name 'libvsomeip3.so.3' -printf '%h\n' -quit)"
+test -n "$vsomeip_lib_dir" || { echo "libvsomeip3.so.3 not found"; exit 1; }
+export LD_LIBRARY_PATH="$PWD:$vsomeip_lib_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ```
 
-The speed payload is the vehicle-dynamics example representation: an 8-byte
-`double` followed by a 1-byte quality value (currently `3`).
+Start these in order, each in a separate terminal. After `gatewayd` starts,
+wait about 10 seconds before starting the broker.
 
-The remote sensor also provides a menu:
+**Terminal 1: SOME/IP daemon**
 
-```text
-1   Select high-beam and enter true or false
-2   Send Vehicle.speedAck to the vehicle (enter a numeric value)
-q   Quit the input menu
+```bash
+VSOMEIP_CONFIGURATION="$PWD/vsomeip-vehicle.json" \
+  ./someipd --configuration "$PWD/mw_someip_config.bin"
 ```
 
-The remote endpoint acknowledges incoming `Vehicle.speed` payloads as
-`Vehicle.speedAck`. If you enter `12345` in the remote menu, it sends that
-number on the reverse event; expect `Remote sent Vehicle.speedAck to
-vehicle=12345` remotely and `Vehicle app received Vehicle.speedAck =
-12345.000000` on the vehicle. Its high-beam state continues to send a UDP
-update every two seconds.
+**Terminal 2: gateway daemon**
 
-## Expected Logs
-
-When `true` is entered in the vehicle application (menu option `1`), the
-following messages show the forward path:
-
-```text
-Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn=true
-Bridge forwarded vehicle-to-remote High.IsOn=true
-Remote app converted UDP to SOME/IP High.IsOn=true
+```bash
+./gatewayd --configuration "$PWD/mw_someip_config.bin" \
+  --service_instance_manifest "$PWD/mw_com_config.json"
 ```
 
-When the remote app sends its state, the reverse path produces:
+**Terminal 3: UDP/SOME/IP bridge**
 
-```text
-Remote sensor converted SOME/IP to UDP High.IsOn=true
-Bridge converted UDP to SOME/IP High.IsOn=true
-Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn=true
+```bash
+export HIGH_BEAM_BIND_IP=0.0.0.0
+export SIGNAL_ROUTE_CONFIG="$PWD/signal_routes.json"
+VSOMEIP_CONFIGURATION="$PWD/vsomeip-vehicle.json" \
+VEHICLE_DOMAIN_CONFIG="$PWD/vsomeip-vehicle.json" \
+  ./vehicle_high_beam_bridge
 ```
 
-When a numeric value is entered in the vehicle application (menu option `2`),
-the `Vehicle.speed` round trip produces:
+**Terminal 4: existing KUKSA Databroker**
 
-```text
-Vehicle app published Vehicle.speed = 55.000000
-Bridge forwarded vehicle_dynamics vehicle-to-remote value=55
-Remote received Vehicle.speed=55
-Remote acknowledged Vehicle.speedAck=55
-Bridge converted UDP to SOME/IP vehicle_dynamics value=55
-Vehicle app received Vehicle.speedAck = 55.000000
+```bash
+cd ~/vehicle-dynamics-example/bin
+./databroker-mw-com-demo \
+  --address 0.0.0.0:55555 \
+  --provider-config "$HOME/high-beam/remote_speed_provider_config.json" \
+  --score-config "$PWD/mw_com_provider/generated/vehicle_dynamics_lola_config.json" \
+  --include-vss-path Vehicle.Speed
 ```
 
-This exact round trip has been confirmed live on hardware; the vehicle app
-receives its own `Vehicle.speedAck` within about a second of publishing.
+On the remote Pi, start `~/high-beam/run/start-remote.sh` in its own terminal.
+Then enter a speed using menu option `2`.
 
-### Both directions share one acknowledgement channel
+On the vehicle Pi, connect the CLI and subscribe:
 
-`vehicle::VehicleDynamicsService` only defines two events: `speed` (vehicle to
-remote) and `speedAck` (remote to vehicle) — there is no separate "remote's own
-speed" event in this example. This means:
+```bash
+cd ~/vehicle-dynamics-example/bin
+./databroker-cli --server http://127.0.0.1:55555
+```
 
-- When the **vehicle** publishes `Vehicle.speed`, the remote decodes it,
-  echoes it straight back, and the vehicle sees its own value arrive as
-  `Vehicle.speedAck`.
-- When you manually enter a value in the **remote** app's menu option `2`, it
-  is sent on that same `speedAck` channel — the vehicle app will show it as
-  `Vehicle app received Vehicle.speedAck=<value>`, not as a new `Vehicle.speed`.
+At the CLI prompt:
 
-Both directions work and are bidirectional, but they use the same wire event
-in the reverse direction, so a remote-entered value and an echoed
-acknowledgement are indistinguishable to the vehicle app. Adding a genuinely
-independent "remote-originated speed" signal would require a third event in
-`signal_routes.json`/`mw_com_config.json`/`mw_someip_config.json` (for example
-`speedRemote`), which is not part of the current vehicle-dynamics example.
+```text
+subscribe Vehicle.Speed
+```
+
+The remote should log `Remote published Vehicle.speedAck=<value>`; the CLI
+should report the same value for `Vehicle.Speed`. Useful vehicle-side logs:
+
+```bash
+tail -f ~/high-beam/gatewayd.log ~/high-beam/someipd.log ~/high-beam/bridge.log
+```
+
+To stop the vehicle stack, press `Ctrl+C` in the Databroker terminal, then run:
+
+```bash
+pkill -TERM -x gatewayd 2>/dev/null || true
+pkill -TERM -x someipd 2>/dev/null || true
+pkill -TERM -f '[v]ehicle_high_beam_bridge' 2>/dev/null || true
+pkill -TERM -f '[d]atabroker-mw-com-demo' 2>/dev/null || true
+rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
+```
 
 Vehicle-side background logs are stored in:
 
@@ -366,20 +363,12 @@ Follow all three vehicle-side logs at once, each line prefixed with its source:
 tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log
 ```
 
-Follow only High.IsOn state changes across all logs:
+The broker runs in the foreground in the terminal where you launched
+`start-vehicle.sh`; remote menu output appears in the terminal running
+`start-remote.sh`. To save the broker and vehicle-side output while watching it:
 
 ```bash
-tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log | grep --line-buffered 'High.IsOn'
-```
-
-The vehicle application and the remote sensor run in the foreground, so their
-output appears directly in the terminal where you launched
-`~/high-beam/run/start-vehicle.sh` or `~/high-beam/run/start-remote.sh`. To
-capture that output to a file as well while still seeing it live, restart with
-`tee`:
-
-```bash
-~/high-beam/run/start-vehicle.sh 2>&1 | tee ~/high-beam/vehicle_app.log
+~/high-beam/run/start-vehicle.sh 2>&1 | tee ~/high-beam/databroker.log
 ```
 
 ```bash
@@ -389,10 +378,8 @@ capture that output to a file as well while still seeing it live, restart with
 Check whether the background processes are still running:
 
 ```bash
-pgrep -af 'someipd|gatewayd|vehicle_high_beam'
+pgrep -af 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo'
 ```
-
-## Inspect and Troubleshoot
 
 If `someipd` or `gatewayd` crash immediately with:
 
@@ -460,9 +447,11 @@ find ~/high-beam -name 'score_com_serializer.so' -type f -print
 On the Vehicle RPi:
 
 ```bash
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -x gatewayd 2>/dev/null || true
+pkill -TERM -x someipd 2>/dev/null || true
+pkill -TERM -f '[v]ehicle_high_beam_bridge' 2>/dev/null || true
+pkill -TERM -f '[d]atabroker-mw-com-demo' 2>/dev/null || true
 sleep 1
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
@@ -489,6 +478,6 @@ sdv-hack-demo/
   deploy/start-remote.sh        Launch remote sensor on 10.56.121.79
   deploy/network.env            Editable vehicle/remote address configuration
   signal_routes.json             Configured SOME/IP-to-UDP route mapping
-  vehicle_app/                  Vehicle `mw::com` application source
+  vehicle_app/                  Optional legacy vehicle-app source; not packaged
   architecture.drawio           Editable architecture diagram
 ```

@@ -1,0 +1,24 @@
+{
+  "provider_name": "mw_com_provider",
+  "queue_capacity": 256,
+  "stale_after_ms": 1000,
+  "mappings": [
+    {
+      "signal_id": 42,
+      "vss_path": "Vehicle.Speed",
+      "datatype": "double",
+      "service": "VehicleDynamicsService",
+      "instance": "front_vehicle",
+      "member": "speed",
+      "field": "value",
+      "unit": "km/h",
+      "scale": 1.0,
+      "offset": 0.0,
+      "min": 0.0,
+      "max": 300.0,
+      "required_quality": "valid",
+      "direction": "datapoint",
+      "cycle_time_ms": 100
+    }
+  ]
+}

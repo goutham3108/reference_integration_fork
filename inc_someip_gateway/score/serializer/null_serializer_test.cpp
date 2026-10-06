@@ -38,6 +38,8 @@ constexpr uint16_t kTestMethodId = 10;
 const char* const kTestServiceTypeName = "test_service";
 const char* const kTestEventName = "test_event";
 const char* const kTestMethodName = "test_method";
+const char* const kVehicleDynamicsServiceTypeName = "vehicle::VehicleDynamicsService";
+const char* const kVehicleDynamicsEventName = "speedAck";
 
 /// Builds a flatbuffer config binary with a single service type containing one event and one
 /// method, each with NullSerializerConfig.
@@ -48,6 +50,7 @@ std::vector<uint8_t> build_test_config() {
     auto method_request_config = config::CreateNullSerializerConfig(fbb, kTestMethodRequestMaxSize);
     auto method_response_config =
         config::CreateNullSerializerConfig(fbb, kTestMethodResponseMaxSize);
+    auto vehicle_dynamics_config = config::CreateVehicleDynamicsSerializerConfig(fbb, 9);
 
     auto event =
         config::CreateEvent(fbb, kTestEventId, fbb.CreateString(kTestEventName),
@@ -58,6 +61,11 @@ std::vector<uint8_t> build_test_config() {
         config::SerializationConfig_NullSerializerConfig, method_request_config.Union(),
         config::SerializationConfig_NullSerializerConfig, method_response_config.Union());
 
+    auto vehicle_dynamics_event = config::CreateEvent(
+        fbb, 2, fbb.CreateString(kVehicleDynamicsEventName),
+        config::SerializationConfig_VehicleDynamicsSerializerConfig,
+        vehicle_dynamics_config.Union());
+
     std::vector<flatbuffers::Offset<config::Event>> events_vec = {event};
     std::vector<flatbuffers::Offset<config::Method>> methods_vec = {method};
 
@@ -65,7 +73,15 @@ std::vector<uint8_t> build_test_config() {
         fbb, kTestServiceTypeName, /*service_id=*/1, /*service_version_major=*/1,
         /*service_version_minor=*/0, &events_vec, &methods_vec);
 
-    std::vector<flatbuffers::Offset<config::ServiceType>> service_types_vec = {service_type};
+    std::vector<flatbuffers::Offset<config::Event>> vehicle_dynamics_events = {
+        vehicle_dynamics_event};
+    auto vehicle_dynamics_service_type = config::CreateServiceTypeDirect(
+        fbb, kVehicleDynamicsServiceTypeName, /*service_id=*/2,
+        /*service_version_major=*/1, /*service_version_minor=*/0,
+        &vehicle_dynamics_events);
+
+    std::vector<flatbuffers::Offset<config::ServiceType>> service_types_vec = {
+        service_type, vehicle_dynamics_service_type};
     auto root = config::CreateRootDirect(fbb, &service_types_vec);
     fbb.Finish(root);
 
@@ -103,6 +119,17 @@ class NullSerializer_test : public ::testing::Test {
         auto result = score_com_serializer_get(service.c_str(), service.size(),
                                                score_com_serializer_element_type_event,
                                                element.c_str(), element.size(), &serializer);
+        EXPECT_EQ(result, score_com_serializer_result_ok);
+        return serializer;
+    }
+
+    const score_com_serializer* get_vehicle_dynamics_serializer() {
+        const score_com_serializer* serializer = nullptr;
+        std::string service(kVehicleDynamicsServiceTypeName);
+        std::string element(kVehicleDynamicsEventName);
+        auto result = score_com_serializer_get(
+            service.c_str(), service.size(), score_com_serializer_element_type_event,
+            element.c_str(), element.size(), &serializer);
         EXPECT_EQ(result, score_com_serializer_result_ok);
         return serializer;
     }
@@ -378,6 +405,44 @@ TEST_F(NullSerializer_test, serialize_then_deserialize_preserves_data) {
 
     EXPECT_EQ(restored.size, original.size);
     EXPECT_EQ(std::memcmp(restored.data, original.data, original.size), 0);
+}
+
+TEST_F(NullSerializer_test, vehicle_dynamics_serializer_round_trips_typed_sample) {
+    struct SpeedAck {
+        double value;
+        std::uint8_t quality;
+    } original{45.0, 3};
+
+    const auto* serializer = get_vehicle_dynamics_serializer();
+    ASSERT_EQ(score_com_serializer_get_sizeof_type(serializer), sizeof(original));
+    ASSERT_EQ(score_com_serializer_get_alignof_type(serializer), alignof(SpeedAck));
+
+    std::uint8_t payload[9]{};
+    std::size_t written = 0;
+    ASSERT_EQ(score_com_serializer_serialize(serializer, payload, sizeof(payload), &original,
+                                             &written),
+              score_com_serializer_result_ok);
+    ASSERT_EQ(written, sizeof(payload));
+    EXPECT_EQ(std::memcmp(payload, &original.value, sizeof(original.value)), 0);
+    EXPECT_EQ(payload[8], original.quality);
+
+    SpeedAck decoded{};
+    ASSERT_EQ(score_com_serializer_deserialize(serializer, payload, sizeof(payload), &decoded),
+              score_com_serializer_result_ok);
+    EXPECT_EQ(decoded.value, original.value);
+    EXPECT_EQ(decoded.quality, original.quality);
+}
+
+TEST_F(NullSerializer_test, vehicle_dynamics_serializer_rejects_wrong_payload_size) {
+    const auto* serializer = get_vehicle_dynamics_serializer();
+    std::uint8_t payload[8]{};
+    struct SpeedAck {
+        double value;
+        std::uint8_t quality;
+    } decoded{};
+
+    EXPECT_EQ(score_com_serializer_deserialize(serializer, payload, sizeof(payload), &decoded),
+              score_com_serializer_result_deserialization_failure);
 }
 
 }  // namespace

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [lib]
-path = "../../../../communication/score/mw/com/impl/rust/com-api/com-api-runtime-lola/lib.rs"
+path = "../../../../../../info/mwcom/communication/score/mw/com/impl/rust/com-api/com-api-runtime-lola/lib.rs"
 
 [dependencies]
 bridge_ffi_lola = { path = "../bridge_ffi_lola" }
@@ -13,4 +13,4 @@ futures = "0.3"
 sample_allocatee_ptr_rs = { path = "../sample_allocatee_ptr_rs" }
 sample_ptr_rs = { path = "../sample_ptr_rs" }
 score_com_concept = { path = "../score_com_concept" }
-score_log = { path = "../../../../baselibs/score/log_rust/score_log" }
+score_log = { path = "../../../../../../info/baselibs/baselibs/score/log_rust/score_log" }

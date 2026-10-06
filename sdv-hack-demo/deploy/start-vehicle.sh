@@ -3,6 +3,18 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${root}/network.env"
+databroker_bin="${DATABROKER_BIN:-${HOME}/vehicle-dynamics-example/bin/databroker-mw-com-demo}"
+score_config="${SCORE_CONFIG:-$(dirname "${databroker_bin}")/mw_com_provider/generated/vehicle_dynamics_lola_config.json}"
+
+for required_file in \
+    "${databroker_bin}" \
+    "${root}/remote_speed_provider_config.json" \
+    "${score_config}"; do
+    if [[ ! -f "${required_file}" ]]; then
+        echo "Required Databroker runtime file is missing: ${required_file}" >&2
+        exit 1
+    fi
+done
 
 # Refuse to start if another vehicle stack is already running; running two
 # stacks at once causes each Vehicle.speed publish to be duplicated and
@@ -24,14 +36,14 @@ vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -print
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
 for attempt in $(seq 1 20); do
-    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam' >/dev/null; then
+    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' >/dev/null; then
         break
     fi
     sleep 0.25
 done
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 
 # mw::com (LoLa) shared-memory ring buffers and the gateway's counterpart SHM
@@ -94,8 +106,11 @@ VEHICLE_DOMAIN_CONFIG="${root}/vsomeip-vehicle.json" \
 disown
 
 # Give gatewayd time to complete its someipd handshake and create the
-# remote-instance shared memory before the vehicle app starts subscribing to
-# it; the app itself also retries proxy creation as a second safeguard.
+# remote-instance shared memory before the Databroker provider subscribes.
 sleep 10
 
-exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
+exec "${databroker_bin}" \
+    --address 0.0.0.0:55555 \
+    --provider-config "${root}/remote_speed_provider_config.json" \
+    --score-config "${score_config}" \
+    --include-vss-path Vehicle.Speed

@@ -20,12 +20,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .protoc_arg("--experimental_allow_proto3_optional")
         .compile_protos(
             &[
-                "../proto/kuksa/val/v1/val.proto",
-                "../proto/kuksa/val/v1/types.proto",
-                "../proto/kuksa/val/v2/val.proto",
-                "../proto/kuksa/val/v2/types.proto",
+                "proto/kuksa/val/v1/val.proto",
+                "proto/kuksa/val/v1/types.proto",
+                "proto/kuksa/val/v2/val.proto",
+                "proto/kuksa/val/v2/types.proto",
             ],
-            &["../proto"],
+            &["proto"],
         )?;
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -33,20 +33,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .file_descriptor_set_path(out_dir.join("kuksa.val.v2_descriptor.bin"))
         .compile_protos(
             &[
-                "../proto/kuksa/val/v2/val.proto",
-                "../proto/kuksa/val/v2/types.proto",
+                "proto/kuksa/val/v2/val.proto",
+                "proto/kuksa/val/v2/types.proto",
             ],
-            &["../proto"],
+            &["proto"],
         )
         .unwrap();
     tonic_prost_build::configure()
         .file_descriptor_set_path(out_dir.join("kuksa.val.v1_descriptor.bin"))
         .compile_protos(
             &[
-                "../proto/kuksa/val/v1/val.proto",
-                "../proto/kuksa/val/v1/types.proto",
+                "proto/kuksa/val/v1/val.proto",
+                "proto/kuksa/val/v1/types.proto",
             ],
-            &["../proto"],
+            &["proto"],
         )
         .unwrap();
 

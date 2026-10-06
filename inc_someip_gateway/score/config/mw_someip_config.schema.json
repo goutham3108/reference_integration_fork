@@ -3,7 +3,7 @@
   "definitions": {
     "score_mw_someip_config_SerializationConfig" : {
       "type" : "string",
-      "enum": ["NONE", "NullSerializerConfig"]
+      "enum": ["NONE", "NullSerializerConfig", "VehicleDynamicsSerializerConfig"]
     },
     "score_mw_someip_config_Root" : {
       "type" : "object",
@@ -83,6 +83,15 @@
       },
       "additionalProperties" : false
     },
+    "score_mw_someip_config_VehicleDynamicsSerializerConfig" : {
+      "type" : "object",
+      "properties" : {
+        "max_payload_size" : {
+                "type" : "integer", "minimum" : 0, "maximum" : 4294967295
+              }
+      },
+      "additionalProperties" : false
+    },
     "score_mw_someip_config_Event" : {
       "type" : "object",
       "description" : "Describes a single event within a service.",
@@ -99,7 +108,7 @@
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" }],
                 "description" : "Serialization configuration for this event."
               },
         "eventgroup_ids" : {
@@ -126,14 +135,14 @@
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "request_serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" }],
                 "description" : "Serialization configuration for the request (call) of this method."
               },
         "response_serialization_config_type" : {
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "response_serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" }],
                 "description" : "Serialization configuration for the response (return) of this method."
               }
       },

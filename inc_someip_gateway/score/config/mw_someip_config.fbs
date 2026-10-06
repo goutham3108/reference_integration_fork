@@ -47,7 +47,7 @@ table ServiceInstance {
 
 union SerializationConfig {
     NullSerializerConfig,
-    // Add more serialization config types here as needed
+    VehicleDynamicsSerializerConfig,
 }
 
 /// Configuration for the null serializer, which does not perform actual serialization but
@@ -55,6 +55,10 @@ union SerializationConfig {
 table NullSerializerConfig {
     /// Size of the pre-serialized message buffers.
     max_message_size: uint32;
+}
+
+table VehicleDynamicsSerializerConfig {
+    max_payload_size: uint32 = 9;
 }
 
 /// Describes a single event within a service.

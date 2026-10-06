@@ -20,7 +20,9 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <string_view>
+#include <vector>
 
 #include "score/config/mw_someip_config_generated.h"
 #include "score/mw/log/logging.h"
@@ -35,9 +37,21 @@ using score::someip_gateway::serializer::PreSerializedData;
 // calculate the size at runtime.
 using PreSerializedDataView = PreSerializedData<0>;
 
-// score_com_serializer is an opaque handle that directly points to
-// score::mw_someip_config::NullSerializerConfig in the flatbuffer config.
-struct score_com_serializer {};
+enum class SerializerKind { Null, VehicleDynamics };
+
+struct score_com_serializer {
+    SerializerKind kind;
+    const void* config;
+};
+
+struct VehicleDynamicsSample {
+    double value;
+    std::uint8_t quality;
+};
+
+static_assert(sizeof(VehicleDynamicsSample) == 16);
+static_assert(alignof(VehicleDynamicsSample) == 8);
+static_assert(offsetof(VehicleDynamicsSample, quality) == 8);
 
 namespace {
 
@@ -45,7 +59,36 @@ namespace {
 const score::mw_someip_config::NullSerializerConfig* to_null_config(
     const struct score_com_serializer* serializer) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    return reinterpret_cast<const score::mw_someip_config::NullSerializerConfig*>(serializer);
+    return static_cast<const score::mw_someip_config::NullSerializerConfig*>(serializer->config);
+}
+
+const score::mw_someip_config::VehicleDynamicsSerializerConfig* to_vehicle_dynamics_config(
+    const struct score_com_serializer* serializer) {
+    return static_cast<const score::mw_someip_config::VehicleDynamicsSerializerConfig*>(
+        serializer->config);
+}
+
+std::vector<std::unique_ptr<score_com_serializer>>& serializer_handles() {
+    static std::vector<std::unique_ptr<score_com_serializer>> handles;
+    return handles;
+}
+
+std::mutex& serializer_handles_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+const score_com_serializer* make_serializer_handle(SerializerKind kind, const void* config) {
+    std::lock_guard lock(serializer_handles_mutex());
+    for (const auto& handle : serializer_handles()) {
+        if (handle->kind == kind && handle->config == config) {
+            return handle.get();
+        }
+    }
+    auto handle = std::make_unique<score_com_serializer>(score_com_serializer{kind, config});
+    const auto* result = handle.get();
+    serializer_handles().push_back(std::move(handle));
+    return result;
 }
 
 std::shared_ptr<const score::mw_someip_config::Root>& get_config() {
@@ -55,12 +98,25 @@ std::shared_ptr<const score::mw_someip_config::Root>& get_config() {
 
 };  // anonymous namespace
 
-score_com_serializer_result score_com_serializer_serialize(const struct score_com_serializer*,
+score_com_serializer_result score_com_serializer_serialize(const struct score_com_serializer* serializer,
                                                            uint8_t* buffer, size_t buffer_size,
                                                            const void* object,
                                                            size_t* written_bytes) {
-    if (buffer == nullptr || object == nullptr) {
+    if (serializer == nullptr || buffer == nullptr || object == nullptr) {
         return score_com_serializer_result_general_failure;
+    }
+    if (serializer->kind == SerializerKind::VehicleDynamics) {
+        const auto payload_size = to_vehicle_dynamics_config(serializer)->max_payload_size();
+        if (payload_size != 9 || buffer_size < payload_size) {
+            return score_com_serializer_result_serialization_failure;
+        }
+        const auto* sample = static_cast<const VehicleDynamicsSample*>(object);
+        std::memcpy(buffer, &sample->value, sizeof(sample->value));
+        buffer[sizeof(sample->value)] = sample->quality;
+        if (written_bytes != nullptr) {
+            *written_bytes = payload_size;
+        }
+        return score_com_serializer_result_ok;
     }
     const auto* pre_serialized_data = static_cast<const PreSerializedDataView*>(object);
     std::size_t message_size = pre_serialized_data->size;
@@ -80,6 +136,16 @@ score_com_serializer_result score_com_serializer_deserialize(
     if (serializer == nullptr || buffer == nullptr || object == nullptr) {
         return score_com_serializer_result_general_failure;
     }
+    if (serializer->kind == SerializerKind::VehicleDynamics) {
+        const auto payload_size = to_vehicle_dynamics_config(serializer)->max_payload_size();
+        if (payload_size != 9 || buffer_size != payload_size) {
+            return score_com_serializer_result_deserialization_failure;
+        }
+        auto* sample = static_cast<VehicleDynamicsSample*>(object);
+        std::memcpy(&sample->value, buffer, sizeof(sample->value));
+        sample->quality = buffer[sizeof(sample->value)];
+        return score_com_serializer_result_ok;
+    }
     auto* pre_serialized_data = static_cast<PreSerializedDataView*>(object);
     if (buffer_size > to_null_config(serializer)->max_message_size()) {
         return score_com_serializer_result_deserialization_failure;
@@ -94,6 +160,9 @@ std::size_t score_com_serializer_get_max_serialized_size(
     if (serializer == nullptr) {
         return 0;
     }
+    if (serializer->kind == SerializerKind::VehicleDynamics) {
+        return to_vehicle_dynamics_config(serializer)->max_payload_size();
+    }
     return to_null_config(serializer)->max_message_size();
 }
 
@@ -101,10 +170,19 @@ std::size_t score_com_serializer_get_sizeof_type(const struct score_com_serializ
     if (serializer == nullptr) {
         return 0;
     }
+    if (serializer->kind == SerializerKind::VehicleDynamics) {
+        return sizeof(VehicleDynamicsSample);
+    }
     return get_size_of_pre_serialized_data(to_null_config(serializer)->max_message_size());
 }
 
-std::size_t score_com_serializer_get_alignof_type(const struct score_com_serializer*) {
+std::size_t score_com_serializer_get_alignof_type(const struct score_com_serializer* serializer) {
+    if (serializer == nullptr) {
+        return 0;
+    }
+    if (serializer->kind == SerializerKind::VehicleDynamics) {
+        return alignof(VehicleDynamicsSample);
+    }
     return alignof(PreSerializedDataView);
 }
 
@@ -145,12 +223,14 @@ score_com_serializer_result score_com_serializer_init(const char* serializer_ide
 
 score_com_serializer_result score_com_serializer_deinit() {
     get_config().reset();
+    std::lock_guard lock(serializer_handles_mutex());
+    serializer_handles().clear();
     return score_com_serializer_result_ok;
 }
 
 namespace {
 
-const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config(
+const score_com_serializer* lookup_serializer(
     std::string_view service_type_name, score_com_serializer_element_type element_type,
     std::string_view element_name) {
     const auto config = get_config();
@@ -171,7 +251,23 @@ const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config
             for (const auto* event : *service_type->events()) {
                 if (event->event_name() != nullptr &&
                     event->event_name()->string_view() == element_name) {
-                    return event->serialization_config_as_NullSerializerConfig();
+                    if (event->serialization_config_type() ==
+                        score::mw_someip_config::SerializationConfig_NullSerializerConfig) {
+                        const auto* config = event->serialization_config_as_NullSerializerConfig();
+                        return config == nullptr
+                                   ? nullptr
+                                   : make_serializer_handle(SerializerKind::Null, config);
+                    }
+                    if (event->serialization_config_type() ==
+                        score::mw_someip_config::SerializationConfig_VehicleDynamicsSerializerConfig) {
+                        const auto* config =
+                            event->serialization_config_as_VehicleDynamicsSerializerConfig();
+                        return config == nullptr
+                                   ? nullptr
+                                   : make_serializer_handle(SerializerKind::VehicleDynamics,
+                                                            config);
+                    }
+                    return nullptr;
                 }
             }
         } else if (element_type == score_com_serializer_element_type_method_call) {
@@ -181,7 +277,10 @@ const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config
             for (const auto* method : *service_type->methods()) {
                 if (method->method_name() != nullptr &&
                     method->method_name()->string_view() == element_name) {
-                    return method->request_serialization_config_as_NullSerializerConfig();
+                    const auto* config =
+                        method->request_serialization_config_as_NullSerializerConfig();
+                    return config == nullptr ? nullptr
+                                             : make_serializer_handle(SerializerKind::Null, config);
                 }
             }
         } else if (element_type == score_com_serializer_element_type_method_response) {
@@ -191,7 +290,10 @@ const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config
             for (const auto* method : *service_type->methods()) {
                 if (method->method_name() != nullptr &&
                     method->method_name()->string_view() == element_name) {
-                    return method->response_serialization_config_as_NullSerializerConfig();
+                    const auto* config =
+                        method->response_serialization_config_as_NullSerializerConfig();
+                    return config == nullptr ? nullptr
+                                             : make_serializer_handle(SerializerKind::Null, config);
                 }
             }
         }
@@ -215,17 +317,16 @@ score_com_serializer_result score_com_serializer_get(
     std::string_view service_type_name(service_type, service_type_size);
     std::string_view element_name_view(element_name, element_name_size);
 
-    const auto* serializer_config =
-        lookup_serialization_config(service_type_name, element_type, element_name_view);
-    if (serializer_config == nullptr) {
+    const auto* serializer_handle =
+        lookup_serializer(service_type_name, element_type, element_name_view);
+    if (serializer_handle == nullptr) {
         score::mw::log::LogError()
             << "Error: No serialization config found for service_type=" << service_type_name
             << " element=" << element_name_view;
         return score_com_serializer_result_serializer_nonexistent;
     }
 
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    *serializer = reinterpret_cast<const struct score_com_serializer*>(serializer_config);
+    *serializer = serializer_handle;
 
     return score_com_serializer_result_ok;
 }

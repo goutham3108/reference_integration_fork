@@ -6,6 +6,7 @@ gateway_root="${repo_root}/inc_someip_gateway"
 dist_dir="${repo_root}/sdv-hack-demo/dist"
 staging_dir="$(mktemp -d)"
 trap 'rm -rf "${staging_dir}"' EXIT
+provider_config="${repo_root}/sdv-hack-demo/deploy/remote_speed_provider_config.json"
 
 vehicle_dir="${staging_dir}/vehicle"
 remote_dir="${staging_dir}/remote"
@@ -29,9 +30,6 @@ copy_target "${vehicle_dir}" \
 copy_target "${vehicle_dir}" \
     "${repo_root}/bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge" \
     "${repo_root}/bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge.runfiles"
-copy_target "${vehicle_dir}" \
-    "${repo_root}/bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com" \
-    "${repo_root}/bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com.runfiles"
 copy_target "${remote_dir}" \
     "${repo_root}/bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app" \
     "${repo_root}/bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app.runfiles"
@@ -46,6 +44,7 @@ cp -a "${repo_root}/sdv-hack-demo/deploy/network.env" "${vehicle_dir}/"
 cp -a "${repo_root}/sdv-hack-demo/deploy/network.env" "${remote_dir}/"
 cp -a "${repo_root}/sdv-hack-demo/signal_routes.json" "${vehicle_dir}/"
 cp -a "${repo_root}/sdv-hack-demo/signal_routes.json" "${remote_dir}/"
+cp -a "${provider_config}" "${vehicle_dir}/"
 chmod +x "${vehicle_dir}/run/start-vehicle.sh" "${remote_dir}/run/start-remote.sh"
 
 mkdir -p "${dist_dir}"

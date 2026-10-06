@@ -55,31 +55,25 @@
                 {
                     "event_name": "speed",
                     "event_id": 1,
-                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
                     "serialization_config": {
-                        "max_message_size": 9
+                        "max_payload_size": 9
                     },
                     "eventgroup_ids": [1]
                 },
                 {
                     "event_name": "speedAck",
                     "event_id": 2,
-                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
                     "serialization_config": {
-                        "max_message_size": 9
+                        "max_payload_size": 9
                     },
                     "eventgroup_ids": [2]
                 }
             ],
-            "local_service_instances": [
-                {
-                    "instance_specifier": "/Vehicle/Service1/Instance",
-                    "instance_id": 1
-                }
-            ],
             "remote_service_instances": [
                 {
-                    "instance_specifier": "/Vehicle/Service2/Instance",
+                    "instance_specifier": "/Vehicle/Service1/Instance",
                     "instance_id": 2
                 }
             ]

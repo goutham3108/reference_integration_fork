@@ -41,10 +41,7 @@ fn link_from_bazel_params(bazel_bin: &Path) -> bool {
     let Ok(params) = fs::read_to_string(&params_path) else {
         return false;
     };
-    let Some(score_build_root) = bazel_bin
-        .ancestors()
-        .find(|path| path.join("bazel-out").is_dir())
-    else {
+    let Some(score_build_root) = bazel_bin.parent() else {
         return false;
     };
 
@@ -52,14 +49,13 @@ fn link_from_bazel_params(bazel_bin: &Path) -> bool {
     link_dir(vehicle_gen_dir(bazel_bin));
 
     let mut alwayslink_archives = Vec::new();
-    let mut libraries = Vec::new();
 
     let mut lines = params.lines().map(str::trim).filter(|line| !line.is_empty()).peekable();
     while let Some(line) = lines.next() {
         if let Some(path) = line.strip_prefix("-Lnative=") {
             link_dir(score_build_root.join(path));
         } else if let Some(library) = line.strip_prefix("-lstatic=") {
-            libraries.push(library);
+            println!("cargo:rustc-link-lib=static={library}");
         } else if let Some(argument) = line.strip_prefix("-Clink-arg=") {
             if argument == "-Wl,--whole-archive" || argument == "-Wl,--no-whole-archive" {
                 println!("cargo:rustc-link-arg={argument}");
@@ -84,10 +80,6 @@ fn link_from_bazel_params(bazel_bin: &Path) -> bool {
             link_dir(archive_dir.to_path_buf());
         }
         println!("cargo:rustc-link-lib=static:+whole-archive=score_com_alwayslink");
-    }
-
-    for library in libraries {
-        println!("cargo:rustc-link-lib=static={library}");
     }
 
     true

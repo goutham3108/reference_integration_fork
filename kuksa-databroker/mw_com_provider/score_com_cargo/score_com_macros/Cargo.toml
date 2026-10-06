@@ -5,7 +5,7 @@ edition = "2024"
 
 [lib]
 proc-macro = true
-path = "../../../../communication/score/mw/com/rust/score_com_macros/lib.rs"
+path = "../../../../../../info/mwcom/communication/score/mw/com/rust/score_com_macros/lib.rs"
 
 [dependencies]
 quote = "1"

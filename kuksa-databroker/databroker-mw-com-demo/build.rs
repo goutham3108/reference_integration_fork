@@ -57,14 +57,12 @@ fn link_from_bazel_params(bazel_bin: &Path) {
         )
     });
     let score_build_root = bazel_bin
-        .ancestors()
-        .find(|path| path.join("bazel-out").is_dir())
-        .expect("SCORE_COM_BAZEL_BIN must be inside a Bazel execution root");
+        .parent()
+        .expect("SCORE_COM_BAZEL_BIN must have a parent directory");
 
     println!("cargo:rerun-if-changed={}", params_path.display());
 
     let mut alwayslink_archives = Vec::new();
-    let mut libraries = Vec::new();
     let mut lines = params.lines().map(str::trim).filter(|line| !line.is_empty()).peekable();
     while let Some(line) = lines.next() {
         if let Some(path) = line.strip_prefix("-Lnative=") {
@@ -73,7 +71,7 @@ fn link_from_bazel_params(bazel_bin: &Path) {
                 score_build_root.join(path).display()
             );
         } else if let Some(library) = line.strip_prefix("-lstatic=") {
-            libraries.push(library);
+            println!("cargo:rustc-link-lib=static={library}");
         } else if let Some(argument) = line.strip_prefix("-Clink-arg=") {
             handle_link_arg(score_build_root, argument, &mut alwayslink_archives);
         } else if line == "-Clink-arg" {
@@ -87,8 +85,11 @@ fn link_from_bazel_params(bazel_bin: &Path) {
         }
     }
 
-    for library in libraries {
-        println!("cargo:rustc-link-lib=static={library}");
+    if let Some(archive_path) = create_alwayslink_archive(&alwayslink_archives) {
+        if let Some(archive_dir) = archive_path.parent() {
+            println!("cargo:rustc-link-search=native={}", archive_dir.display());
+        }
+        println!("cargo:rustc-link-lib=static:+whole-archive=score_com_alwayslink");
     }
 }
 
