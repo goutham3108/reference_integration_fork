@@ -27,3 +27,14 @@ END_EXPORT_MW_COM_INTERFACE()
 
 EXPORT_MW_COM_TYPE(SpeedSample, ::score::mw::com::SpeedSample)
 EXPORT_MW_COM_TYPE(SpeedAck, ::score::mw::com::SpeedAck)
+
+BEGIN_EXPORT_MW_COM_INTERFACE(
+    VehicleHighBeamRx,
+    ::score::mw::com::VehicleHighBeamRxProxy,
+    ::score::mw::com::VehicleHighBeamRxSkeleton)
+
+EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamState, high_beam_state)
+
+END_EXPORT_MW_COM_INTERFACE()
+
+EXPORT_MW_COM_TYPE(HighBeamState, ::score::mw::com::HighBeamState)

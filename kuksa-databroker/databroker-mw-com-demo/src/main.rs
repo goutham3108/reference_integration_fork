@@ -19,13 +19,10 @@ use mw_com_provider::score_bindings::{validate_score_bindings, ScoreBindingTrans
 use mw_com_provider::{
     Direction, LolaScoreRuntimeAdapter, MwComProviderWorker, ProviderConfig, VssDataType,
 };
-use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::thread::JoinHandle;
 use tokio::sync::oneshot;
 use tracing::info;
-
-const SPEED_PATH: &str = "Vehicle.Speed";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,10 +30,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = DemoArgs::parse()?;
     let mut config = ProviderConfig::load_json(&args.provider_config)?;
-    let included_paths = args.included_paths();
     config
         .mappings
-        .retain(|mapping| included_paths.contains(mapping.vss_path.as_str()));
+        .retain(|mapping| args.includes_path(&mapping.vss_path));
     validate_score_bindings(&config)?;
 
     let broker = DataBroker::new("databroker-mw-com-demo", "databroker-mw-com-demo");
@@ -204,12 +200,41 @@ impl DemoArgs {
         })
     }
 
-    fn included_paths(&self) -> HashSet<&str> {
-        if self.include_vss_paths.is_empty() {
-            HashSet::from([SPEED_PATH])
-        } else {
-            self.include_vss_paths.iter().map(String::as_str).collect()
+    fn includes_path(&self, path: &str) -> bool {
+        self.include_vss_paths.is_empty()
+            || self
+                .include_vss_paths
+                .iter()
+                .any(|included_path| included_path == path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DemoArgs;
+    use std::net::SocketAddr;
+
+    fn args(include_vss_paths: Vec<&str>) -> DemoArgs {
+        DemoArgs {
+            address: "127.0.0.1:55555".parse::<SocketAddr>().unwrap(),
+            provider_config: String::new(),
+            score_config: String::new(),
+            include_vss_paths: include_vss_paths.into_iter().map(str::to_string).collect(),
         }
+    }
+
+    #[test]
+    fn empty_include_list_keeps_every_configured_signal() {
+        let args = args(Vec::new());
+        assert!(args.includes_path("Vehicle.Speed"));
+        assert!(args.includes_path("Vehicle.Body.Lights.Beam.High.IsOn"));
+    }
+
+    #[test]
+    fn explicit_include_list_filters_other_signals() {
+        let args = args(vec!["Vehicle.Speed"]);
+        assert!(args.includes_path("Vehicle.Speed"));
+        assert!(!args.includes_path("Vehicle.Body.Lights.Beam.High.IsOn"));
     }
 }
 

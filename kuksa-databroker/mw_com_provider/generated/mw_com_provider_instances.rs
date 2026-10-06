@@ -19,3 +19,8 @@ pub mod vehicle {
     pub const VEHICLE_VEHICLEDYNAMICSSERVICE_CRUISE_CONTROL_ENABLED_INSTANCE_SPECIFIER: &str =
         "/Vehicle/Service1/Instance";
 }
+
+pub mod high_beam {
+    pub const VEHICLEHIGHBEAMRX_HIGH_BEAM_STATE_INSTANCE_SPECIFIER: &str =
+        "/vehicle_high_beam/network_rx";
+}

@@ -43,3 +43,13 @@ pub mod vehicle {
         pub value: bool,
     }
 }
+
+pub mod high_beam {
+    use super::*;
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "HighBeamState")]
+    pub struct HighBeamState {
+        pub value: bool,
+    }
+}

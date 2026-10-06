@@ -29,6 +29,7 @@
 
 #include <kvsbuilder.hpp>
 #include "high_beam_udp_protocol.h"
+#include "sdv-hack-demo/include/speed_payload.h"
 #include "score/mw/lifecycle/report_running.h"
 #include "score/mw/log/logging.h"
 
@@ -239,12 +240,11 @@ int main() {
                 }
                 high_beam_udp::Frame frame{dynamics->service, dynamics->remote_instance,
                                            dynamics->remote_event, 9U, {}};
-                std::memcpy(frame.payload.data(), &speed.value(), sizeof(double));
-                frame.payload[sizeof(double)] = 3U;
+                vehicle_dynamics_wire::EncodeSpeed(speed.value(), 3U, frame.payload.data());
                 const auto encoded = high_beam_udp::Encode(frame);
                 (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
                              reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-                score::mw::log::LogWarn() << "Remote published Vehicle.speedAck=" << speed.value();
+                score::mw::log::LogWarn() << "Remote published Vehicle.speed=" << speed.value();
                 PrintRemoteMenu();
                 continue;
             }
@@ -280,8 +280,7 @@ int main() {
                 inet_ntop(AF_INET, &sender.sin_addr, sender_ip, sizeof(sender_ip));
             if (route->name != "high_beam") {
                 if (frame->payload_size == sizeof(double) + 1U) {
-                    double received_value = 0.0;
-                    std::memcpy(&received_value, frame->payload.data(), sizeof(double));
+                    const double received_value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
                     score::mw::log::LogWarn() << "Remote received Vehicle.speed=" << received_value
                                               << " from "
                                               << (sender_address == nullptr ? "<unknown>" : sender_address)
@@ -296,9 +295,8 @@ int main() {
                 (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
                              reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
                 if (frame->payload_size == sizeof(double) + 1U) {
-                    double acked_value = 0.0;
-                    std::memcpy(&acked_value, frame->payload.data(), sizeof(double));
-                    score::mw::log::LogWarn() << "Remote acknowledged Vehicle.speedAck=" << acked_value;
+                    const double acked_value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
+                    score::mw::log::LogWarn() << "Remote forwarded Vehicle.speed=" << acked_value;
                 } else {
                     score::mw::log::LogWarn() << "Remote acknowledged " << route->name
                                               << " payload_size=" << frame->payload_size;

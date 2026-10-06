@@ -1,1 +1,16 @@
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
 exports_files(["signal_routes.json"])
+
+cc_library(
+	name = "speed_payload",
+	hdrs = ["include/speed_payload.h"],
+	visibility = ["//visibility:public"],
+)
+
+cc_test(
+	name = "speed_payload_test",
+	srcs = ["include/speed_payload_test.cpp"],
+	deps = [":speed_payload"],
+)

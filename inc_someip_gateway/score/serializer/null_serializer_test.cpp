@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
@@ -66,6 +67,25 @@ std::vector<uint8_t> build_test_config() {
         /*service_version_minor=*/0, &events_vec, &methods_vec);
 
     std::vector<flatbuffers::Offset<config::ServiceType>> service_types_vec = {service_type};
+    auto speed_config = config::CreateVehicleDynamicsSerializerConfig(fbb);
+    auto speed_event = config::CreateEvent(
+        fbb, 1, fbb.CreateString("speed"),
+        config::SerializationConfig_VehicleDynamicsSerializerConfig, speed_config.Union());
+    auto ack_event = config::CreateEvent(
+        fbb, 2, fbb.CreateString("speedAck"),
+        config::SerializationConfig_VehicleDynamicsSerializerConfig, speed_config.Union());
+    std::vector<flatbuffers::Offset<config::Event>> speed_events = {speed_event, ack_event};
+    auto speed_service = config::CreateServiceTypeDirect(
+        fbb, "vehicle::VehicleDynamicsService", 6433, 1, 0, &speed_events);
+    service_types_vec.push_back(speed_service);
+    auto boolean_config = config::CreateBooleanSerializerConfig(fbb);
+    auto high_beam_event = config::CreateEvent(
+        fbb, 2116, fbb.CreateString("high_beam_state"),
+        config::SerializationConfig_BooleanSerializerConfig, boolean_config.Union());
+    std::vector<flatbuffers::Offset<config::Event>> high_beam_events = {high_beam_event};
+    auto high_beam_service = config::CreateServiceTypeDirect(
+        fbb, "vehicle_high_beam_rx", 17152, 1, 0, &high_beam_events);
+    service_types_vec.push_back(high_beam_service);
     auto root = config::CreateRootDirect(fbb, &service_types_vec);
     fbb.Finish(root);
 
@@ -111,6 +131,78 @@ class NullSerializer_test : public ::testing::Test {
 };
 
 // --- Init / Deinit ---
+
+TEST_F(NullSerializer_test, vehicle_dynamics_round_trip_preserves_typed_sample) {
+    struct SpeedSample {
+        double value;
+        std::uint8_t quality;
+    };
+    const std::string service = "vehicle::VehicleDynamicsService";
+    const std::array<std::uint8_t, 9> payload = {0x40, 0x5f, 0x40, 0, 0, 0, 0, 0, 3};
+    for (const std::string event : {"speed", "speedAck"}) {
+        const score_com_serializer* serializer = nullptr;
+        ASSERT_EQ(score_com_serializer_get(service.data(), service.size(),
+                                           score_com_serializer_element_type_event,
+                                           event.data(), event.size(), &serializer),
+                  score_com_serializer_result_ok);
+        EXPECT_EQ(score_com_serializer_get_sizeof_type(serializer), sizeof(SpeedSample));
+        EXPECT_EQ(score_com_serializer_get_alignof_type(serializer), alignof(SpeedSample));
+        EXPECT_EQ(score_com_serializer_get_max_serialized_size(serializer), payload.size());
+        SpeedSample sample{};
+        ASSERT_EQ(score_com_serializer_deserialize(serializer, payload.data(), payload.size(),
+                                                   &sample), score_com_serializer_result_ok);
+        EXPECT_DOUBLE_EQ(sample.value, 125.0);
+        EXPECT_EQ(sample.quality, 3);
+        std::array<std::uint8_t, 9> encoded{};
+        std::size_t written{};
+        ASSERT_EQ(score_com_serializer_serialize(serializer, encoded.data(), encoded.size(),
+                                                 &sample, &written), score_com_serializer_result_ok);
+        EXPECT_EQ(encoded, payload);
+        EXPECT_EQ(written, payload.size());
+        EXPECT_EQ(score_com_serializer_deserialize(serializer, payload.data(), payload.size() - 1,
+                                                   &sample),
+                  score_com_serializer_result_deserialization_failure);
+        EXPECT_EQ(score_com_serializer_deserialize(serializer, payload.data(), payload.size() + 1,
+                                                   &sample),
+                  score_com_serializer_result_deserialization_failure);
+        EXPECT_EQ(score_com_serializer_serialize(serializer, encoded.data(), encoded.size() - 1,
+                                                 &sample, &written),
+                  score_com_serializer_result_serialization_failure);
+    }
+}
+
+TEST_F(NullSerializer_test, high_beam_boolean_round_trip_preserves_typed_value) {
+    const std::string service = "/vehicle_high_beam_rx";
+    const std::string event = "high_beam_state";
+    const score_com_serializer* serializer = nullptr;
+    ASSERT_EQ(score_com_serializer_get(service.data(), service.size(),
+                                       score_com_serializer_element_type_event,
+                                       event.data(), event.size(), &serializer),
+              score_com_serializer_result_ok);
+    EXPECT_EQ(score_com_serializer_get_sizeof_type(serializer), sizeof(bool));
+    EXPECT_EQ(score_com_serializer_get_alignof_type(serializer), alignof(bool));
+    EXPECT_EQ(score_com_serializer_get_max_serialized_size(serializer), 1U);
+
+    for (const std::uint8_t wire_value : {std::uint8_t{0}, std::uint8_t{1}}) {
+        bool value = !static_cast<bool>(wire_value);
+        ASSERT_EQ(score_com_serializer_deserialize(serializer, &wire_value, 1, &value),
+                  score_com_serializer_result_ok);
+        EXPECT_EQ(value, wire_value != 0);
+        std::uint8_t encoded = 0xff;
+        std::size_t written = 0;
+        ASSERT_EQ(score_com_serializer_serialize(serializer, &encoded, 1, &value, &written),
+                  score_com_serializer_result_ok);
+        EXPECT_EQ(encoded, wire_value);
+        EXPECT_EQ(written, 1U);
+    }
+
+    const std::uint8_t invalid_value = 2;
+    bool value = false;
+    EXPECT_EQ(score_com_serializer_deserialize(serializer, &invalid_value, 1, &value),
+              score_com_serializer_result_deserialization_failure);
+    EXPECT_EQ(score_com_serializer_deserialize(serializer, &invalid_value, 0, &value),
+              score_com_serializer_result_deserialization_failure);
+}
 
 TEST_F(NullSerializer_test, init_with_nonexistent_file_fails) {
     ASSERT_EQ(score_com_serializer_deinit(), score_com_serializer_result_ok);

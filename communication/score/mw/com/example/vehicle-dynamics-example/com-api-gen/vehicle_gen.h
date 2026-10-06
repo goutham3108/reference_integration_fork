@@ -33,6 +33,11 @@ struct SpeedAck
     std::uint8_t quality;
 };
 
+struct HighBeamState
+{
+    bool value;
+};
+
 template <typename Trait>
 class VehicleDynamicsService : public Trait::Base
 {
@@ -46,6 +51,18 @@ class VehicleDynamicsService : public Trait::Base
 
 using VehicleDynamicsServiceProxy = AsProxy<VehicleDynamicsService>;
 using VehicleDynamicsServiceSkeleton = AsSkeleton<VehicleDynamicsService>;
+
+template <typename Trait>
+class VehicleHighBeamRx : public Trait::Base
+{
+    public:
+        using Trait::Base::Base;
+
+        typename Trait::template Event<HighBeamState> high_beam_state{*this, "high_beam_state"};
+};
+
+using VehicleHighBeamRxProxy = AsProxy<VehicleHighBeamRx>;
+using VehicleHighBeamRxSkeleton = AsSkeleton<VehicleHighBeamRx>;
 
 }  // namespace score::mw::com
 

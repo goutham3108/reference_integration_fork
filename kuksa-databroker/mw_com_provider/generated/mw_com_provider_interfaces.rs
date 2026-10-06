@@ -21,3 +21,12 @@ pub mod vehicle {
         cruise_control_enabled: Event<crate::mw_com_provider_types::vehicle::CruiseControlEnabled>,
     });
 }
+
+pub mod high_beam {
+    use score_com::{ProviderInfo, Publisher, Subscriber};
+
+    score_com::interface!(interface VehicleHighBeamRx {
+        Id = "VehicleHighBeamRx",
+        high_beam_state: Event<crate::mw_com_provider_types::high_beam::HighBeamState>,
+    });
+}

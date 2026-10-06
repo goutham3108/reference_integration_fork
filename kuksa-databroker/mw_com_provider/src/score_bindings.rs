@@ -318,6 +318,36 @@ mod tests {
     }
 
     #[test]
+    fn resolves_high_beam_signal_to_gateway_receive_instance() {
+        let binding = find_score_binding(
+            "/vehicle_high_beam_rx",
+            "network_rx",
+            "high_beam_state",
+        )
+        .unwrap();
+
+        assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
+        assert_eq!(binding.payload_type, "HighBeamState");
+    }
+
+    #[test]
+    fn generated_provider_config_includes_high_beam_datapoint() {
+        let config = ProviderConfig::load_json("generated/mw_com_provider_config.json").unwrap();
+        validate_score_bindings(&config).unwrap();
+
+        let mapping = config
+            .mappings
+            .iter()
+            .find(|mapping| mapping.vss_path == "Vehicle.Body.Lights.Beam.High.IsOn")
+            .unwrap();
+        assert_eq!(mapping.signal_id, 45);
+        assert_eq!(mapping.datatype, crate::config::VssDataType::Bool);
+        assert_eq!(mapping.service, "/vehicle_high_beam_rx");
+        assert_eq!(mapping.instance, "network_rx");
+        assert_eq!(mapping.member, "high_beam_state");
+    }
+
+    #[test]
     fn validates_provider_config_against_generated_score_bindings() {
         validate_score_bindings(&provider_config()).unwrap();
     }
@@ -361,7 +391,7 @@ mod tests {
             calls.lock().unwrap().as_slice(),
             [
                 "connect",
-                "find:/Vehicle/Service1/Instance",
+                "find:/Vehicle/Service2/Instance",
                 "subscribe:speed",
                 "send:target_speed",
                 "unsubscribe:speed",

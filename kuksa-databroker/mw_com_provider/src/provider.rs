@@ -130,6 +130,9 @@ impl MwComProvider {
                 }
                 Err(error) => {
                     warn!(%error, ?reconnect_delay, "mw::com provider connect failed; retrying");
+                    if let Err(shutdown_error) = self.shutdown().await {
+                        warn!(%shutdown_error, "mw::com provider cleanup after connect failure failed");
+                    }
                     tokio::select! {
                         _ = sleep(reconnect_delay) => {
                             reconnect_delay = self.mapper.config().reconnect.next_delay(reconnect_delay);

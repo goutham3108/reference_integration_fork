@@ -119,6 +119,17 @@ pub const GENERATED_GENERIC_MW_COM_ELEMENTS: &[GenericMwComElement] = &[
         sample_alignment: 1,
         has_serialized_format: false,
     },
+    GenericMwComElement {
+        service_name: "/vehicle_high_beam_rx",
+        instance_name: "network_rx",
+        instance_specifier: "/vehicle_high_beam/network_rx",
+        member_name: "high_beam_state",
+        element_kind: "event",
+        payload_type: "HighBeamState",
+        sample_size: 1,
+        sample_alignment: 1,
+        has_serialized_format: false,
+    },
 ];
 
 pub fn find_struct_field_accessor(

@@ -86,7 +86,7 @@
       ]
     },
     {
-      "instanceSpecifier": "vehicle_high_beam/network_rx",
+      "instanceSpecifier": "/vehicle_high_beam/network_rx",
       "serviceTypeName": "/vehicle_high_beam_rx",
       "version": {
         "major": 1,

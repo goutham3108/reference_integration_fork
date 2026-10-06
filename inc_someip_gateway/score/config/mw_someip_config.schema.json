@@ -3,7 +3,7 @@
   "definitions": {
     "score_mw_someip_config_SerializationConfig" : {
       "type" : "string",
-      "enum": ["NONE", "NullSerializerConfig"]
+      "enum": ["NONE", "NullSerializerConfig", "VehicleDynamicsSerializerConfig", "BooleanSerializerConfig"]
     },
     "score_mw_someip_config_Root" : {
       "type" : "object",
@@ -72,6 +72,18 @@
       "required" : ["instance_specifier"],
       "additionalProperties" : false
     },
+    "score_mw_someip_config_VehicleDynamicsSerializerConfig" : {
+      "type" : "object",
+      "properties" : {
+      },
+      "additionalProperties" : false
+    },
+    "score_mw_someip_config_BooleanSerializerConfig" : {
+      "type" : "object",
+      "properties" : {
+      },
+      "additionalProperties" : false
+    },
     "score_mw_someip_config_NullSerializerConfig" : {
       "type" : "object",
       "description" : "Configuration for the null serializer, which does not perform actual serialization but\ninstead uses pre-serialized message buffers.",
@@ -99,7 +111,7 @@
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_BooleanSerializerConfig" }],
                 "description" : "Serialization configuration for this event."
               },
         "eventgroup_ids" : {
@@ -126,14 +138,14 @@
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "request_serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_BooleanSerializerConfig" }],
                 "description" : "Serialization configuration for the request (call) of this method."
               },
         "response_serialization_config_type" : {
                 "$ref" : "#/definitions/score_mw_someip_config_SerializationConfig"
               },
         "response_serialization_config" : {
-                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" }],
+                "anyOf": [{ "$ref" : "#/definitions/score_mw_someip_config_NullSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_VehicleDynamicsSerializerConfig" },{ "$ref" : "#/definitions/score_mw_someip_config_BooleanSerializerConfig" }],
                 "description" : "Serialization configuration for the response (return) of this method."
               }
       },

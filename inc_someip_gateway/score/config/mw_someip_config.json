@@ -32,16 +32,14 @@
                 {
                     "event_name": "high_beam_state",
                     "event_id": 33841,
-                    "serialization_config_type": "NullSerializerConfig",
-                    "serialization_config": {
-                        "max_message_size": 1
-                    },
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
                     "eventgroup_ids": [33841]
                 }
             ],
             "remote_service_instances": [
                 {
-                    "instance_specifier": "vehicle_high_beam/network_rx",
+                    "instance_specifier": "/vehicle_high_beam/network_rx",
                     "instance_id": 4097
                 }
             ]
@@ -55,19 +53,15 @@
                 {
                     "event_name": "speed",
                     "event_id": 1,
-                    "serialization_config_type": "NullSerializerConfig",
-                    "serialization_config": {
-                        "max_message_size": 9
-                    },
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
                     "eventgroup_ids": [1]
                 },
                 {
                     "event_name": "speedAck",
                     "event_id": 2,
-                    "serialization_config_type": "NullSerializerConfig",
-                    "serialization_config": {
-                        "max_message_size": 9
-                    },
+                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
+                    "serialization_config": {},
                     "eventgroup_ids": [2]
                 }
             ],

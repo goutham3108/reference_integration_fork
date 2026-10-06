@@ -141,6 +141,51 @@
         }
       ],
       "namespaces": []
+    },
+    {
+      "name": "high_beam",
+      "structs": [
+        {
+          "name": "HighBeamState",
+          "members": [
+            {
+              "name": "value",
+              "datatype": "boolean",
+              "sample_size": 1,
+              "sample_alignment": 1
+            }
+          ]
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "VehicleHighBeamRx",
+          "interface_id": "VehicleHighBeamRx",
+          "events": [
+            {
+              "name": "high_beam_state",
+              "datatype": "HighBeamState",
+              "sample_size": 1,
+              "sample_alignment": 1,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "/vehicle_high_beam_rx",
+                "instance": "network_rx",
+                "instance_specifier": "/vehicle_high_beam/network_rx",
+                "field": "value",
+                "vss": {
+                  "signal_id": 45,
+                  "path": "Vehicle.Body.Lights.Beam.High.IsOn",
+                  "datatype": "boolean",
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 100
+                }
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

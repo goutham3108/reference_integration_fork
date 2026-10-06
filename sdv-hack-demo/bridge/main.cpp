@@ -22,6 +22,7 @@
 #include <vsomeip/vsomeip.hpp>
 
 #include "high_beam_udp_protocol.h"
+#include "sdv-hack-demo/include/speed_payload.h"
 #include "score/mw/lifecycle/report_running.h"
 #include "score/mw/log/logging.h"
 
@@ -210,8 +211,7 @@ int main() {
             trace << "Bridge forwarded " << route.name
                   << " vehicle-to-remote payload_size=" << payload->get_length();
             if (payload->get_length() == sizeof(double) + 1U) {
-                double value = 0.0;
-                std::memcpy(&value, payload->get_data(), sizeof(value));
+                const double value = vehicle_dynamics_wire::DecodeSpeed(payload->get_data());
                 trace << " value=" << value;
             }
         });
@@ -234,6 +234,10 @@ int main() {
                                       << (sender_address == nullptr ? "<unknown>" : sender_address)
                                       << ":" << ntohs(sender.sin_port) << ", size=" << received;
             const auto frame = high_beam_udp::Decode(bytes.data(), static_cast<std::size_t>(received));
+            if (!frame.has_value()) {
+                score::mw::log::LogError() << "Bridge received invalid UDP SOME/IP frame";
+                continue;
+            }
             const auto route = std::find_if(routes->begin(), routes->end(), [&frame](const Route& candidate) {
                 return frame->service == candidate.service && frame->instance == candidate.remote_instance &&
                        frame->event == candidate.remote_event;
@@ -247,8 +251,7 @@ int main() {
                                                            frame->payload.begin() + frame->payload_size));
             vehicle_side->notify(route->service, route->remote_instance, route->remote_event, payload);
             if (frame->payload_size == sizeof(double) + 1U) {
-                double value = 0.0;
-                std::memcpy(&value, frame->payload.data(), sizeof(double));
+                const double value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
                 score::mw::log::LogWarn() << "Bridge converted UDP to SOME/IP " << route->name
                                           << " value=" << value;
             } else {

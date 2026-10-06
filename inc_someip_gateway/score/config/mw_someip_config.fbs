@@ -47,8 +47,14 @@ table ServiceInstance {
 
 union SerializationConfig {
     NullSerializerConfig,
+    VehicleDynamicsSerializerConfig,
+    BooleanSerializerConfig,
     // Add more serialization config types here as needed
 }
+
+table VehicleDynamicsSerializerConfig {}
+
+table BooleanSerializerConfig {}
 
 /// Configuration for the null serializer, which does not perform actual serialization but
 /// instead uses pre-serialized message buffers.

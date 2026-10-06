@@ -22,6 +22,25 @@
           ]
         }
       ]
+    },
+    {
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "bindings": [
+        {
+          "binding": "SHM",
+          "serviceId": 17152,
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "eventId": 2116
+            }
+          ]
+        }
+      ]
     }
   ],
   "global": {
@@ -121,6 +140,34 @@
             {
               "eventName": "speedAck",
               "numberOfSampleSlots": 30,
+              "maxSubscribers": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "instanceSpecifier": "/vehicle_high_beam/network_rx",
+      "serviceTypeName": "/vehicle_high_beam_rx",
+      "version": {
+        "major": 1,
+        "minor": 0
+      },
+      "instances": [
+        {
+          "instanceId": 4097,
+          "allowedConsumer": {
+            "QM": [4002, 0]
+          },
+          "allowedProvider": {
+            "QM": [4001, 0]
+          },
+          "asil-level": "QM",
+          "binding": "SHM",
+          "events": [
+            {
+              "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }
           ]

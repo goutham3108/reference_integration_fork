@@ -26,7 +26,7 @@
 namespace {
 
 constexpr std::string_view kTxInstanceSpecifier{"vehicle_high_beam/local_tx"};
-constexpr std::string_view kRxInstanceSpecifier{"vehicle_high_beam/network_rx"};
+constexpr std::string_view kRxInstanceSpecifier{"/vehicle_high_beam/network_rx"};
 constexpr std::string_view kEventName{"high_beam_state"};
 constexpr std::string_view kDynamicsTxInstanceSpecifier{"/Vehicle/Service1/Instance"};
 constexpr std::string_view kDynamicsRxInstanceSpecifier{"/Vehicle/Service2/Instance"};
@@ -337,14 +337,13 @@ class VehicleHighBeamApplication {
     void OnRemoteState() noexcept {
         const auto samples = rx_event_->GetNewSamples(
             [](score::mw::com::SamplePtr<void> sample) noexcept {
-                const auto* const data = static_cast<const PreSerializedData*>(sample.Get());
-                if (data == nullptr || data->size != kPayloadSize ||
-                    (data->data[0] != std::byte{0x00} && data->data[0] != std::byte{0x01})) {
-                    score::mw::log::LogError() << "Invalid remote high-beam payload";
+                const auto* const value = static_cast<const bool*>(sample.Get());
+                if (value == nullptr) {
+                    score::mw::log::LogError() << "Invalid remote high-beam sample";
                     return;
                 }
                 score::mw::log::LogWarn() << "Vehicle app received Vehicle.Body.Lights.Beam.High.IsOn="
-                                          << (data->data[0] == std::byte{0x01} ? "true" : "false");
+                                          << (*value ? "true" : "false");
             },
             kMaxSampleCount);
         if (!samples.has_value()) {
