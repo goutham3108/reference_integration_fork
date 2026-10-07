@@ -12,7 +12,7 @@
       "member": "speed",
       "field": "value",
       "unit": "km/h",
-      "scale": 3.6,
+      "scale": 1.0,
       "offset": 0.0,
       "min": 0.0,
       "max": 300.0,

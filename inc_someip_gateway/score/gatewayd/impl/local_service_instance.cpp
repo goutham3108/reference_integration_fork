@@ -195,8 +195,13 @@ Result<std::unique_ptr<LocalServiceInstance>> LocalServiceInstance::Create(
                           << event_context.config->event_name()->string_view()
                           << " serialized_size=" << written_length;
                     if (written_length == (sizeof(double) + 1U)) {
+                        const auto* const wire = payload.wdata().data() + pos - written_length;
+                        std::uint64_t bits{};
+                        for (std::size_t index = 0; index < sizeof(bits); ++index) {
+                            bits = (bits << 8U) | std::to_integer<std::uint8_t>(wire[index]);
+                        }
                         double value = 0.0;
-                        std::memcpy(&value, payload.wdata().data() + pos - written_length, sizeof(value));
+                        std::memcpy(&value, &bits, sizeof(value));
                         trace << " value=" << value;
                     }
                     if (written_length == 1U) {

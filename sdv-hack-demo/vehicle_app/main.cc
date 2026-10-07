@@ -33,10 +33,14 @@ constexpr std::string_view kDynamicsRxInstanceSpecifier{"/Vehicle/Service2/Insta
 constexpr std::string_view kSpeedEventName{"speed"};
 constexpr std::string_view kSpeedAckEventName{"speedAck"};
 constexpr std::string_view kSpeedApiName{"Vehicle.speed"};
-constexpr std::string_view kSpeedAckApiName{"Vehicle.speedAck"};
 constexpr std::size_t kPayloadSize{1U};
-constexpr std::size_t kSpeedPayloadSize{sizeof(double) + sizeof(std::uint8_t)};
 constexpr std::size_t kMaxSampleCount{4U};
+
+// Must match the native layout used by gatewayd's VehicleDynamicsSerializer.
+struct SpeedSample {
+    double value;
+    std::uint8_t quality;
+};
 
 using PreSerializedData = score::someip_gateway::serializer::PreSerializedData<0>;
 
@@ -44,9 +48,7 @@ constexpr score::mw::com::DataTypeMetaInfo kDataTypeMetaInfo{
     score::someip_gateway::serializer::get_size_of_pre_serialized_data(kPayloadSize),
     alignof(PreSerializedData)};
 constexpr std::array<score::mw::com::EventInfo, 1> kEvents{{{kEventName, kDataTypeMetaInfo}}};
-constexpr score::mw::com::DataTypeMetaInfo kSpeedMetaInfo{
-    score::someip_gateway::serializer::get_size_of_pre_serialized_data(kSpeedPayloadSize),
-    alignof(PreSerializedData)};
+constexpr score::mw::com::DataTypeMetaInfo kSpeedMetaInfo{sizeof(SpeedSample), alignof(SpeedSample)};
 constexpr std::array<score::mw::com::EventInfo, 2> kDynamicsEvents{{
     {kSpeedEventName, kSpeedMetaInfo},
     {kSpeedAckEventName, kSpeedMetaInfo},
@@ -293,10 +295,9 @@ class VehicleHighBeamApplication {
             return;
         }
         auto sample = std::move(sample_result).value();
-        auto* const data = static_cast<PreSerializedData*>(sample.Get());
-        data->size = kSpeedPayloadSize;
-        std::memcpy(data->data, &value, sizeof(value));
-        data->data[sizeof(value)] = static_cast<std::byte>(quality);
+        auto* const data = static_cast<SpeedSample*>(sample.Get());
+        data->value = value;
+        data->quality = quality;
         if (!dynamics_speed_event_->Send(std::move(sample)).has_value()) {
             score::mw::log::LogError() << "Cannot publish vehicle speed";
             return;
@@ -362,40 +363,38 @@ class VehicleHighBeamApplication {
         }
         auto proxy_result = CreateProxyWithRetry(handles.front());
         if (!proxy_result.has_value()) {
-            score::mw::log::LogError() << "Cannot create proxy for " << kSpeedAckApiName;
+            score::mw::log::LogError() << "Cannot create proxy for remote " << kSpeedApiName;
             return;
         }
         dynamics_proxy_.emplace(std::move(proxy_result).value());
         auto events = dynamics_proxy_->GetEvents();
-        const auto speed_ack = events.find(kSpeedAckEventName);
-        if (speed_ack == events.cend()) {
+        const auto speed = events.find(kSpeedEventName);
+        if (speed == events.cend()) {
             return;
         }
-        dynamics_speed_ack_event_ = &speed_ack->second;
-        if (!dynamics_speed_ack_event_->SetReceiveHandler([this]() noexcept { OnSpeedAck(); }).has_value() ||
-            !dynamics_speed_ack_event_->Subscribe(kMaxSampleCount).has_value()) {
-            score::mw::log::LogError() << "Cannot subscribe to " << kSpeedAckApiName;
+        dynamics_rx_speed_event_ = &speed->second;
+        if (!dynamics_rx_speed_event_->SetReceiveHandler([this]() noexcept { OnRemoteSpeed(); }).has_value() ||
+            !dynamics_rx_speed_event_->Subscribe(kMaxSampleCount).has_value()) {
+            score::mw::log::LogError() << "Cannot subscribe to remote " << kSpeedApiName;
             return;
         }
         (void)score::mw::com::GenericProxy::StopFindService(handle);
-        score::mw::log::LogWarn() << "Vehicle app subscribed to " << kSpeedAckApiName << ".";
+        score::mw::log::LogWarn() << "Vehicle app subscribed to remote " << kSpeedApiName << ".";
     }
 
-    void OnSpeedAck() noexcept {
-        const auto samples = dynamics_speed_ack_event_->GetNewSamples(
+    void OnRemoteSpeed() noexcept {
+        const auto samples = dynamics_rx_speed_event_->GetNewSamples(
             [](score::mw::com::SamplePtr<void> sample) noexcept {
-                const auto* const data = static_cast<const PreSerializedData*>(sample.Get());
-                if (data == nullptr || data->size != kSpeedPayloadSize) {
-                    score::mw::log::LogError() << "Invalid " << kSpeedAckApiName << " payload";
+                const auto* const data = static_cast<const SpeedSample*>(sample.Get());
+                if (data == nullptr) {
+                    score::mw::log::LogError() << "Invalid remote " << kSpeedApiName << " payload";
                     return;
                 }
-                double value = 0.0;
-                std::memcpy(&value, data->data, sizeof(value));
-                score::mw::log::LogWarn() << "Vehicle app received " << kSpeedAckApiName << "=" << value;
+                score::mw::log::LogWarn() << "Vehicle app received " << kSpeedApiName << "=" << data->value;
             },
             kMaxSampleCount);
         if (!samples.has_value()) {
-            score::mw::log::LogError() << "Cannot retrieve " << kSpeedAckApiName << " samples";
+            score::mw::log::LogError() << "Cannot retrieve remote " << kSpeedApiName << " samples";
         }
     }
 
@@ -404,9 +403,9 @@ class VehicleHighBeamApplication {
             (void)rx_event_->UnsetReceiveHandler();
             rx_event_->Unsubscribe();
         }
-        if (dynamics_speed_ack_event_ != nullptr) {
-            (void)dynamics_speed_ack_event_->UnsetReceiveHandler();
-            dynamics_speed_ack_event_->Unsubscribe();
+        if (dynamics_rx_speed_event_ != nullptr) {
+            (void)dynamics_rx_speed_event_->UnsetReceiveHandler();
+            dynamics_rx_speed_event_->Unsubscribe();
         }
         if (tx_skeleton_.has_value()) {
             tx_skeleton_->StopOfferService();
@@ -424,7 +423,7 @@ class VehicleHighBeamApplication {
     score::mw::com::GenericSkeletonEvent* tx_event_{nullptr};
     score::mw::com::GenericProxyEvent* rx_event_{nullptr};
     score::mw::com::GenericSkeletonEvent* dynamics_speed_event_{nullptr};
-    score::mw::com::GenericProxyEvent* dynamics_speed_ack_event_{nullptr};
+    score::mw::com::GenericProxyEvent* dynamics_rx_speed_event_{nullptr};
 };
 
 int main(int argc, char* argv[]) {

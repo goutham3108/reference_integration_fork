@@ -14,13 +14,12 @@ module(
     name = "score_ref_int",
 )
 
-bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.1")
-
-bazel_dep(name = "score_someip_gateway", version = "0.0.0", dev_dependency = True)
+bazel_dep(name = "score_someip_gateway", version = "0.0.0")
 local_path_override(
     module_name = "score_someip_gateway",
     path = "inc_someip_gateway",
 )
+bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.1")
 
 # Include common modules
 include("//bazel_common:score_basic_bazel.MODULE.bazel")
@@ -98,3 +97,14 @@ git_override(
 bazel_dep(name = "score_sbom", version = "0.0.2")
 
 include("//bazel_common:score_sbom.MODULE.bazel")
+
+demo_crates = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+bazel_dep(name = "protobuf", version = "31.1")
+demo_crates.spec(package = "serde_json", version = "=1.0.145")
+demo_crates.spec(package = "tonic", version = "=0.12.3")
+demo_crates.spec(package = "tonic-build", version = "=0.12.3")
+demo_crates.spec(package = "prost", version = "=0.13.5")
+demo_crates.spec(package = "prost-types", version = "=0.13.5")
+demo_crates.spec(package = "tokio", version = "=1.47.1", features = ["rt", "time", "net"])
+demo_crates.from_specs(name = "kuksa_demo_crates")
+use_repo(demo_crates, "kuksa_demo_crates")

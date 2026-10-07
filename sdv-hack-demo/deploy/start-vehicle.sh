@@ -15,6 +15,7 @@ fi
 
 export HIGH_BEAM_BIND_IP=0.0.0.0
 export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
+vehicle_app_mode="${VEHICLE_APP_MODE:-legacy}"
 
 cp "${root}/vsomeip-gateway-services.json" "${root}/vsomeip-vehicle.json"
 sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${HIGH_BEAM_VEHICLE_IP}\"/" \
@@ -24,14 +25,14 @@ vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -print
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
 for attempt in $(seq 1 20); do
-    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam' >/dev/null; then
+    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' >/dev/null; then
         break
     fi
     sleep 0.25
 done
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 
 # mw::com (LoLa) shared-memory ring buffers and the gateway's counterpart SHM
@@ -47,12 +48,12 @@ if ss -Hlun | grep -Eq ':35000([[:space:]]|$)'; then
 fi
 
 VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
-    setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >"${root}/someipd.log" 2>&1 < /dev/null &
+    setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >"${root}/someipd.log" 2>&1 < /dev/null 9>&- &
 disown
 
 setsid nohup "${root}/gatewayd" \
     --configuration "${root}/mw_someip_config.bin" \
-    --service_instance_manifest "${root}/mw_com_config.json" >"${root}/gatewayd.log" 2>&1 < /dev/null &
+    --service_instance_manifest "${root}/mw_com_config.json" >"${root}/gatewayd.log" 2>&1 < /dev/null 9>&- &
 disown
 
 # gatewayd's connection to someipd's "someipd_gatewayd_ipc" IPC socket has been
@@ -79,23 +80,60 @@ for ipc_attempt in $(seq 1 5); do
     done
     rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
     VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
-        setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >>"${root}/someipd.log" 2>&1 < /dev/null &
+        setsid nohup "${root}/someipd" --configuration "${root}/mw_someip_config.bin" >>"${root}/someipd.log" 2>&1 < /dev/null 9>&- &
     disown
     sleep 2
     setsid nohup "${root}/gatewayd" \
         --configuration "${root}/mw_someip_config.bin" \
-        --service_instance_manifest "${root}/mw_com_config.json" >>"${root}/gatewayd.log" 2>&1 < /dev/null &
+        --service_instance_manifest "${root}/mw_com_config.json" >>"${root}/gatewayd.log" 2>&1 < /dev/null 9>&- &
     disown
 done
 
 VSOMEIP_CONFIGURATION="${root}/vsomeip-vehicle.json" \
 VEHICLE_DOMAIN_CONFIG="${root}/vsomeip-vehicle.json" \
-    setsid nohup "${root}/vehicle_high_beam_bridge" >"${root}/bridge.log" 2>&1 < /dev/null &
+    setsid nohup "${root}/vehicle_high_beam_bridge" >"${root}/bridge.log" 2>&1 < /dev/null 9>&- &
 disown
 
 # Give gatewayd time to complete its someipd handshake and create the
-# remote-instance shared memory before the vehicle app starts subscribing to
-# it; the app itself also retries proxy creation as a second safeguard.
+# remote-instance shared memory before the selected vehicle app starts.
 sleep 10
 
-exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
+cd "${root}"
+start_kuksa() {
+    # gatewayd creates remote instances asynchronously; KUKSA aborts if they are absent.
+    for attempt in $(seq 1 60); do
+        if [[ -e /dev/shm/lola-data-0000000000006433-00002 && \
+              -e /dev/shm/lola-data-0000000000017152-04097 ]]; then
+            break
+        fi
+        sleep 0.5
+    done
+    for attempt in $(seq 1 5); do
+        "${root}/databroker-mw-com-demo" \
+            --address 0.0.0.0:55555 \
+            --provider-config "${root}/mw_com_provider/generated/mw_com_provider_config.json" \
+            --score-config "${root}/mw_com_config.json" \
+            --include-vss-path Vehicle.Speed \
+            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn && return 0
+        echo "KUKSA exited (attempt ${attempt}/5); retrying." >&2
+        sleep 2
+    done
+    return 1
+}
+
+case "${vehicle_app_mode}" in
+    legacy)
+        export -f start_kuksa
+        export root
+        setsid nohup bash -c start_kuksa >"${root}/kuksa.log" 2>&1 < /dev/null 9>&- &
+        disown
+        exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
+        ;;
+    kuksa)
+        start_kuksa
+        ;;
+    *)
+        echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'legacy' or 'kuksa'." >&2
+        exit 2
+        ;;
+esac

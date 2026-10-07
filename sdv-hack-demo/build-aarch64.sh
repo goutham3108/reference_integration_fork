@@ -4,10 +4,6 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 gateway_root="${repo_root}/inc_someip_gateway"
 
-cd "${repo_root}"
-bazel build --config=aarch64-linux \
-  //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com
-
 cd "${gateway_root}"
 bazel build --config=aarch64-linux \
   //score/config:config_file \
@@ -17,5 +13,8 @@ bazel build --config=aarch64-linux \
 
 cd "${repo_root}"
 bazel build --config=aarch64-linux --host_copt=-std=gnu11 \
+  //sdv-hack-demo/vehicle_app:vehicle_high_beam_mw_com \
   //sdv-hack-demo/bridge:vehicle_high_beam_bridge \
   //sdv-hack-demo/remote_app:vehicle_high_beam_remote_app
+
+"${repo_root}/kuksa-databroker/scripts/build-rpi-aarch64.sh"

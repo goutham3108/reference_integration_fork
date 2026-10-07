@@ -129,12 +129,19 @@ bash package-aarch64.sh
 The scripts create these Git-ignored archives:
 
 ```text
-dist/high-beam-vehicle-aarch64.tar.gz
-dist/high-beam-remote-aarch64.tar.gz
+dist/vehicle-aarch64.tar.gz
+dist/remote-aarch64.tar.gz
 ```
 
-The archives include the executables, required Bazel runfiles, vSomeIP shared
-libraries, `score_com_serializer.so`, configuration files, and launch scripts.
+The vehicle archive includes the gateway executables and runfiles, bridge,
+`databroker-mw-com-demo`, `databroker-cli`, the KUKSA provider configuration
+files, legacy `vehicle_high_beam_mw_com` app and its runfiles, serializer, and
+launch/configuration files. It excludes `kuksa_high_beam_udp_provider`, which
+is separate from the bridge and unnecessary for the KUKSA-to-mw::com path. The
+remote archive includes the remote app and its runfiles and
+launch/configuration files. `start-vehicle.sh` runs KUKSA in the background
+and the vehicle app in the foreground; both receive remote speed and high-beam
+updates from the gateway.
 
 Important build note:
 
@@ -147,7 +154,7 @@ Important build note:
 
 - After `package-aarch64.sh` completes, the produced archives are self-contained
   for runtime on the RPis — you only need to extract the appropriate archive
-  on each Pi and run the scripts in `~/high-beam/run/` (no Bazel or toolchain is
+  on each Pi and run the scripts in `~/sdv-demo/run/` (no Bazel or toolchain is
   required on the RPis).
 
 - If you want to avoid requiring the full workspace on the build host, you can
@@ -171,31 +178,31 @@ Transfer the archives from the build host. Enter the SSH password directly when
 prompted.
 
 ```bash
-scp dist/high-beam-vehicle-aarch64.tar.gz <user>@10.56.121.101:/tmp/
-scp dist/high-beam-remote-aarch64.tar.gz <user>@10.56.121.79:/tmp/
+scp dist/vehicle-aarch64.tar.gz <user>@10.56.121.101:/tmp/
+scp dist/remote-aarch64.tar.gz <user>@10.56.121.79:/tmp/
 ```
 
 On the Vehicle RPi:
 
 ```bash
-rm -rf ~/high-beam
-mkdir -p ~/high-beam
-tar -xzf /tmp/high-beam-vehicle-aarch64.tar.gz -C ~/high-beam
+rm -rf ~/sdv-demo
+mkdir -p ~/sdv-demo
+tar -xzf /tmp/vehicle-aarch64.tar.gz -C ~/sdv-demo
 ```
 
 On the Remote RPi:
 
 ```bash
-rm -rf ~/high-beam
-mkdir -p ~/high-beam
-tar -xzf /tmp/high-beam-remote-aarch64.tar.gz -C ~/high-beam
+rm -rf ~/sdv-demo
+mkdir -p ~/sdv-demo
+tar -xzf /tmp/remote-aarch64.tar.gz -C ~/sdv-demo
 ```
 
-Both archives include `~/high-beam/network.env`. Edit that file on either RPi
+Both archives include `~/sdv-demo/network.env`. Edit that file on either RPi
 when the devices receive new IP addresses:
 
 ```bash
-nano ~/high-beam/network.env
+nano ~/sdv-demo/network.env
 ```
 
 ```bash
@@ -208,7 +215,7 @@ export HIGH_BEAM_REMOTE_UDP_PORT=35001
 Verify that required libraries were extracted:
 
 ```bash
-find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
+find ~/sdv-demo -name 'libvsomeip3.so.3' -type f -print
 ```
 
 ## Run the Demo
@@ -230,7 +237,7 @@ rm -f /tmp/vsomeip*.lck
 On `10.56.121.79`:
 
 ```bash
-~/high-beam/run/start-remote.sh
+~/sdv-demo/run/start-remote.sh
 ```
 
 The remote app listens on UDP port `35001` and sends sensor frames to
@@ -241,7 +248,7 @@ The remote app listens on UDP port `35001` and sends sensor frames to
 On `10.56.121.101`:
 
 ```bash
-~/high-beam/run/start-vehicle.sh
+~/sdv-demo/run/start-vehicle.sh
 ```
 
 This launcher:
@@ -342,9 +349,9 @@ independent "remote-originated speed" signal would require a third event in
 Vehicle-side background logs are stored in:
 
 ```text
-~/high-beam/someipd.log
-~/high-beam/gatewayd.log
-~/high-beam/bridge.log
+~/sdv-demo/someipd.log
+~/sdv-demo/gatewayd.log
+~/sdv-demo/bridge.log
 ```
 
 ## Watch Logs Live
@@ -355,35 +362,35 @@ process's output as it happens.
 Follow a single log:
 
 ```bash
-tail -f ~/high-beam/someipd.log
-tail -f ~/high-beam/gatewayd.log
-tail -f ~/high-beam/bridge.log
+tail -f ~/sdv-demo/someipd.log
+tail -f ~/sdv-demo/gatewayd.log
+tail -f ~/sdv-demo/bridge.log
 ```
 
 Follow all three vehicle-side logs at once, each line prefixed with its source:
 
 ```bash
-tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log
+tail -f ~/sdv-demo/someipd.log ~/sdv-demo/gatewayd.log ~/sdv-demo/bridge.log
 ```
 
 Follow only High.IsOn state changes across all logs:
 
 ```bash
-tail -f ~/high-beam/someipd.log ~/high-beam/gatewayd.log ~/high-beam/bridge.log | grep --line-buffered 'High.IsOn'
+tail -f ~/sdv-demo/someipd.log ~/sdv-demo/gatewayd.log ~/sdv-demo/bridge.log | grep --line-buffered 'High.IsOn'
 ```
 
 The vehicle application and the remote sensor run in the foreground, so their
 output appears directly in the terminal where you launched
-`~/high-beam/run/start-vehicle.sh` or `~/high-beam/run/start-remote.sh`. To
+`~/sdv-demo/run/start-vehicle.sh` or `~/sdv-demo/run/start-remote.sh`. To
 capture that output to a file as well while still seeing it live, restart with
 `tee`:
 
 ```bash
-~/high-beam/run/start-vehicle.sh 2>&1 | tee ~/high-beam/vehicle_app.log
+~/sdv-demo/run/start-vehicle.sh 2>&1 | tee ~/sdv-demo/vehicle_app.log
 ```
 
 ```bash
-~/high-beam/run/start-remote.sh 2>&1 | tee ~/high-beam/remote_app.log
+~/sdv-demo/run/start-remote.sh 2>&1 | tee ~/sdv-demo/remote_app.log
 ```
 
 Check whether the background processes are still running:
@@ -451,8 +458,8 @@ If a runtime library is missing, confirm the archive contains real files rather
 than unresolved symlinks:
 
 ```bash
-find ~/high-beam -name 'libvsomeip3.so.3' -type f -print
-find ~/high-beam -name 'score_com_serializer.so' -type f -print
+find ~/sdv-demo -name 'libvsomeip3.so.3' -type f -print
+find ~/sdv-demo -name 'score_com_serializer.so' -type f -print
 ```
 
 ## Stop the Demo

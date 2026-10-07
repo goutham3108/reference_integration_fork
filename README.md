@@ -1,384 +1,293 @@
-# Eclipse S-CORE Reference Integration
+# S-CORE KUKSA High-Beam Demo
 
-This workspace integrates multiple Eclipse S-CORE modules (baselibs, communication, persistency, kyron, etc.) to validate cross-repository builds and detect integration issues early in the development cycle.
+This workspace integrates S-CORE modules. Remote values cross the existing
+UDP bridge and SOME/IP gateway, then reach both the vehicle app and KUKSA
+Databroker on Pi A through mw::com.
 
-## Overview
-``git clone --recurse-submodules -b sdv-hack https://github.com/goutham3108/reference_integration_fork.git``
-The reference integration workspace serves as a unified Bazel build environment for:
+```text
+KUKSA client          vehicle app
+    ^                     ^
+    |                     |
+Databroker + mw_com_provider (Pi A)
+    ^
+    | mw::com / LoLa
+gatewayd <- someipd <- vehicle_high_beam_bridge
+                            ^
+                            | UDP across the network
+                       remote app (Pi B)
+```
 
-- Validating cross-module dependency graphs and boundary issues
-- Testing toolchain and platform support (Linux x86_64, QNX x86_64, Elektrobit corbos Linux aarch64, Red Hat AutoSD)
-- Running Feature Integration Tests (FIT) and Integration Test Framework (ITF) tests
-- Preparing for release validation and integration workflows
+KUKSA receives `Vehicle.Speed` (`double`, km/h) from `/Vehicle/Service2/Instance`
+and `Vehicle.Body.Lights.Beam.High.IsOn` (`bool`) from
+`/vehicle_high_beam/network_rx`. The vehicle app subscribes to the same
+instances. Speed is not rescaled, so the value entered on the remote is shown
+unchanged.
 
-For additional documentation covering repository workflows and platform-specific details, see the `docs/` directory.
+## Current Status
 
-## Prerequisites
+The build compiles the gateway, bridge, legacy vehicle app, remote app, and
+KUKSA runtime. `start-vehicle.sh` starts the gateway and bridge, starts KUKSA in
+the background on `0.0.0.0:55555`, and then runs the vehicle app in the
+foreground. KUKSA subscribes only to the remote-fed speed and high-beam signals.
 
-Install required system packages before building or running anything in this repository:
+## 1. Prepare Pi A for Toolchain Creation
+
+The cross-toolchain script downloads the ARM GNU compiler and copies the
+sysroot from a live Raspberry Pi over SSH. Pi A can provide that sysroot. On
+Pi A, install SSH and rsync and check its architecture:
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y protobuf-compiler libclang-dev lcov qemu-system-x86
+sudo apt update
+sudo apt install -y openssh-server rsync
+sudo systemctl enable --now ssh
+uname -m
 ```
 
-For Docker, follow the [official Docker Engine install guide](https://docs.docker.com/engine/install/ubuntu/).
+Use a 64-bit Linux image; `uname -m` should print `aarch64`. Note Pi A's IP
+address and SSH username.
 
-## Quick Start
+## 2. Create the AArch64 Toolchain on the Build Host
 
-Simply run:
+On an x86_64 Linux build host, install the toolchain script prerequisites:
 
 ```bash
-./score_starter
+sudo apt update
+sudo apt install -y bash curl xz-utils tar rsync openssh-client build-essential cmake file
 ```
 
-You will be guided interactively through available integrations, build options, and examples to run.
-
-## Run showcases
-
-Use the interactive helper or Bazel to run showcase binaries. Examples:
+Verify SSH access to Pi A:
 
 ```bash
-# Interactive helper
-./score_starter
-
-# Run a CLI showcase (example target, may vary by workspace state)
-bazel run //showcases/cli:cli -- --help
+ssh <pi-user>@<pi-a-ip>
 ```
 
-See [showcases/cli/README.md](showcases/cli/README.md) for CLI configuration and examples.
+Edit `inc_someip_gateway/tools/make_local_aarch64_toolchain.sh` and set
+`PI_USER`, `PI_HOST`, and `OUTDIR`. The script downloads the ARM GNU toolchain,
+copies the Pi's headers and libraries into a sysroot, creates compiler
+wrappers, and archives the result. Its default output directory is
+`$HOME/aarch64_toolchain`.
 
-## Build and deploy showcases on Raspberry Pi (QNX aarch64)
-
-The `images/qnx_aarch64` image packages all S-CORE showcases into a bootable QNX 8.0 IFS (Image File System) for AArch64 targets. It can be run in QEMU for local development and testing, or deployed to a Raspberry Pi 4/5 for real hardware validation.
-
-### Prerequisites
-
-- **QNX SDP 8.0.0** — a licensed copy of the QNX Software Development Platform is required for cross-compilation. See the [QNX SDP product page](https://blackberry.qnx.com/en/products/foundation-software/qnx-software-development-platform).
-- For RPi hardware: a **Raspberry Pi** (4 or later), microSD card, and the [QNX Raspberry Pi BSP](https://www.qnx.com/developers/docs/8.0/) — consult the BSP documentation for model-specific support and requirements.
-
-### Build the QNX aarch64 image
-
-Cross-compile all showcases and assemble the IFS image:
+Run it from the integration workspace root:
 
 ```bash
-bazel build --config=qnx-aarch64 //images/qnx_aarch64:image
+bash inc_someip_gateway/tools/make_local_aarch64_toolchain.sh
 ```
 
-### Software Bill of Materials
-
-The root `//:sbom` target generates SPDX 2.3 and CycloneDX 1.6 documents for
-the integrated showcase and feature-test binaries. It consumes `sbom-tool`
-from the local git checkout at `../sbom-tool` in this workspace until the
-module is available in the Bazel registry.
-
-Install Node.js/npm and `@cyclonedx/cdxgen` before building the C++ dependency
-metadata, then run:
+Check the generated compiler and configure the environment in the same build
+host terminal:
 
 ```bash
-npm install -g @cyclonedx/cdxgen
-bazel build //:sbom
+$HOME/aarch64_toolchain/local/bin/aarch64-linux-gnu-gcc --version
+$HOME/aarch64_toolchain/local/bin/aarch64-linux-gnu-g++ --version
+
+export AARCH64_TOOLCHAIN_ROOT="$HOME/aarch64_toolchain"
+export AARCH64_CC="$AARCH64_TOOLCHAIN_ROOT/local/bin/aarch64-linux-gnu-gcc"
+export AARCH64_CXX="$AARCH64_TOOLCHAIN_ROOT/local/bin/aarch64-linux-gnu-g++"
+export AARCH64_AR="$AARCH64_TOOLCHAIN_ROOT/toolchain/bin/aarch64-none-linux-gnu-ar"
 ```
 
-The generated documents are written below `bazel-bin/` as `sbom.spdx.json` and
-`sbom.cdx.json`. Rust crate metadata is collected automatically from the
-workspace lockfile and the configured `score_crates` module.
+These variables select the AArch64 C compiler, C++ linker, and archiver for
+the Cargo native dependencies. Keep the toolchain on the build host; do not
+copy it to either Pi.
 
-### Selecting an SBOM mode
+## 3. Install the Build Tools
 
-Choose the mode based on what is being qualified:
-
-- **Product mode** is for the software delivered by the integration. It follows
-   the configured showcase and feature-test binaries and includes their runtime
-   dependencies. Use `//:product_sbom` (an alias of `//:sbom`) when you need both
-   SPDX and CycloneDX output for the product scope.
-- **Build-tool qualification mode** is for tools used to build, test, or
-   generate documentation. It is separate from the product scope because these
-   tools are not shipped as product runtime dependencies. Use
-   `//:build_tools_sbom` when collecting ISO 26262 qualification evidence for
-   the development toolchain.
-
-Build-tool mode includes the Python lockfiles used by the workspace tooling and
-docs-as-code, the Sphinx documentation toolchain, the PlantUML integration, and
-the PlantUML JAR itself with a SHA-256 checksum. It emits SPDX only and does
-not run cdxgen or the Rust crate cache collector.
-
-Build the selected mode as follows:
+Install Bazelisk or the Bazel version selected by `.bazelversion`, and install
+Rustup with Rust stable 1.96 or newer. The build also requires the `file`
+utility. The KUKSA build helper installs the Rust target when run, or it can be
+installed manually:
 
 ```bash
-# Product/runtime dependencies
-bazel build //:product_sbom
-# Outputs: bazel-bin/product_sbom.spdx.json and bazel-bin/product_sbom.cdx.json
-
-# Build-tool qualification inventory (SPDX JSON)
-bazel build //:build_tools_sbom
-# Output: bazel-bin/build_tools_sbom.spdx.json
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
+rustup toolchain install stable
+rustup update stable
+rustup target add --toolchain stable aarch64-unknown-linux-gnu
+rustup run stable rustc --version
+bazel --version
 ```
 
-While testing the unpublished Python collector branch of `sbom-tool`, resolve
-it with the module override below. Apply the override to whichever mode you are
-building:
+The build host also needs the `baselibs/`, `communication/`,
+`inc_someip_gateway/`, and `kuksa-databroker/` source checkouts at the workspace
+root. If Communication is elsewhere, set `COMMUNICATION_ROOT` to its path.
+
+## 4. Configure KUKSA to Replace the Vehicle Publisher
+
+The old vehicle app publishes a `high_beam_state` event from
+`vehicle_high_beam/local_tx`; `gatewayd`, `someipd`, and the bridge consume
+that event. KUKSA must replace that publisher, not the remote app.
+
+Configure the high-beam mapping for `databroker-mw-com-demo` as an actuator
+whose LoLa binding targets the same local transmit service and member. The
+mapping must be generated and validated against the S-CORE binding metadata.
+The current generated mapping points to the opposite receive-side service, so
+changing only `direction` is not enough; the service and instance binding must
+also be correct. The demo runner seeds the KUKSA metadata from this mapping.
+
+## 5. Build ARM64 Artifacts on the Host
+
+The build command compiles these ARM64 outputs:
+
+- KUKSA `databroker`, `databroker-cli`, `mw_com_provider`, and
+  `databroker-mw-com-demo`.
+- The existing `gatewayd`, `someipd`, serializer, UDP bridge, remote
+  application, and legacy `vehicle_high_beam_mw_com` app.
+- Communication vehicle-dynamics Bazel artifacts used while building the
+  KUKSA mw::com integration.
+
+Run the build on the x86_64 Linux build host:
+
+```sh
+bash sdv-hack-demo/build-aarch64.sh
+```
+
+The command builds gateway targets from `inc_someip_gateway/`, builds the
+legacy vehicle app, bridge, and remote app from the workspace root, then runs
+`kuksa-databroker/scripts/build-rpi-aarch64.sh`. The KUKSA helper builds the
+Communication dependency and Rust targets, then verifies that its executables
+are AArch64. Both scripts stop on the first failed command. A successful run
+ends with `All requested Raspberry Pi targets built successfully.` and exits
+with status 0; if a command fails, the script exits nonzero and reports the
+failed step.
+
+The build outputs are left in their project build directories; this command
+does not package them or run `scp`:
+
+```text
+inc_someip_gateway/bazel-bin/score/gatewayd/gatewayd
+inc_someip_gateway/bazel-bin/score/someipd/someipd
+inc_someip_gateway/bazel-bin/score/serializer/score_com_serializer.so
+bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com
+bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge
+bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-cli
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/mw_com_provider
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+communication/bazel-bin/score/mw/com/example/vehicle-dynamics-example/
+```
+
+The Communication output is a build-time dependency, not an additional demo
+process to copy to a Pi. If Communication is outside this workspace, its
+Bazel outputs are under the configured `COMMUNICATION_ROOT` instead. The
+KUKSA helper itself runs `file` checks on `databroker`, `databroker-cli`,
+`mw_com_provider`, and `databroker-mw-com-demo`. You can also check the main
+demo and remote executables manually:
+
+```sh
+file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+file bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
+```
+
+Both should report AArch64 executables. The Bazel outputs also include their
+runfiles; they are not copied into deployment archives by the build command.
+
+## 6. Package and Copy to the Pis
+
+Package on the build host; packaging and transfer are separate from the build:
+
+```sh
+bash sdv-hack-demo/package-aarch64.sh
+```
+
+The package step creates `vehicle-aarch64.tar.gz` and `remote-aarch64.tar.gz`.
+The vehicle archive includes the gateway daemons, bridge, KUKSA
+`databroker-mw-com-demo`, `databroker-cli`, both provider JSON configs, and the
+legacy `vehicle_high_beam_mw_com` app with its runfiles. It excludes
+`kuksa_high_beam_udp_provider`, which is a separate adapter and is not needed
+for the KUKSA-to-mw::com bridge path. The remote archive and app are unchanged.
+`scp` only transfers the completed archives:
+
+```sh
+scp sdv-hack-demo/dist/vehicle-aarch64.tar.gz \
+  <pi-user>@<pi-a-ip>:/tmp/
+scp sdv-hack-demo/dist/remote-aarch64.tar.gz \
+  <pi-user>@<pi-b-ip>:/tmp/
+```
+
+## 7. Start and Test the Demo
+
+The steps below assume the vehicle and remote archives have been packaged and
+copied to the Pis.
+
+Pi 1 is the vehicle side (Pi A); Pi 2 is the remote side (Pi B). On **both**
+Pis, extract the appropriate archive first:
 
 ```bash
-bazel build //:product_sbom \
-    --override_module=score_sbom=/workspaces/sbom-tool
-
-bazel build //:build_tools_sbom \
-   --override_module=score_sbom=/workspaces/sbom-tool
+mkdir -p ~/sdv-demo
+tar -xzf /tmp/vehicle-aarch64.tar.gz -C ~/sdv-demo
 ```
 
-Once the collector branch is merged, replace this command-line override with
-the merged commit in the root `MODULE.bazel` git override.
-
-## Operating system integrations
-The built IFS image is written to:
-
-```
-bazel-bin/images/qnx_aarch64/build/init
-```
-
-### Run in QEMU (development and testing)
-
-Before deploying to hardware, validate the image in QEMU:
+Run that command on Pi 1 with the vehicle archive. On Pi 2, use the remote
+archive instead:
 
 ```bash
-bazel run --config=qnx-aarch64 //images/qnx_aarch64:run
+mkdir -p ~/sdv-demo
+tar -xzf /tmp/remote-aarch64.tar.gz -C ~/sdv-demo
 ```
 
-SSH into the running QEMU instance (no password required):
+Then edit `~/sdv-demo/network.env` on **both** Pis. Set the same vehicle and
+remote LAN addresses on each Pi; do not leave the loopback defaults
+(`127.0.1.1`) when the devices are separate:
 
 ```bash
-ssh -p 2222 root@localhost
+nano ~/sdv-demo/network.env
 ```
 
-The showcases CLI starts automatically on boot. You can also launch it manually:
+Use the actual addresses assigned by your network:
 
 ```bash
-/showcases/bin/cli
+export HIGH_BEAM_VEHICLE_IP=<Pi-1-LAN-IP>
+export HIGH_BEAM_REMOTE_IP=<Pi-2-LAN-IP>
+export HIGH_BEAM_BRIDGE_UDP_PORT=35000
+export HIGH_BEAM_REMOTE_UDP_PORT=35001
 ```
 
-### Flash QNX on Raspberry Pi
-
-> [!NOTE]
-> The default `images/qnx_aarch64` image uses `startup-virt`, which is suitable for QEMU. Deploying to real RPi hardware requires replacing this with the board-specific startup binary from the QNX Raspberry Pi BSP. See the `TODO` comment in [`images/qnx_aarch64/build/init.build`](images/qnx_aarch64/build/init.build).
-
-General steps to create a bootable QNX SD card for Raspberry Pi:
-
-1. **Obtain the QNX Raspberry Pi BSP** from [BlackBerry QNX](https://blackberry.qnx.com/en/sdp8) and follow its *Getting Started* guide to install it under your QNX SDP.
-
-2. **Replace the startup binary** in `images/qnx_aarch64/build/init.build`: substitute `startup-virt` with the RPi-specific startup binary provided by the BSP (consult the BSP documentation for the correct binary name for your RPi model).
-
-3. **Rebuild the image** (see [Build the QNX aarch64 image](#build-the-qnx-aarch64-image) above).
-
-4. **Prepare the SD card** following the QNX BSP instructions. This typically involves creating a boot partition and copying the QNX IFS image to it:
-
-   ```bash
-   # Copy the IFS image to the SD card boot partition (exact path depends on your BSP layout)
-   cp bazel-bin/images/qnx_aarch64/build/init /media/$USER/boot/qnx-image.ifs
-   sync && umount /media/$USER/boot
-   ```
-
-5. **Insert the SD card** into the RPi and power it on. QNX boots and starts all services defined in [`images/qnx_aarch64/configs/startup.sh`](images/qnx_aarch64/configs/startup.sh).
-
-### Deploy and run showcases on Raspberry Pi
-
-Once QNX is running on the RPi:
-
-1. **Find the RPi IP address** — the system acquires an address via DHCP on the `vtnet0` interface at startup (configured in [`configs/network_setup_dhcp.sh`](images/qnx_aarch64/configs/network_setup_dhcp.sh)). Check your router's DHCP table or connect a serial console to read the address from the boot log.
-
-2. **SSH into the RPi** (root, no password — see [`configs/sshd_config`](images/qnx_aarch64/configs/sshd_config)):
-
-   ```bash
-   ssh root@<RPi_IP>
-   ```
-
-3. **Showcases are pre-loaded** in `/showcases/bin/`. The interactive CLI is started automatically on boot (see [`configs/startup.sh`](images/qnx_aarch64/configs/startup.sh)). Re-launch it at any time:
-
-   ```bash
-   /showcases/bin/cli
-   ```
-
-4. **Run a specific showcase** by following the CLI prompts, or invoke a binary directly. For example, to run the lifecycle management example (from [`showcases/simple_lifecycle`](showcases/simple_lifecycle)):
-
-   ```bash
-   /showcases/bin/launch_manager
-   ```
-
-5. **View system logs**:
-
-   ```bash
-   slog2info
-   ```
-
-## Run tests
-
-Run Feature Integration Tests (FIT) and Integration Test Framework (ITF) with Bazel. Common examples:
+On **Pi 2 (remote)**, start its service first:
 
 ```bash
-# Run all FIT tests (Rust + C++)
-bazel test --config=linux-x86_64 //feature_integration_tests/test_cases:fit --test_output=streamed
-
-# Run only Rust scenarios listing
-bazel run //feature_integration_tests/test_scenarios/rust:rust_test_scenarios -- --list-scenarios
-
-# Run ITF tests on Docker (Linux)
-bazel test --config=linux-x86_64 //feature_integration_tests/itf --test_output=streamed
-
-# Run ITF tests on QNX (uses the itf-qnx-x86_64 test config)
-bazel test --config=itf-qnx-x86_64 //feature_integration_tests/itf --test_output=streamed
+~/sdv-demo/run/start-remote.sh
 ```
 
-Notes:
-- Use `--config=<name>` to select the correct toolchain/platform (supported configs for tests: `linux-x86_64`, `qnx-x86_64`). See `.bazelrc` for all available configs.
-- For streaming test output and real-time logs, use `--test_output=streamed` or `--test_output=all`.
-
-## Repository Structure
-
-Intention for each folder is described below.
-
-### `bazel_common/`
-
-Common Bazel configurations and macros used across the workspace:
-- Toolchain setups (GCC, Rust, QNX)
-- S-CORE module dependency versions
-- Bazel extensions and bundling macros
-
-### `feature_integration_tests/`
-
-Feature Integration Tests and test scenarios:
-- **`test_cases/`**: Python test orchestration and fixtures
-- **`test_scenarios/`**: Rust and C++ scenario implementations
-- **`itf/`**: Integration Test Framework (QEMU/Docker-based platform tests)
-- **`configs/`**: DLT, QEMU, and target-specific configurations
-
-### `showcases/`
-
-Eclipse S-CORE demonstration applications and examples:
-- **`cli/`**: Interactive CLI tool for running examples on deployed systems
-- **`standalone/`**: Standalone example binaries (communication, persistence, etc.)
-- **`simple_lifecycle/`**: Basic lifecycle management examples
-
-Configuration for CLI autodiscovery is in `name.score.json` files; see [showcases/cli/README.md](showcases/cli/README.md) for details.
-
-### `images/`
-
-Platform-specific target images bundling S-CORE artifacts and showcases:
-- **`linux_x86_64/`**: Linux x86_64 Docker image
-- **`qnx_x86_64/`**: QNX x86_64 QEMU image
-- **`qnx_aarch64/`**: QNX 8.0 aarch64 image — QEMU or Raspberry Pi 4/5 (see [Build and deploy showcases on Raspberry Pi](#build-and-deploy-showcases-on-raspberry-pi-qnx-aarch64))
-- **`ebclfsa_aarch64/`**: Elektrobit corbos Linux for Safety Applications (aarch64) (see [images/ebclfsa_aarch64/README.md](images/ebclfsa_aarch64/README.md))
-- **`autosd/`**: Red Hat AutoSD x86_64
-
-### `runners/`
-
-Thin abstraction layers for Docker and QEMU execution:
-- Centralized logic for spawning and interacting with target environments
-- Reusable across multiple image definitions
-
-## Documentation
-
-For documentation covering repository workflows, testing frameworks, and platform-specific details, see the `docs/` directory and these entry points:
-
-- **[Feature Integration Tests](feature_integration_tests/README.md)** — FIT and ITF test framework usage
-- **[CLI Documentation](showcases/cli/README.md)** — CLI tool configuration and usage
-- **Platform-Specific Guides:**
-   - [Elektrobit corbos Linux (aarch64)](images/ebclfsa_aarch64/README.md)
-   - [QNX aarch64 / Raspberry Pi](#build-and-deploy-showcases-on-raspberry-pi-qnx-aarch64)
-
-To generate HTML documentation for all integrated modules:
+The remote application stays in the foreground. Keep the terminal open to see
+its output. Then, on **Pi 1 (vehicle)**, start the vehicle services:
 
 ```bash
-bazel run //:docs
+~/sdv-demo/run/start-vehicle.sh
 ```
 
-## Supported Platforms
+The vehicle launcher keeps `someipd`, `gatewayd`, the bridge, and KUKSA
+running in the background; the vehicle app runs in the foreground. Logs are
+written under `~/sdv-demo/`, including `someipd.log`, `gatewayd.log`,
+`bridge.log`, and `kuksa.log`.
 
-Integration and deployment platforms for S-CORE:
+On Pi 1, run the CLI from the extracted demo directory to read or subscribe to
+values sent from the remote menu:
 
-- **QNX x86_64** — QNX RTOS integration (QEMU-based testing)
-- **QNX aarch64 (RPi)** — QNX 8.0 on Raspberry Pi 4/5 or QEMU aarch64; see [Build and deploy showcases on Raspberry Pi](#build-and-deploy-showcases-on-raspberry-pi-qnx-aarch64)
-- **[Elektrobit corbos Linux for Safety Applications (aarch64)](images/ebclfsa_aarch64/README.md)** — Safety-critical automotive Linux
-- **Red Hat AutoSD (x86_64)** — Automotive system development
-- **Linux x86_64** — Standard Linux development and testing (Docker-based)
-
-## Multi-Module Development Workspace
-
-For cross-module development, you can obtain a complete S-CORE workspace—a local git checkout of all modules pinned in `known_good.json` on specific branches/commits—integrated into a single Bazel build.
-
-This enables:
-- Cross-module development and debugging
-- Testing changes across multiple modules simultaneously
-- Reproducible builds with pinned versions
-
-> [!NOTE]
-> The [S-CORE devcontainer](https://github.com/eclipse-score/devcontainer) [integrated in this repository](.devcontainer/) pre-installs workspace managers and generates required metadata.
-> Manual setup is also possible; see `.devcontainer/prepare_workspace.sh` for the setup script.
-
-### Initialization Steps
-
-1. **Switch to local path overrides:**
-   
-   Use the VS Code Task (`Terminal` → `Run Task...`): **"Switch Bazel modules to `local_path_overrides`"**
-   
-   Command line:
-   ```bash
-   python3 scripts/known_good/update_module_from_known_good.py --override-type local_path
-   ```
-   
-   To revert to git overrides:
-   ```bash
-   python3 scripts/known_good/update_module_from_known_good.py --override-type git
-   ```
-
-2. **Update workspace metadata from known good:**
-   
-   Use the VS Code Task: **"Update workspace metadata from known good"**
-   
-   Command line:
-   ```bash
-   python3 scripts/known_good/known_good_to_workspace_metadata.py
-   ```
-
-3. **Clone all modules:**
-   
-   Use the VS Code Task: **"Gita: Generate workspace"**
-   
-   Command line (using gita):
-   ```bash
-   gita clone --preserve-path --from-file .gita-workspace.csv
-   ```
-
-Modules are cloned into subdirectories prefixed with `score_` (e.g., `score_persistency/`, `score_communication/`).
-
-When running Bazel, it will use these local working copies, and your changes will be immediately reflected in the next build.
-
-## Known Issues ⚠️
-
-For a comprehensive list of known issues, limitations, and troubleshooting guidance, see the `docs/` directory.
-
-### Communication Module
-
-**Module:** `score/mw/com/requirements`
-
-**Integration issues when building from external repository:**
-
-1. **Label inconsistency**: Some `BUILD` files use `@//third_party` instead of `//third_party` (repository-qualified vs. local labels). Should standardize on local labels.
-2. **Outdated path reference**: `runtime_test.cpp:get_path` checks for obsolete `safe_posix_platform` instead of the current module path structure.
-
-## IDE Support
-
-### Rust
-
-To enable VS Code Rust analyzer support:
-
-```bash
-scripts/generate_rust_analyzer_support.sh
+```sh
+cd ~/sdv-demo
+./databroker-cli --server http://127.0.0.1:55555 \
+  get Vehicle.Speed Vehicle.Body.Lights.Beam.High.IsOn
+./databroker-cli --server http://127.0.0.1:55555 \
+  subscribe Vehicle.Speed
 ```
 
-This generates the necessary Rust analyzer configuration for the workspace.
+for cli 
 
-## Internal Tooling
+```sh
+cd ~/sdv-demo
+./databroker-cli
+```
 
-Internal tooling scripts are currently under development to provide a unified interface for repository operations.
+The same values appear in the vehicle app as `Vehicle app received ...`. Use
+the remote log and network checks in [the legacy demo guide](sdv-hack-demo/README.md)
+if needed.
 
-For detailed documentation, see [scripts/tooling/README.md](scripts/tooling/README.md).
+## Verified Data Paths
+
+- Remote `Vehicle.speed` and high-beam input reach the vehicle app and KUKSA
+  with the same values.
+- Vehicle `Vehicle.speed` input is forwarded to the remote app with the same
+  value.
+- If no remote updates arrive, check that `~/sdv-demo/network.env` on both Pis
+  contains the real vehicle and remote LAN IPs, not `127.0.1.1`.

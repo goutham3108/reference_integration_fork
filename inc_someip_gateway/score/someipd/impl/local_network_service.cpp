@@ -139,8 +139,12 @@ void LocalNetworkService::forward_to_vsomeip(socom::Event_id event_id, socom::Pa
         trace << " value=" << (event_data[0] != std::byte{0x00} ? "true" : "false");
     }
     if (event_data.size() == sizeof(double) + 1U) {
+        std::uint64_t bits{};
+        for (std::size_t index = 0; index < sizeof(bits); ++index) {
+            bits = (bits << 8U) | std::to_integer<std::uint8_t>(event_data[index]);
+        }
         double value = 0.0;
-        std::memcpy(&value, event_data.data(), sizeof(value));
+        std::memcpy(&value, &bits, sizeof(value));
         trace << " value=" << value;
     }
 
