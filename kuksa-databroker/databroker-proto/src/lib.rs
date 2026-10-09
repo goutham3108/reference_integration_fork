@@ -147,3 +147,13 @@ pub mod kuksa {
         }
     }
 }
+
+pub mod sdv {
+    pub mod databroker {
+        pub mod v1 {
+            pub const FILE_DESCRIPTOR_SET: &[u8] =
+                tonic::include_file_descriptor_set!("sdv.databroker.v1_descriptor");
+            tonic::include_proto!("sdv.databroker.v1");
+        }
+    }
+}

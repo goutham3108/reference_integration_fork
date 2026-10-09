@@ -28,5 +28,6 @@ pub mod high_beam {
     score_com::interface!(interface VehicleHighBeamRx {
         Id = "VehicleHighBeamRx",
         high_beam_state: Event<crate::mw_com_provider_types::high_beam::HighBeamState>,
+        low_beam_state: Event<crate::mw_com_provider_types::high_beam::HighBeamState>,
     });
 }

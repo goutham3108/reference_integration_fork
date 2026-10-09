@@ -6,7 +6,7 @@
     {
       "signal_id": 42,
       "vss_path": "Vehicle.Speed",
-      "datatype": "double",
+      "datatype": "float",
       "service": "VehicleDynamicsService",
       "instance": "front_vehicle",
       "member": "speed",
@@ -70,7 +70,34 @@
       "min": null,
       "max": null,
       "required_quality": "valid",
-      "direction": "datapoint",
+      "direction": "bidirectional",
+      "actuation_binding": {
+        "service": "/vehicle_high_beam_tx",
+        "instance": "local_tx",
+        "member": "high_beam_state"
+      },
+      "cycle_time_ms": 100
+    },
+    {
+      "signal_id": 46,
+      "vss_path": "Vehicle.Body.Lights.Beam.Low.IsOn",
+      "datatype": "bool",
+      "service": "/vehicle_high_beam_rx",
+      "instance": "network_rx",
+      "member": "low_beam_state",
+      "field": null,
+      "unit": null,
+      "scale": 1.0,
+      "offset": 0.0,
+      "min": null,
+      "max": null,
+      "required_quality": "valid",
+      "direction": "bidirectional",
+      "actuation_binding": {
+        "service": "/vehicle_high_beam_tx",
+        "instance": "local_tx",
+        "member": "low_beam_state"
+      },
       "cycle_time_ms": 100
     }
   ]

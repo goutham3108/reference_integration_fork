@@ -24,8 +24,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "../proto/kuksa/val/v1/types.proto",
                 "../proto/kuksa/val/v2/val.proto",
                 "../proto/kuksa/val/v2/types.proto",
+                "vdb_proto/sdv/databroker/v1/broker.proto",
+                "vdb_proto/sdv/databroker/v1/types.proto",
             ],
-            &["../proto"],
+            &["../proto", "vdb_proto"],
         )?;
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -47,6 +49,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "../proto/kuksa/val/v1/types.proto",
             ],
             &["../proto"],
+        )
+        .unwrap();
+    tonic_prost_build::configure()
+        .file_descriptor_set_path(out_dir.join("sdv.databroker.v1_descriptor.bin"))
+        .compile_protos(
+            &[
+                "vdb_proto/sdv/databroker/v1/broker.proto",
+                "vdb_proto/sdv/databroker/v1/types.proto",
+            ],
+            &["../proto", "vdb_proto"],
         )
         .unwrap();
 

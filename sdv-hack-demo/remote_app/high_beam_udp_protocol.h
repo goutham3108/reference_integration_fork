@@ -60,6 +60,34 @@ inline std::optional<Frame> Decode(const std::uint8_t* bytes, const std::size_t 
     return frame;
 }
 
+enum class CommandResult { kMalformed, kDisplayed, kApplied, kOutputFailed };
+
+inline std::optional<bool> BooleanValue(const Frame& frame) {
+    if (frame.payload_size != 1U || frame.payload[0] > 1U) {
+        return std::nullopt;
+    }
+    return frame.payload[0] == 1U;
+}
+
+inline std::optional<Frame> FeedbackFrame(const Frame& command, std::uint16_t instance, std::uint16_t event) {
+    if (!BooleanValue(command).has_value()) {
+        return std::nullopt;
+    }
+    return Frame{command.service, instance, event, command.payload_size, command.payload};
+}
+
+template <typename WriteOutput>
+CommandResult ApplyCommand(const Frame& frame, bool hardware, WriteOutput write_output) {
+    const auto value = BooleanValue(frame);
+    if (!value.has_value()) {
+        return CommandResult::kMalformed;
+    }
+    if (!hardware) {
+        return CommandResult::kDisplayed;
+    }
+    return write_output(*value) ? CommandResult::kApplied : CommandResult::kOutputFailed;
+}
+
 }  // namespace high_beam_udp
 
 #endif  // HIGH_BEAM_UDP_PROTOCOL_H_

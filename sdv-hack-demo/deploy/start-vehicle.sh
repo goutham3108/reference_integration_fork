@@ -16,6 +16,24 @@ fi
 export HIGH_BEAM_BIND_IP=0.0.0.0
 export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
 vehicle_app_mode="${VEHICLE_APP_MODE:-legacy}"
+export HIGH_BEAM_COMMAND_MODE="${HIGH_BEAM_COMMAND_MODE:-kuksa}"
+case "$HIGH_BEAM_COMMAND_MODE" in
+    kuksa) export KUKSA_HIGH_BEAM_ACTUATION=1 ;;
+    direct) export KUKSA_HIGH_BEAM_ACTUATION=0 ;;
+    *) echo "HIGH_BEAM_COMMAND_MODE must be kuksa or direct" >&2; exit 2 ;;
+esac
+export VDB_ADDRESS="${VDB_ADDRESS:-127.0.0.1:55555}"
+
+ensure_broker_port_free() {
+    local listeners
+    listeners="$(ss -Hltnp 'sport = :55555')"
+    if [[ -n "$listeners" ]]; then
+        echo "TCP port 55555 is already occupied; the demo broker cannot start." >&2
+        echo "$listeners" >&2
+        echo "Identify and stop that listener before restarting this vehicle stack." >&2
+        return 1
+    fi
+}
 
 cp "${root}/vsomeip-gateway-services.json" "${root}/vsomeip-vehicle.json"
 sed -i "s/\"unicast\": \"127.0.0.1\"/\"unicast\": \"${HIGH_BEAM_VEHICLE_IP}\"/" \
@@ -33,6 +51,7 @@ for attempt in $(seq 1 20); do
     sleep 0.25
 done
 pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
+ensure_broker_port_free
 rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 
 # mw::com (LoLa) shared-memory ring buffers and the gateway's counterpart SHM
@@ -100,21 +119,35 @@ sleep 10
 
 cd "${root}"
 start_kuksa() {
-    # gatewayd creates remote instances asynchronously; KUKSA aborts if they are absent.
-    for attempt in $(seq 1 60); do
-        if [[ -e /dev/shm/lola-data-0000000000006433-00002 && \
-              -e /dev/shm/lola-data-0000000000017152-04097 ]]; then
-            break
-        fi
-        sleep 0.5
-    done
+    local attempt readiness_attempt resource
+    local -a missing_resources
     for attempt in $(seq 1 5); do
+        for readiness_attempt in $(seq 1 60); do
+            missing_resources=()
+            for resource in /dev/shm/lola-{ctl,data}-0000000000006433-00002 \
+                            /dev/shm/lola-{ctl,data}-0000000000017152-04097; do
+                if [[ ! -r "$resource" ]]; then
+                    missing_resources+=("$resource")
+                fi
+            done
+            if [[ ${#missing_resources[@]} -eq 0 ]]; then
+                break
+            fi
+            sleep 0.5
+        done
+        if [[ ${#missing_resources[@]} -ne 0 ]]; then
+            echo "KUKSA not started: gateway remote shared memory is missing or unreadable:" >&2
+            printf '  %s\n' "${missing_resources[@]}" >&2
+            echo "Check gatewayd.log, someipd.log, and bridge.log before restarting." >&2
+            return 1
+        fi
         "${root}/databroker-mw-com-demo" \
             --address 0.0.0.0:55555 \
             --provider-config "${root}/mw_com_provider/generated/mw_com_provider_config.json" \
             --score-config "${root}/mw_com_config.json" \
             --include-vss-path Vehicle.Speed \
-            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn && return 0
+            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn \
+            --include-vss-path Vehicle.Body.Lights.Beam.Low.IsOn && return 0
         echo "KUKSA exited (attempt ${attempt}/5); retrying." >&2
         sleep 2
     done
@@ -126,7 +159,29 @@ case "${vehicle_app_mode}" in
         export -f start_kuksa
         export root
         setsid nohup bash -c start_kuksa >"${root}/kuksa.log" 2>&1 < /dev/null 9>&- &
+        kuksa_launcher_pid=$!
         disown
+        if [[ "$HIGH_BEAM_COMMAND_MODE" == kuksa ]]; then
+            broker_host="${VDB_ADDRESS%:*}"
+            broker_port="${VDB_ADDRESS##*:}"
+            broker_ready=false
+            for attempt in $(seq 1 60); do
+                if ! kill -0 "$kuksa_launcher_pid" 2>/dev/null; then
+                    echo "Demo broker exited during startup; see ${root}/kuksa.log" >&2
+                    exit 1
+                fi
+                if grep -q 'Listening on .*:55555' "${root}/kuksa.log" &&
+                    timeout 1 bash -c ':</dev/tcp/$1/$2' _ "$broker_host" "$broker_port" 2>/dev/null; then
+                    broker_ready=true
+                    break
+                fi
+                sleep 0.5
+            done
+            if [[ "$broker_ready" != true ]]; then
+                echo "KUKSA is not listening at $VDB_ADDRESS; see ${root}/kuksa.log" >&2
+                exit 1
+            fi
+        fi
         exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
         ;;
     kuksa)

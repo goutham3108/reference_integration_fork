@@ -264,7 +264,7 @@ const score_com_serializer* lookup_serialization_config(
                     if (event->serialization_config_as_BooleanSerializerConfig() != nullptr) {
                         if ((service_type_name == "/vehicle_high_beam_rx" ||
                              service_type_name == "vehicle_high_beam_rx") &&
-                            element_name == "high_beam_state") {
+                            (element_name == "high_beam_state" || element_name == "low_beam_state")) {
                             return &kBooleanSerializer;
                         }
                         return nullptr;

@@ -16,6 +16,7 @@
 #include <set>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <nlohmann/json.hpp>
@@ -176,19 +177,28 @@ int main() {
         }
     });
 
+    std::set<std::pair<vsomeip::service_t, vsomeip::instance_t>> registered_services;
     for (const auto& route : *routes) {
-        vehicle_side->register_availability_handler(
-        route.service, route.vehicle_instance,
-        [&vehicle_side, route](const vsomeip::service_t, const vsomeip::instance_t, const bool available) {
+        if (registered_services.emplace(route.service, route.vehicle_instance).second) {
+            vehicle_side->register_availability_handler(
+            route.service, route.vehicle_instance,
+            [&vehicle_side, &routes](const vsomeip::service_t service, const vsomeip::instance_t instance,
+                                    const bool available) {
             if (!available) {
                 return;
             }
-            const std::set<vsomeip::eventgroup_t> vehicle_groups{route.vehicle_event};
-            vehicle_side->request_event(route.service, route.vehicle_instance, route.vehicle_event, vehicle_groups,
-                                        vsomeip::event_type_e::ET_EVENT);
-            vehicle_side->subscribe(route.service, route.vehicle_instance, route.vehicle_event);
-            score::mw::log::LogWarn() << "Bridge subscribed to " << route.name;
+            for (const auto& candidate : *routes) {
+                if (candidate.service != service || candidate.vehicle_instance != instance) {
+                    continue;
+                }
+                const std::set<vsomeip::eventgroup_t> vehicle_groups{candidate.vehicle_event};
+                vehicle_side->request_event(service, instance, candidate.vehicle_event, vehicle_groups,
+                                            vsomeip::event_type_e::ET_EVENT);
+                vehicle_side->subscribe(service, instance, candidate.vehicle_event);
+                score::mw::log::LogWarn() << "Bridge subscribed to " << candidate.name;
+            }
         });
+        }
 
         vehicle_side->register_message_handler(
         route.service, route.vehicle_instance, route.vehicle_event,

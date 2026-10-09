@@ -14,6 +14,10 @@
             {
               "eventName": "high_beam_state",
               "eventId": 2115
+            },
+            {
+              "eventName": "low_beam_state",
+              "eventId": 2117
             }
           ]
         }
@@ -33,6 +37,10 @@
             {
               "eventName": "high_beam_state",
               "eventId": 2116
+            },
+            {
+              "eventName": "low_beam_state",
+              "eventId": 2118
             }
           ]
         }
@@ -64,7 +72,7 @@
   ],
   "serviceInstances": [
     {
-      "instanceSpecifier": "vehicle_high_beam/local_tx",
+      "instanceSpecifier": "/vehicle_high_beam/local_tx",
       "serviceTypeName": "/vehicle_high_beam_tx",
       "version": {
         "major": 1,
@@ -78,6 +86,11 @@
           "events": [
             {
               "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "low_beam_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }
@@ -100,6 +113,11 @@
           "events": [
             {
               "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "low_beam_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }

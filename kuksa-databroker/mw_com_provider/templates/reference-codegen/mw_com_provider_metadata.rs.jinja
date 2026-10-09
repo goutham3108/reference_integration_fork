@@ -58,6 +58,28 @@ pub const GENERATED_STRUCT_FIELD_ACCESSORS: &[GeneratedStructFieldAccessor] = &[
 ];
 
 pub const GENERATED_GENERIC_MW_COM_ELEMENTS: &[GenericMwComElement] = &[
+    GenericMwComElement {
+        service_name: "/vehicle_high_beam_tx",
+        instance_name: "local_tx",
+        instance_specifier: "/vehicle_high_beam/local_tx",
+        member_name: "low_beam_state",
+        element_kind: "event",
+        payload_type: "HighBeamCommand",
+        sample_size: 32,
+        sample_alignment: 16,
+        has_serialized_format: true,
+    },
+    GenericMwComElement {
+        service_name: "/vehicle_high_beam_tx",
+        instance_name: "local_tx",
+        instance_specifier: "/vehicle_high_beam/local_tx",
+        member_name: "high_beam_state",
+        element_kind: "event",
+        payload_type: "HighBeamCommand",
+        sample_size: 32,
+        sample_alignment: 16,
+        has_serialized_format: true,
+    },
 {% macro generic_elements(ns, path="") %}
 {% set current = path ~ "::" ~ ns.name if path else ns.name %}
 {% for intf in ns.interfaces | default([]) %}

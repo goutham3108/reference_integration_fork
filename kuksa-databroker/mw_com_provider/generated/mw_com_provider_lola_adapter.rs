@@ -53,12 +53,15 @@ type VehicleHighBeamRxHighBeamStateSubscription = <<LolaRuntime as Runtime>::Sub
 >>::Subscription;
 
 pub struct LolaScoreRuntimeAdapter {
+    high_beam_tx: Option<crate::high_beam_tx::TxOfferedProducer>,
     config_path: PathBuf,
     runtime: Option<LolaRuntime>,
     vehicledynamicsservice_speed_subscription: Option<VehicleDynamicsServiceSpeedSubscription>,
     vehicledynamicsservice_target_speed_subscription:
         Option<VehicleDynamicsServiceTargetSpeedSubscription>,
     vehiclehighbeamrx_high_beam_state_subscription:
+        Option<VehicleHighBeamRxHighBeamStateSubscription>,
+    vehiclehighbeamrx_low_beam_state_subscription:
         Option<VehicleHighBeamRxHighBeamStateSubscription>,
     vehicledynamicsservice_offered_producer: Option<VehicleDynamicsServiceOfferedProducer>,
     vehicledynamicsservice_producer_instance_specifier: Option<String>,
@@ -72,11 +75,13 @@ impl LolaScoreRuntimeAdapter {
     pub fn new(config_path: impl Into<PathBuf>) -> Self {
         let config_path = config_path.into();
         Self {
+            high_beam_tx: None,
             config_path,
             runtime: None,
             vehicledynamicsservice_speed_subscription: None,
             vehicledynamicsservice_target_speed_subscription: None,
             vehiclehighbeamrx_high_beam_state_subscription: None,
+            vehiclehighbeamrx_low_beam_state_subscription: None,
             vehicledynamicsservice_offered_producer: None,
             vehicledynamicsservice_producer_instance_specifier: None,
         }
@@ -178,11 +183,18 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         let runtime = builder
             .build()
             .map_err(|error| Self::score_error("SCORE LoLa runtime build failed", error))?;
+        if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0")
+            && crate::high_beam_tx::configured(&self.config_path)? {
+            self.high_beam_tx = Some(crate::high_beam_tx::offer(&runtime)?);
+        }
         self.runtime = Some(runtime);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+        if let Some(producer) = self.high_beam_tx.take() {
+            producer.unoffer().map_err(|error| Self::score_error("high-beam Tx unoffer failed", error))?;
+        }
         if let Some(subscription) = self.vehicledynamicsservice_speed_subscription.take() {
             let _ = subscription.unsubscribe();
         }
@@ -190,6 +202,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
             let _ = subscription.unsubscribe();
         }
         if let Some(subscription) = self.vehiclehighbeamrx_high_beam_state_subscription.take() {
+            let _ = subscription.unsubscribe();
+        }
+        if let Some(subscription) = self.vehiclehighbeamrx_low_beam_state_subscription.take() {
             let _ = subscription.unsubscribe();
         }
         if let Some(producer) = self.vehicledynamicsservice_offered_producer.take() {
@@ -324,6 +339,28 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 );
                 Ok(())
             }
+            ("/vehicle_high_beam_rx", "low_beam_state") => {
+                if self.vehiclehighbeamrx_low_beam_state_subscription.is_some() {
+                    return Ok(());
+                }
+                let discovery = self.runtime()?.find_service::<VehicleHighBeamRxInterfaceAlias>(
+                    FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                );
+                let consumer_builder = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| MwComProviderError::Transport("lighting Rx service is not available".into()))?;
+                let consumer = consumer_builder
+                    .build()
+                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
+                self.vehiclehighbeamrx_low_beam_state_subscription = Some(
+                    consumer.low_beam_state.subscribe(3)
+                        .map_err(|error| Self::score_error("SCORE low_beam_state subscribe failed", error))?,
+                );
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
@@ -347,6 +384,12 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
             }
             ("/vehicle_high_beam_rx", "high_beam_state") => {
                 if let Some(subscription) = self.vehiclehighbeamrx_high_beam_state_subscription.take() {
+                    let _ = subscription.unsubscribe();
+                }
+                Ok(())
+            }
+            ("/vehicle_high_beam_rx", "low_beam_state") => {
+                if let Some(subscription) = self.vehiclehighbeamrx_low_beam_state_subscription.take() {
                     let _ = subscription.unsubscribe();
                 }
                 Ok(())
@@ -420,6 +463,25 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 }));
             }
         }
+        if let Some(subscription) = self.vehiclehighbeamrx_low_beam_state_subscription.as_ref() {
+            let mut samples = SampleContainer::new(3);
+            let count = subscription
+                .try_receive(&mut samples, 1)
+                .map_err(|error| Self::score_error("SCORE low_beam_state receive failed", error))?;
+            if count > 0 {
+                let sample = samples.pop_front().ok_or_else(|| {
+                    MwComProviderError::Transport("SCORE low_beam_state receive returned no sample".into())
+                })?;
+                return Ok(Some(MwComMessage {
+                    service: "/vehicle_high_beam_rx".into(),
+                    instance: "network_rx".into(),
+                    member: "low_beam_state".into(),
+                    value: MwComValue::Bool(sample.value),
+                    source_timestamp: Some(SystemTime::now()),
+                    quality: SignalQuality::Valid,
+                }));
+            }
+        }
         Ok(None)
     }
 
@@ -429,6 +491,12 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
         match (binding.service_name, binding.member_name) {
+            ("/vehicle_high_beam_tx", "high_beam_state" | "low_beam_state") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.high_beam_tx.as_ref().ok_or_else(||
+                    MwComProviderError::Transport("high-beam Tx actuation is disabled".into()))?;
+                crate::high_beam_tx::send(producer, binding.member_name, value)
+            }
             ("VehicleDynamicsService", "target_speed") => {
                 let value = numeric_value(&message.value, binding).map(|value| value as f64)?;
                 let producer = self.ensure_vehicledynamicsservice_offered_producer(binding)?;

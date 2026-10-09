@@ -17,11 +17,18 @@ gatewayd <- someipd <- vehicle_high_beam_bridge
                        remote app (Pi B)
 ```
 
-KUKSA receives `Vehicle.Speed` (`double`, km/h) from `/Vehicle/Service2/Instance`
+KUKSA receives `Vehicle.Speed` (`float`, km/h) from `/Vehicle/Service2/Instance`
 and `Vehicle.Body.Lights.Beam.High.IsOn` (`bool`) from
 `/vehicle_high_beam/network_rx`. The vehicle app subscribes to the same
 instances. Speed is not rescaled, so the value entered on the remote is shown
 unchanged.
+
+The provider now converts the LoLa double speed payload to the VSS float type.
+High.IsOn supports separate Rx input and Tx actuation bindings. In default
+combined mode the vehicle menu submits VAL v2 actuation commands to KUKSA,
+which owns the high-beam Tx instance. Remote hardware mode reads GPIO 17 and
+independently drives a command LED on GPIO 27. See the hardware and command-mode
+instructions in [the demo guide](sdv-hack-demo/README.md).
 
 ## Current Status
 
@@ -117,12 +124,13 @@ The old vehicle app publishes a `high_beam_state` event from
 `vehicle_high_beam/local_tx`; `gatewayd`, `someipd`, and the bridge consume
 that event. KUKSA must replace that publisher, not the remote app.
 
-Configure the high-beam mapping for `databroker-mw-com-demo` as an actuator
-whose LoLa binding targets the same local transmit service and member. The
-mapping must be generated and validated against the S-CORE binding metadata.
-The current generated mapping points to the opposite receive-side service, so
-changing only `direction` is not enough; the service and instance binding must
-also be correct. The demo runner seeds the KUKSA metadata from this mapping.
+The high-beam mapping is bidirectional: its primary binding receives remote
+input, and `actuation_binding` sends commands through the local transmit service.
+The demo seeds one actuator entry, keeping input/current value independent of
+command delivery. The provider owns high-beam Tx in combined mode; the vehicle
+menu uses VAL v2 `Actuate` rather than offering another Tx skeleton. Use
+`HIGH_BEAM_COMMAND_MODE=direct` only for the legacy vehicle-publisher mode;
+the launcher disables KUKSA high-beam actuation in that mode.
 
 ## 5. Build ARM64 Artifacts on the Host
 

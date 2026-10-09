@@ -96,14 +96,16 @@ type {{ intf.name }}{{ event.name | replace("_", " ") | title | replace(" ", "")
 {%- endmacro %}
 
 {% macro producer_alias(ns, intf) -%}
-type {{ intf.name }}InterfaceAlias = {{ interface_path(ns, intf) }};
 type {{ intf.name }}Producer = <{{ intf.name }}InterfaceAlias as Interface>::Producer<LolaRuntime>;
 type {{ intf.name }}OfferedProducer = <{{ intf.name }}Producer as Producer<LolaRuntime>>::OfferedProducer;
 {%- endmacro %}
 
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) -%}
+type {{ intf.name }}InterfaceAlias = {{ interface_path(ns, intf) }};
+{% if not intf.receive_only | default(false) -%}
 {{ producer_alias(ns, intf) }}
+{% endif -%}
 {% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" -%}
 {{ subscription_alias(ns, intf, event) }}
 {% endfor -%}
@@ -111,6 +113,7 @@ type {{ intf.name }}OfferedProducer = <{{ intf.name }}Producer as Producer<LolaR
 {% endfor %}
 
 pub struct LolaScoreRuntimeAdapter {
+    high_beam_tx: Option<crate::high_beam_tx::TxOfferedProducer>,
     config_path: PathBuf,
     runtime: Option<LolaRuntime>,
 {% for ns in json.namespaces | default([]) -%}
@@ -121,7 +124,7 @@ pub struct LolaScoreRuntimeAdapter {
 {% endfor -%}
 {% endfor -%}
 {% for ns in json.namespaces | default([]) -%}
-{% for intf in ns.interfaces | default([]) %}
+{% for intf in ns.interfaces | default([]) if not intf.receive_only | default(false) %}
     {{ intf.name | lower }}_offered_producer: Option<{{ intf.name }}OfferedProducer>,
     {{ intf.name | lower }}_producer_instance_specifier: Option<String>,
 {% endfor -%}
@@ -136,6 +139,7 @@ impl LolaScoreRuntimeAdapter {
     pub fn new(config_path: impl Into<PathBuf>) -> Self {
         let config_path = config_path.into();
         Self {
+            high_beam_tx: None,
             config_path,
             runtime: None,
 {% for ns in json.namespaces | default([]) -%}
@@ -146,7 +150,7 @@ impl LolaScoreRuntimeAdapter {
 {% endfor -%}
 {% endfor -%}
 {% for ns in json.namespaces | default([]) -%}
-{% for intf in ns.interfaces | default([]) %}
+{% for intf in ns.interfaces | default([]) if not intf.receive_only | default(false) %}
             {{ intf.name | lower }}_offered_producer: None,
             {{ intf.name | lower }}_producer_instance_specifier: None,
 {% endfor -%}
@@ -175,7 +179,7 @@ impl LolaScoreRuntimeAdapter {
         match binding.service_name {
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) %}
-            "{{ intf.name }}" => Ok(()),
+            "{{ intf.events[0].provider.service | default(intf.name) }}" => Ok(()),
 {% endfor -%}
 {% endfor %}
             other => Err(MwComProviderError::Transport(format!(
@@ -200,7 +204,7 @@ impl LolaScoreRuntimeAdapter {
     }
 
 {% for ns in json.namespaces | default([]) -%}
-{% for intf in ns.interfaces | default([]) %}
+{% for intf in ns.interfaces | default([]) if not intf.receive_only | default(false) %}
     fn ensure_{{ intf.name | lower }}_offered_producer(
         &mut self,
         binding: ScoreBinding<'_>,
@@ -253,11 +257,18 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         let runtime = builder
             .build()
             .map_err(|error| Self::score_error("SCORE LoLa runtime build failed", error))?;
+        if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0")
+            && crate::high_beam_tx::configured(&self.config_path)? {
+            self.high_beam_tx = Some(crate::high_beam_tx::offer(&runtime)?);
+        }
         self.runtime = Some(runtime);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+        if let Some(producer) = self.high_beam_tx.take() {
+            producer.unoffer().map_err(|error| Self::score_error("high-beam Tx unoffer failed", error))?;
+        }
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) -%}
 {% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
@@ -268,7 +279,7 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
 {% endfor -%}
 {% endfor -%}
 {% for ns in json.namespaces | default([]) -%}
-{% for intf in ns.interfaces | default([]) %}
+{% for intf in ns.interfaces | default([]) if not intf.receive_only | default(false) %}
         if let Some(producer) = self.{{ intf.name | lower }}_offered_producer.take() {
             producer
                 .unoffer()
@@ -286,7 +297,7 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         match binding.service_name {
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) %}
-            "{{ intf.name }}" => {
+            "{{ intf.events[0].provider.service | default(intf.name) }}" => {
                 let discovery = self.runtime()?.find_service::<{{ intf.name }}InterfaceAlias>(
                     FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
                 );
@@ -309,7 +320,7 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) -%}
 {% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
-            ("{{ intf.name }}", "{{ event.name }}") => {
+            ("{{ event.provider.service | default(intf.name) }}", "{{ event.name }}") => {
                 if self.{{ intf.name | lower }}_{{ event.name }}_subscription.is_some() {
                     return Ok(());
                 }
@@ -351,7 +362,7 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) -%}
 {% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "actuator" %}
-            ("{{ intf.name }}", "{{ event.name }}") => {
+            ("{{ event.provider.service | default(intf.name) }}", "{{ event.name }}") => {
                 if let Some(subscription) = self.{{ intf.name | lower }}_{{ event.name }}_subscription.take() {
                     let _ = subscription.unsubscribe();
                 }
@@ -399,9 +410,15 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
         match (binding.service_name, binding.member_name) {
+            ("/vehicle_high_beam_tx", "high_beam_state" | "low_beam_state") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.high_beam_tx.as_ref().ok_or_else(||
+                    MwComProviderError::Transport("high-beam Tx actuation is disabled".into()))?;
+                crate::high_beam_tx::send(producer, binding.member_name, value)
+            }
 {% for ns in json.namespaces | default([]) -%}
 {% for intf in ns.interfaces | default([]) -%}
-{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "datapoint" %}
+{% for event in intf.events | default([]) if event.provider is defined and event.provider.vss.direction | default("datapoint") != "datapoint" and event.provider.vss.actuation_binding is not defined %}
             ("{{ intf.name }}", "{{ event.name }}") => {
                 let value = {{ extract_value_expr(rust_field_type(ns, event), "&message.value", "binding") }}?;
                 let producer = self.ensure_{{ intf.name | lower }}_offered_producer(binding)?;

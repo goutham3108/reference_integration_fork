@@ -123,6 +123,18 @@ impl ProviderConfig {
                     mapping.service, mapping.instance, mapping.member
                 )));
             }
+            if let Some(binding) = &mapping.actuation_binding {
+                if !mapping.direction.accepts_actuation()
+                    || binding.service.trim().is_empty()
+                    || binding.instance.trim().is_empty()
+                    || binding.member.trim().is_empty()
+                {
+                    return Err(MwComProviderError::Config(format!(
+                        "invalid actuation binding for {}",
+                        mapping.vss_path
+                    )));
+                }
+            }
             if mapping.cycle_time_ms == 0 {
                 return Err(MwComProviderError::Config(format!(
                     "mapping for {} must use a non-zero cycle_time_ms",
@@ -157,6 +169,13 @@ impl ProviderConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ActuationBinding {
+    pub service: String,
+    pub instance: String,
+    pub member: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SignalMapping {
     pub signal_id: i32,
     pub vss_path: String,
@@ -164,6 +183,8 @@ pub struct SignalMapping {
     pub service: String,
     pub instance: String,
     pub member: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actuation_binding: Option<ActuationBinding>,
     #[serde(default)]
     pub field: Option<String>,
     #[serde(default)]
@@ -220,6 +241,7 @@ mod tests {
             service: "VehicleSpeedService".into(),
             instance: "front".into(),
             member: "speed".into(),
+            actuation_binding: None,
             field: None,
             unit: Some("km/h".into()),
             scale: 1.0,
@@ -247,6 +269,37 @@ mod tests {
         let error = config(vec![]).validate().unwrap_err();
 
         assert!(error.to_string().contains("at least one VSS mapping"));
+    }
+
+    #[test]
+    fn rejects_actuation_binding_on_read_only_signal() {
+        let mut signal = mapping(1);
+        signal.actuation_binding = Some(ActuationBinding {
+            service: "Tx".into(),
+            instance: "local".into(),
+            member: "command".into(),
+        });
+        assert!(config(vec![signal])
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("invalid actuation binding"));
+    }
+
+    #[test]
+    fn rejects_incomplete_actuation_binding() {
+        let mut signal = mapping(1);
+        signal.direction = Direction::Bidirectional;
+        signal.actuation_binding = Some(ActuationBinding {
+            service: "Tx".into(),
+            instance: "local".into(),
+            member: String::new(),
+        });
+        assert!(config(vec![signal])
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("invalid actuation binding"));
     }
 
     #[test]

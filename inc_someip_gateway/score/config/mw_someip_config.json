@@ -14,11 +14,20 @@
                         "max_message_size": 1
                     },
                     "eventgroup_ids": [33840]
+                },
+                {
+                    "event_name": "low_beam_state",
+                    "event_id": 33842,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [33842]
                 }
             ],
             "local_service_instances": [
                 {
-                    "instance_specifier": "vehicle_high_beam/local_tx",
+                    "instance_specifier": "/vehicle_high_beam/local_tx",
                     "instance_id": 4096
                 }
             ]
@@ -35,6 +44,13 @@
                     "serialization_config_type": "BooleanSerializerConfig",
                     "serialization_config": {},
                     "eventgroup_ids": [33841]
+                },
+                {
+                    "event_name": "low_beam_state",
+                    "event_id": 33843,
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [33843]
                 }
             ],
             "remote_service_instances": [

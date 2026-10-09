@@ -1,6 +1,18 @@
 {
   "serviceTypes": [
     {
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {"major": 1, "minor": 0},
+      "bindings": [{
+        "binding": "SHM",
+        "serviceId": 17152,
+        "events": [
+          {"eventName": "high_beam_state", "eventId": 2115},
+          {"eventName": "low_beam_state", "eventId": 2117}
+        ]
+      }]
+    },
+    {
       "serviceTypeName": "vehicle::VehicleDynamicsService",
       "version": {
         "major": 1,
@@ -37,6 +49,10 @@
             {
               "eventName": "high_beam_state",
               "eventId": 2116
+            },
+            {
+              "eventName": "low_beam_state",
+              "eventId": 2118
             }
           ]
         }
@@ -47,6 +63,22 @@
     "applicationID": 4001
   },
   "serviceInstances": [
+    {
+      "instanceSpecifier": "/vehicle_high_beam/local_tx",
+      "serviceTypeName": "/vehicle_high_beam_tx",
+      "version": {"major": 1, "minor": 0},
+      "instances": [{
+        "instanceId": 4096,
+        "allowedConsumer": {"QM": [4002, 0]},
+        "allowedProvider": {"QM": [4001, 0]},
+        "asil-level": "QM",
+        "binding": "SHM",
+        "events": [
+          {"eventName": "high_beam_state", "numberOfSampleSlots": 10, "maxSubscribers": 3},
+          {"eventName": "low_beam_state", "numberOfSampleSlots": 10, "maxSubscribers": 3}
+        ]
+      }]
+    },
     {
       "instanceSpecifier": "/Vehicle/Service1/Instance",
       "serviceTypeName": "vehicle::VehicleDynamicsService",
@@ -167,6 +199,11 @@
           "events": [
             {
               "eventName": "high_beam_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "low_beam_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }

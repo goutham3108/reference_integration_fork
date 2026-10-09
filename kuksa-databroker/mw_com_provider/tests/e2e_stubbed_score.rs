@@ -102,6 +102,7 @@ fn mapping(
         service: "VehicleDynamicsService".into(),
         instance: "front_vehicle".into(),
         member: member.into(),
+        actuation_binding: None,
         field: None,
         unit: None,
         scale: 1.0,
@@ -232,4 +233,228 @@ async fn databroker_actuation_reaches_stubbed_score_application() {
     assert_eq!(message.instance, "front_vehicle");
     assert_eq!(message.member, "targetSpeed");
     assert_eq!(message.value, MwComValue::F64(72.0));
+}
+
+#[tokio::test]
+async fn beam_worker_actuates_and_receives_independent_high_and_low_feedback() {
+    let broker = DataBroker::new("test", "test");
+    let id = add_vss_entry(
+        &broker,
+        "Vehicle.Body.Lights.Beam.High.IsOn",
+        DataType::Bool,
+        EntryType::Actuator,
+    )
+    .await;
+    let mut signal = mapping(
+        id,
+        "Vehicle.Body.Lights.Beam.High.IsOn",
+        "high_beam_state",
+        Direction::Bidirectional,
+        VssDataType::Bool,
+    );
+    signal.service = "/vehicle_high_beam_rx".into();
+    signal.instance = "network_rx".into();
+    signal.actuation_binding = Some(mw_com_provider::config::ActuationBinding {
+        service: "/vehicle_high_beam_tx".into(),
+        instance: "local_tx".into(),
+        member: "high_beam_state".into(),
+    });
+    let output_id = add_vss_entry(
+        &broker,
+        "Vehicle.Body.Lights.Beam.Low.IsOn",
+        DataType::Bool,
+        EntryType::Actuator,
+    )
+    .await;
+    let mut output = mapping(
+        output_id,
+        "Vehicle.Body.Lights.Beam.Low.IsOn",
+        "low_beam_state",
+        Direction::Bidirectional,
+        VssDataType::Bool,
+    );
+    output.service = "/vehicle_high_beam_rx".into();
+    output.instance = "network_rx".into();
+    output.actuation_binding = Some(mw_com_provider::config::ActuationBinding {
+        service: "/vehicle_high_beam_tx".into(),
+        instance: "local_tx".into(),
+        member: "low_beam_state".into(),
+    });
+    let config = ProviderConfig {
+        provider_name: "high_beam_test".into(),
+        reconnect: Default::default(),
+        queue_capacity: 4,
+        stale_after_ms: 1000,
+        mappings: vec![signal, output],
+    };
+    let (mut app, transport) = StubbedScoreMwComApplication::new();
+    let worker = mw_com_provider::MwComProviderWorker::new(
+        broker.clone(),
+        ALLOW_ALL.clone(),
+        config,
+        transport,
+    )
+    .unwrap();
+    worker.register_with_broker().await.unwrap();
+    let (shutdown_tx, shutdown_rx) = oneshot::channel();
+    let task = tokio::spawn(worker.run_until_shutdown(shutdown_rx));
+    app.inbound
+        .send(MwComMessage {
+            service: "/vehicle_high_beam_rx".into(),
+            instance: "network_rx".into(),
+            member: "high_beam_state".into(),
+            value: MwComValue::Bool(true),
+            source_timestamp: Some(SystemTime::now()),
+            quality: SignalQuality::Valid,
+        })
+        .await
+        .unwrap();
+    wait_for_datapoint(&broker, id, DataValue::Bool(true)).await;
+    app.inbound
+        .send(MwComMessage {
+            service: "/vehicle_high_beam_rx".into(),
+            instance: "network_rx".into(),
+            member: "low_beam_state".into(),
+            value: MwComValue::Bool(false),
+            source_timestamp: Some(SystemTime::now()),
+            quality: SignalQuality::Valid,
+        })
+        .await
+        .unwrap();
+    wait_for_datapoint(&broker, output_id, DataValue::Bool(false)).await;
+    use databroker_proto::kuksa::val::v2 as val;
+    use databroker_proto::sdv::databroker::v1 as vdb;
+    for (path, signal_id, member, other_id) in [
+        (
+            "Vehicle.Body.Lights.Beam.High.IsOn",
+            id,
+            "high_beam_state",
+            output_id,
+        ),
+        (
+            "Vehicle.Body.Lights.Beam.Low.IsOn",
+            output_id,
+            "low_beam_state",
+            id,
+        ),
+    ] {
+        for desired_on in [true, false, true] {
+            let previous = broker
+                .authorized_access(&ALLOW_ALL)
+                .get_datapoint(signal_id)
+                .await
+                .unwrap()
+                .value;
+            let other = broker
+                .authorized_access(&ALLOW_ALL)
+                .get_datapoint(other_id)
+                .await
+                .unwrap()
+                .value;
+            let mut request = tonic::Request::new(vdb::SetDatapointsRequest {
+                datapoints: [(
+                    path.into(),
+                    vdb::Datapoint {
+                        timestamp: None,
+                        value: Some(vdb::datapoint::Value::BoolValue(desired_on)),
+                    },
+                )]
+                .into_iter()
+                .collect(),
+            });
+            request.extensions_mut().insert(ALLOW_ALL.clone());
+            let reply = vdb::broker_server::Broker::set_datapoints(&broker, request)
+                .await
+                .unwrap()
+                .into_inner();
+            assert!(reply.errors.is_empty());
+            let sent = app.next_actuation().await;
+            assert_eq!(sent.service, "/vehicle_high_beam_tx");
+            assert_eq!(sent.instance, "local_tx");
+            assert_eq!(sent.member, member);
+            assert_eq!(sent.value, MwComValue::Bool(desired_on));
+            assert_eq!(
+                broker
+                    .authorized_access(&ALLOW_ALL)
+                    .get_datapoint(signal_id)
+                    .await
+                    .unwrap()
+                    .value,
+                previous
+            );
+            app.inbound
+                .send(MwComMessage {
+                    service: "/vehicle_high_beam_rx".into(),
+                    instance: "network_rx".into(),
+                    member: member.into(),
+                    value: MwComValue::Bool(desired_on),
+                    source_timestamp: Some(SystemTime::now()),
+                    quality: SignalQuality::Valid,
+                })
+                .await
+                .unwrap();
+            wait_for_datapoint(&broker, signal_id, DataValue::Bool(desired_on)).await;
+            assert_eq!(
+                broker
+                    .authorized_access(&ALLOW_ALL)
+                    .get_datapoint(other_id)
+                    .await
+                    .unwrap()
+                    .value,
+                other
+            );
+        }
+    }
+    for (path, signal_id, member) in [
+        ("Vehicle.Body.Lights.Beam.High.IsOn", id, "high_beam_state"),
+        (
+            "Vehicle.Body.Lights.Beam.Low.IsOn",
+            output_id,
+            "low_beam_state",
+        ),
+    ] {
+        let mut request = tonic::Request::new(val::ActuateRequest {
+            signal_id: Some(val::SignalId {
+                signal: Some(val::signal_id::Signal::Path(path.into())),
+            }),
+            value: Some(val::Value {
+                typed_value: Some(val::value::TypedValue::Bool(false)),
+            }),
+        });
+        request.extensions_mut().insert(ALLOW_ALL.clone());
+        val::val_server::Val::actuate(&broker, request)
+            .await
+            .unwrap();
+        let sent = app.next_actuation().await;
+        assert_eq!(sent.service, "/vehicle_high_beam_tx");
+        assert_eq!(sent.member, member);
+        assert_eq!(sent.value, MwComValue::Bool(false));
+        assert_eq!(
+            broker
+                .authorized_access(&ALLOW_ALL)
+                .get_datapoint(signal_id)
+                .await
+                .unwrap()
+                .value,
+            DataValue::Bool(true)
+        );
+        app.inbound
+            .send(MwComMessage {
+                service: "/vehicle_high_beam_rx".into(),
+                instance: "network_rx".into(),
+                member: member.into(),
+                value: MwComValue::Bool(false),
+                source_timestamp: Some(SystemTime::now()),
+                quality: SignalQuality::Valid,
+            })
+            .await
+            .unwrap();
+        wait_for_datapoint(&broker, signal_id, DataValue::Bool(false)).await;
+    }
+    shutdown_tx.send(()).unwrap();
+    timeout(Duration::from_secs(1), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 }

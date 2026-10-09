@@ -154,9 +154,18 @@ impl MwComMapper {
         }
 
         Ok(MwComMessage {
-            service: mapping.service.clone(),
-            instance: mapping.instance.clone(),
-            member: mapping.member.clone(),
+            service: mapping.actuation_binding.as_ref().map_or_else(
+                || mapping.service.clone(),
+                |binding| binding.service.clone(),
+            ),
+            instance: mapping.actuation_binding.as_ref().map_or_else(
+                || mapping.instance.clone(),
+                |binding| binding.instance.clone(),
+            ),
+            member: mapping
+                .actuation_binding
+                .as_ref()
+                .map_or_else(|| mapping.member.clone(), |binding| binding.member.clone()),
             value: data_value_to_mw_com(&change.data_value, mapping)?,
             source_timestamp: Some(SystemTime::now()),
             quality: mapping.required_quality,
@@ -341,6 +350,7 @@ mod tests {
             service: "VehicleService".into(),
             instance: "front".into(),
             member: format!("signal{signal_id}"),
+            actuation_binding: None,
             field: None,
             unit: None,
             scale: 1.0,
@@ -402,6 +412,53 @@ mod tests {
         let (_id, update) = mapper.message_to_update(&message).unwrap();
         assert_eq!(update.path, None);
         assert_eq!(update.datapoint.unwrap().value, DataValue::Double(36.0));
+    }
+
+    #[test]
+    fn converts_lola_double_to_vss_float() {
+        let mut speed = mapping(1, Direction::Datapoint, VssDataType::Float);
+        speed.vss_path = "Vehicle.Speed".into();
+        speed.service = "VehicleDynamicsService".into();
+        speed.instance = "front_vehicle".into();
+        speed.member = "speed".into();
+        speed.unit = Some("km/h".into());
+        let mapper = mapper_with(vec![speed]);
+        let message = MwComMessage {
+            service: "VehicleDynamicsService".into(),
+            instance: "front_vehicle".into(),
+            member: "speed".into(),
+            value: MwComValue::F64(43.25),
+            source_timestamp: Some(SystemTime::now()),
+            quality: SignalQuality::Valid,
+        };
+
+        let (_id, update) = mapper.message_to_update(&message).unwrap();
+
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Float(43.25));
+    }
+
+    #[test]
+    fn routes_bidirectional_commands_to_separate_tx_binding() {
+        let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
+        signal.actuation_binding = Some(crate::config::ActuationBinding {
+            service: "HighBeamTx".into(),
+            instance: "local_tx".into(),
+            member: "command".into(),
+        });
+        let mapper = mapper_with(vec![signal]);
+        let command = mapper
+            .actuation_to_message(&ActuationChange {
+                id: 1,
+                data_value: DataValue::Bool(true),
+            })
+            .unwrap();
+        assert_eq!(command.service, "HighBeamTx");
+        assert_eq!(command.member, "command");
+        let (id, update) = mapper
+            .message_to_update(&message("signal1", MwComValue::Bool(false)))
+            .unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Bool(false));
     }
 
     #[test]

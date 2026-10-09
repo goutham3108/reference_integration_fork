@@ -63,6 +63,14 @@ pub fn find_score_binding(
 
 pub fn validate_score_bindings(config: &ProviderConfig) -> Result<(), MwComProviderError> {
     for mapping in &config.mappings {
+        if let Some(binding) = &mapping.actuation_binding {
+            if find_score_binding(&binding.service, &binding.instance, &binding.member).is_none() {
+                return Err(MwComProviderError::Config(format!(
+                    "missing actuation binding for {}",
+                    mapping.vss_path
+                )));
+            }
+        }
         let element = find_score_binding(&mapping.service, &mapping.instance, &mapping.member)
             .ok_or_else(|| {
                 MwComProviderError::Config(format!(
@@ -289,6 +297,7 @@ mod tests {
                 service: "VehicleDynamicsService".into(),
                 instance: "front_vehicle".into(),
                 member: "speed".into(),
+                actuation_binding: None,
                 field: None,
                 unit: Some("km/h".into()),
                 scale: 1.0,
@@ -319,12 +328,8 @@ mod tests {
 
     #[test]
     fn resolves_high_beam_signal_to_gateway_receive_instance() {
-        let binding = find_score_binding(
-            "/vehicle_high_beam_rx",
-            "network_rx",
-            "high_beam_state",
-        )
-        .unwrap();
+        let binding =
+            find_score_binding("/vehicle_high_beam_rx", "network_rx", "high_beam_state").unwrap();
 
         assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
         assert_eq!(binding.payload_type, "HighBeamState");
@@ -345,6 +350,25 @@ mod tests {
         assert_eq!(mapping.service, "/vehicle_high_beam_rx");
         assert_eq!(mapping.instance, "network_rx");
         assert_eq!(mapping.member, "high_beam_state");
+        assert_eq!(mapping.direction, crate::config::Direction::Bidirectional);
+        let high_tx = mapping.actuation_binding.as_ref().unwrap();
+        assert_eq!(high_tx.member, "high_beam_state");
+        let output = config
+            .mappings
+            .iter()
+            .find(|mapping| mapping.vss_path == "Vehicle.Body.Lights.Beam.Low.IsOn")
+            .unwrap();
+        assert_eq!(output.signal_id, 46);
+        assert_eq!(output.datatype, crate::config::VssDataType::Bool);
+        assert_eq!(output.direction, crate::config::Direction::Bidirectional);
+        assert_eq!(output.service, "/vehicle_high_beam_rx");
+        assert_eq!(output.member, "low_beam_state");
+        let low_tx = output.actuation_binding.as_ref().unwrap();
+        assert_eq!(low_tx.member, "low_beam_state");
+        let element = find_score_binding(&low_tx.service, &low_tx.instance, &low_tx.member).unwrap();
+        assert_eq!(element.instance_specifier, "/vehicle_high_beam/local_tx");
+        assert_eq!(element.sample_size, 32);
+        assert_eq!(element.sample_alignment, 16);
     }
 
     #[test]
