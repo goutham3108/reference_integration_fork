@@ -102,12 +102,35 @@ std::optional<double> ParseSpeedInput(const std::string& input) {
     }
 }
 
+// Menu output goes to the same /dev/tty the input is read from, independent of stdout redirection.
+int terminal_out_fd = -1;
+
+void Say(const std::string& text) {
+    if (terminal_out_fd >= 0) {
+        std::size_t written = 0U;
+        while (written < text.size()) {
+            const ssize_t result = write(terminal_out_fd, text.data() + written, text.size() - written);
+            if (result <= 0) {
+                if (result < 0 && errno == EINTR) {
+                    continue;
+                }
+                break;
+            }
+            written += static_cast<std::size_t>(result);
+        }
+        if (written == text.size()) {
+            return;
+        }
+    }
+    std::cout << text << std::flush;
+}
+
 void PrintRemoteMenu() {
-    std::cout << "\nRemote menu\n"
-              << "1  High-beam (true/false)\n"
-              << "2  Vehicle.speed (number)\n"
-              << "q  Quit remote app\n"
-              << "Select: " << std::flush;
+    Say("\nRemote menu\n"
+        "1  High-beam (true/false)\n"
+        "2  Vehicle.speed (number)\n"
+        "q  Quit remote app\n"
+        "Select: ");
 }
 
 std::uint16_t ResolvePort(const char* name, const std::uint16_t fallback) {
@@ -195,7 +218,7 @@ class GpioOutput {
         }
     }
 
-    bool Open() {
+    bool Open(const bool initial_value) {
         const char* configured_chip = std::getenv("HIGH_BEAM_GPIO_OUTPUT_CHIP");
         const char* input_chip = std::getenv("HIGH_BEAM_GPIO_CHIP");
         const std::string input_path = input_chip == nullptr || input_chip[0] == '\0'
@@ -229,6 +252,7 @@ class GpioOutput {
         gpiohandle_request request{};
         request.lineoffsets[0] = line_;
         request.flags = GPIOHANDLE_REQUEST_OUTPUT;
+        request.default_values[0] = initial_value ? 1U : 0U;
         request.lines = 1;
         std::strncpy(request.consumer_label, "sdv-highbeam-output", sizeof(request.consumer_label) - 1);
         const int result = ioctl(chip_fd, GPIO_GET_LINEHANDLE_IOCTL, &request);
@@ -239,7 +263,9 @@ class GpioOutput {
             return false;
         }
         fd_ = request.fd;
-        score::mw::log::LogWarn() << "Remote LED initialized OFF: " << chip << " line " << line_;
+        last_logged_state_ = initial_value;
+        score::mw::log::LogWarn() << "Remote LED initialized " << (initial_value ? "ON" : "OFF")
+                      << ": " << chip << " line " << line_;
         return true;
     }
 
@@ -250,40 +276,64 @@ class GpioOutput {
             score::mw::log::LogError() << "GPIO output write failed: " << std::string{std::strerror(errno)};
             return false;
         }
-        score::mw::log::LogWarn() << "Remote GPIO output applied Low.IsOn=" << value << " line " << line_;
+        if (!last_logged_state_.has_value() || last_logged_state_.value() != value) {
+            score::mw::log::LogWarn() << "Remote GPIO output applied High.IsOn=" << value << " line " << line_;
+            last_logged_state_ = value;
+        }
         return true;
     }
 
  private:
     int fd_{-1};
     std::uint32_t line_{27};
+    std::optional<bool> last_logged_state_;
 };
 
-void SetOutboundState(const bool value, std::atomic<bool>& outbound_state,
+// Single entry point for every High.IsOn source; does nothing unless the value changed.
+void SetOutboundState(const bool value, GpioOutput* const led, std::atomic<bool>& outbound_state,
                       const std::shared_ptr<score::mw::per::kvs::Kvs>& sensor_store,
                       const char* source, std::condition_variable& outbound_changed,
                       std::mutex& outbound_mutex, std::uint64_t& outbound_generation) {
-    std::unique_lock<std::mutex> lock{outbound_mutex};
-    const bool previous = outbound_state.exchange(value);
-    if (previous == value) {
-        return;
+    {
+        std::lock_guard<std::mutex> lock{outbound_mutex};
+        if (outbound_state.exchange(value) == value) {
+            return;
+        }
+        (void)sensor_store->set_value(kSensorStateKey, score::mw::per::kvs::KvsValue{value});
+        (void)sensor_store->flush();
+        score::mw::log::LogWarn() << "Remote " << source << " set High.IsOn="
+                                  << (value ? "true" : "false");
+        if (led != nullptr && !led->Write(value)) {
+            running.store(false);
+            return;
+        }
+        ++outbound_generation;
     }
-    (void)sensor_store->set_value(kSensorStateKey, score::mw::per::kvs::KvsValue{value});
-    (void)sensor_store->flush();
-    score::mw::log::LogWarn() << "Remote " << source << " input set High.IsOn="
-                              << (value ? "true" : "false");
-    ++outbound_generation;
-    lock.unlock();
     outbound_changed.notify_one();
 }
 
-void MonitorGpio(const int gpio_fd, bool line_high, std::atomic<bool>& outbound_state,
+void MonitorGpio(const int gpio_fd, GpioOutput* const led, std::atomic<bool>& outbound_state,
                  const std::shared_ptr<score::mw::per::kvs::Kvs>& sensor_store,
                  std::condition_variable& outbound_changed, std::mutex& outbound_mutex,
                  std::uint64_t& outbound_generation) {
+    bool line_high = true;
+    if (!ReadGpioHigh(gpio_fd, line_high)) {
+        close(gpio_fd);
+        running.store(false);
+        return;
+    }
+
     bool candidate_pressed = !line_high;
     bool stable_pressed = candidate_pressed;
     auto candidate_since = std::chrono::steady_clock::now();
+    // An idle switch at startup must not overwrite the restored state.
+    if (stable_pressed) {
+        SetOutboundState(stable_pressed, led, outbound_state, sensor_store, "GPIO BCM 17",
+                         outbound_changed, outbound_mutex, outbound_generation);
+    }
+    score::mw::log::LogWarn() << "Remote GPIO input active on BCM 17 (physical pin 11); "
+                              << "switch connects GPIO to GND when pressed";
+
     while (running.load()) {
         std::this_thread::sleep_for(kGpioSamplePeriod);
         if (!ReadGpioHigh(gpio_fd, line_high)) {
@@ -297,7 +347,7 @@ void MonitorGpio(const int gpio_fd, bool line_high, std::atomic<bool>& outbound_
         } else if (candidate_pressed != stable_pressed &&
                    std::chrono::steady_clock::now() - candidate_since >= kGpioDebouncePeriod) {
             stable_pressed = candidate_pressed;
-            SetOutboundState(stable_pressed, outbound_state, sensor_store, "GPIO BCM 17",
+            SetOutboundState(stable_pressed, led, outbound_state, sensor_store, "GPIO BCM 17",
                              outbound_changed, outbound_mutex, outbound_generation);
         }
     }
@@ -373,13 +423,6 @@ int main() {
         score::mw::log::LogError() << "Route configuration has no high_beam route";
         return 1;
     }
-    const auto low_beam = std::find_if(routes->begin(), routes->end(), [](const Route& route) {
-        return route.name == "low_beam";
-    });
-    if (low_beam == routes->end()) {
-        score::mw::log::LogError() << "Route configuration has no low_beam route";
-        return 1;
-    }
     const char* const configured_kvs_dir = std::getenv("HIGH_BEAM_KVS_DIR");
     const std::string kvs_dir = configured_kvs_dir != nullptr && configured_kvs_dir[0] != '\0'
                                     ? configured_kvs_dir
@@ -398,11 +441,15 @@ int main() {
         return 1;
     }
     auto sensor_store = std::make_shared<score::mw::per::kvs::Kvs>(std::move(kvs_result).value());
-    std::atomic<bool> outbound_state{false};
-    std::atomic<bool> low_beam_state{false};
+    bool initial_output = false;
+    const auto stored_command = sensor_store->get_value(kSensorStateKey);
+    if (stored_command.has_value() &&
+        stored_command.value().getType() == score::mw::per::kvs::KvsValue::Type::Boolean) {
+        initial_output = std::get<bool>(stored_command.value().getValue());
+    }
+    std::atomic<bool> outbound_state{initial_output};
     std::condition_variable outbound_changed;
     std::mutex outbound_mutex;
-    std::mutex publish_mutex;
     std::uint64_t outbound_generation{0U};
 
     const std::uint16_t bridge_port = ResolvePort("HIGH_BEAM_BRIDGE_UDP_PORT", kDefaultBridgePort);
@@ -431,48 +478,25 @@ int main() {
         score::mw::lifecycle::report_running();
     }
 
-    const char* const configured_input = std::getenv("HIGH_BEAM_INPUT");
-    const std::string input_mode = configured_input == nullptr || configured_input[0] == '\0'
-                                       ? "gpio"
-                                       : configured_input;
-    const bool hardware = input_mode == "gpio";
     std::thread gpio_thread;
     GpioOutput led;
-    if (hardware) {
-        if (!led.Open()) {
-            close(udp_socket);
-            return 1;
-        }
-        const int gpio_fd = OpenGpioInput();
-        if (gpio_fd < 0) {
-            close(udp_socket);
-            return 1;
-        }
-        bool initial_line_high = true;
-        if (!ReadGpioHigh(gpio_fd, initial_line_high)) {
-            close(gpio_fd);
-            close(udp_socket);
-            return 1;
-        }
-        SetOutboundState(!initial_line_high, outbound_state, sensor_store, "GPIO BCM 17",
-                         outbound_changed, outbound_mutex, outbound_generation);
-        score::mw::log::LogWarn() << "Remote GPIO initialized once; switch monitoring and LED output remain active";
-        gpio_thread = std::thread([gpio_fd, initial_line_high, &outbound_state, &sensor_store, &outbound_changed,
+    const bool output_available = led.Open(initial_output);
+    GpioOutput* const led_output = output_available ? &led : nullptr;
+    // GPIO failures are logged but not fatal so the menu and vehicle commands keep working off-Pi.
+    const int gpio_fd = OpenGpioInput();
+    if (gpio_fd >= 0) {
+        gpio_thread = std::thread([gpio_fd, led_output, &outbound_state, &sensor_store, &outbound_changed,
                                     &outbound_mutex, &outbound_generation]() {
-            MonitorGpio(gpio_fd, initial_line_high, outbound_state, sensor_store, outbound_changed, outbound_mutex,
+            MonitorGpio(gpio_fd, led_output, outbound_state, sensor_store, outbound_changed, outbound_mutex,
                         outbound_generation);
         });
-    } else if (input_mode != "menu") {
-        score::mw::log::LogError() << "Invalid HIGH_BEAM_INPUT mode: " << input_mode
-                                  << " (choose 'gpio' or 'menu')";
-        close(udp_socket);
-        return 1;
     }
-    std::thread input_thread([&outbound_state, &sensor_store, &routes, &bridge_address, udp_socket, hardware,
-                                    &outbound_changed, &outbound_mutex, &outbound_generation]() {
+    std::thread input_thread([led_output, &outbound_state, &sensor_store, &routes, &bridge_address, udp_socket,
+                              &outbound_changed, &outbound_mutex, &outbound_generation]() {
             std::ifstream terminal_input{"/dev/tty"};
             const int terminal_fd = terminal_input.is_open() ? open("/dev/tty", O_RDONLY | O_CLOEXEC) : -1;
             const int input_fd = terminal_fd >= 0 ? terminal_fd : STDIN_FILENO;
+            terminal_out_fd = open("/dev/tty", O_WRONLY | O_CLOEXEC | O_NOCTTY);
             std::istream& input_stream = terminal_input.is_open()
                                              ? static_cast<std::istream&>(terminal_input)
                                              : std::cin;
@@ -484,7 +508,7 @@ int main() {
                     break;
                 }
                 if (input == "1") {
-                    std::cout << "High-beam value (true/false): " << std::flush;
+                    Say("High-beam value (true/false): ");
                     if (!ReadInputLine(input_stream, input_fd, input)) {
                         break;
                     }
@@ -493,8 +517,8 @@ int main() {
                         score::mw::log::LogWarn() << "Invalid high-beam input. Enter true or false.";
                         continue;
                     }
-                    SetOutboundState(value.value(), outbound_state, sensor_store, "menu", outbound_changed,
-                                     outbound_mutex, outbound_generation);
+                    SetOutboundState(value.value(), led_output, outbound_state, sensor_store, "menu",
+                                     outbound_changed, outbound_mutex, outbound_generation);
                     PrintRemoteMenu();
                     continue;
                 }
@@ -506,7 +530,7 @@ int main() {
                         score::mw::log::LogError() << "Route configuration has no vehicle_dynamics route";
                         continue;
                     }
-                    std::cout << "Vehicle.speed value: " << std::flush;
+                    Say("Vehicle.speed value: ");
                     if (!ReadInputLine(input_stream, input_fd, input)) {
                         break;
                     }
@@ -530,14 +554,16 @@ int main() {
             if (terminal_fd >= 0) {
                 close(terminal_fd);
             }
-            if (!hardware) {
-                running.store(false);
+            if (terminal_out_fd >= 0) {
+                close(terminal_out_fd);
+                terminal_out_fd = -1;
             }
         });
-    std::thread receive_thread([udp_socket, &routes, &bridge_address, &led, &input_mode,
-                               &outbound_state, &low_beam_state, &sensor_store, &outbound_changed,
-                               &outbound_mutex, &outbound_generation, &publish_mutex]() {
+    std::thread receive_thread([udp_socket, &routes, &bridge_address, led_output, &sensor_store,
+                                &outbound_state, &outbound_changed, &outbound_mutex,
+                                &outbound_generation]() {
         std::array<std::uint8_t, high_beam_udp::kFrameSize> bytes{};
+        std::optional<double> last_logged_speed;
         while (running.load()) {
             sockaddr_in sender{};
             socklen_t sender_size = sizeof(sender);
@@ -561,13 +587,16 @@ int main() {
             char sender_ip[INET_ADDRSTRLEN]{};
             const char* const sender_address =
                 inet_ntop(AF_INET, &sender.sin_addr, sender_ip, sizeof(sender_ip));
-            if (route->name != "high_beam" && route->name != "low_beam") {
+            if (route->name != "high_beam") {
                 if (frame->payload_size == sizeof(double) + 1U) {
                     const double received_value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
-                    score::mw::log::LogWarn() << "Remote received Vehicle.speed=" << received_value
+                    if (!last_logged_speed.has_value() || last_logged_speed.value() != received_value) {
+                        score::mw::log::LogWarn() << "Remote received Vehicle.speed=" << received_value
                                               << " from "
                                               << (sender_address == nullptr ? "<unknown>" : sender_address)
                                               << ":" << ntohs(sender.sin_port);
+                        last_logged_speed = received_value;
+                    }
                 } else {
                     score::mw::log::LogWarn() << "Remote received " << route->name
                                               << " payload_size=" << frame->payload_size;
@@ -577,41 +606,18 @@ int main() {
                 const auto encoded = high_beam_udp::Encode(acknowledgement);
                 (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
                              reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-                if (frame->payload_size == sizeof(double) + 1U) {
-                    const double acked_value = vehicle_dynamics_wire::DecodeSpeed(frame->payload.data());
-                    score::mw::log::LogWarn() << "Remote forwarded Vehicle.speed=" << acked_value;
-                } else {
+                if (frame->payload_size != sizeof(double) + 1U) {
                     score::mw::log::LogWarn() << "Remote acknowledged " << route->name
                                               << " payload_size=" << frame->payload_size;
                 }
                 continue;
             }
-            const auto value = high_beam_udp::BooleanValue(*frame);
-            if (!value.has_value()) {
-                score::mw::log::LogError() << "Remote rejected malformed lighting command";
+            if (frame->payload_size != 1U || frame->payload[0] > 1U) {
+                score::mw::log::LogError() << "Remote rejected malformed high-beam command";
                 continue;
             }
-            std::lock_guard<std::mutex> publish_lock{publish_mutex};
-            if (route->name == "high_beam") {
-                score::mw::log::LogWarn() << "Remote received vehicle-side command High.IsOn=" << *value;
-                SetOutboundState(*value, outbound_state, sensor_store, "KUKSA command", outbound_changed,
-                                 outbound_mutex, outbound_generation);
-            } else {
-                score::mw::log::LogWarn() << "Remote received vehicle-side command Low.IsOn=" << *value;
-                const auto result = high_beam_udp::ApplyCommand(*frame, input_mode == "gpio", [&led](bool state) {
-                    return led.Write(state);
-                });
-                if (result == high_beam_udp::CommandResult::kOutputFailed) {
-                    running.store(false);
-                    continue;
-                }
-                low_beam_state.store(*value);
-            }
-            const auto feedback = high_beam_udp::FeedbackFrame(*frame, route->remote_instance, route->remote_event);
-            const auto encoded = high_beam_udp::Encode(*feedback);
-            (void)sendto(udp_socket, encoded.data(), encoded.size(), 0,
-                         reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-            score::mw::log::LogWarn() << "Remote published feedback " << route->name << "=" << *value;
+            SetOutboundState(frame->payload[0] == 1U, led_output, outbound_state, sensor_store,
+                             "vehicle command", outbound_changed, outbound_mutex, outbound_generation);
         }
     });
 
@@ -631,7 +637,6 @@ int main() {
             }
             last_sent_generation = outbound_generation;
         }
-        std::lock_guard<std::mutex> publish_lock{publish_mutex};
         const bool value = outbound_state.load();
         high_beam_udp::Frame outbound{high_beam->service, high_beam->remote_instance,
                           high_beam->remote_event, 1U,
@@ -639,12 +644,6 @@ int main() {
         const auto frame = high_beam_udp::Encode(outbound);
         (void)sendto(udp_socket, frame.data(), frame.size(), 0,
                      reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-        high_beam_udp::Frame low_feedback{low_beam->service, low_beam->remote_instance,
-                         low_beam->remote_event, 1U,
-                         {static_cast<std::uint8_t>(low_beam_state.load())}};
-        const auto low_frame = high_beam_udp::Encode(low_feedback);
-        (void)sendto(udp_socket, low_frame.data(), low_frame.size(), 0,
-                 reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
         next_publish = std::chrono::steady_clock::now() + kPublishPeriod;
     }
     input_thread.join();
@@ -652,13 +651,6 @@ int main() {
         gpio_thread.join();
     }
     receive_thread.join();
-    if (!hardware || led.Write(false)) {
-        high_beam_udp::Frame low_feedback{low_beam->service, low_beam->remote_instance,
-                                         low_beam->remote_event, 1U, {0}};
-        const auto bytes = high_beam_udp::Encode(low_feedback);
-        (void)sendto(udp_socket, bytes.data(), bytes.size(), 0,
-                     reinterpret_cast<const sockaddr*>(&bridge_address), sizeof(bridge_address));
-    }
     close(udp_socket);
     return 0;
 }

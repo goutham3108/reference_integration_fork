@@ -7,12 +7,10 @@ Edge Devices. It uses Eclipse S-CORE `mw::com` shared memory on the Rpi
 side, a SOME/IP gateway, and a compact UDP transport between the vehicle and
 remote device(now we are using RPi need to change to Ardino).
 
-The KUKSA signals are:
+The signal is:
 
 ```text
-Vehicle.Body.Lights.Beam.High.IsOn  GPIO17 switch/software state (bidirectional)
-Vehicle.Body.Lights.Beam.Low.IsOn   GPIO27 LED applied state (bidirectional)
-Vehicle.Speed                     speed input (float, km/h)
+Vehicle.Body.Lights.Beam.High.IsOn
 ```
 
 The demo also carries the initial vehicle-dynamics signals from the LoLa
@@ -23,9 +21,9 @@ Vehicle.speed
 Vehicle.speedAck
 ```
 
-The vehicle application provides a menu for commanding low-beam LED booleans or
-publishing speed values. By default its LED commands go through KUKSA VAL v2
-actuation; the KUKSA provider is the sole lighting MW::COM Tx publisher.
+The vehicle application provides a menu for publishing high-beam booleans or
+speed values. By default its high-beam commands go through KUKSA VAL v2
+actuation; the KUKSA provider is the sole high-beam MW::COM Tx publisher.
 Speed continues to use the existing vehicle publisher. The remote endpoint acknowledges configured non-high-beam
 payloads, so `speed` returns as `speedAck`. New route entries can be added to
 `signal_routes.json` without changing the UDP frame implementation.
@@ -51,8 +49,8 @@ Remote RPi: 10.56.121.79
 ### Forward Flow: Vehicle to Remote
 
 ```text
-Vehicle app actuates Low.IsOn through KUKSA
-  -> provider mw::com producer and SHM
+Vehicle app publishes High.IsOn
+  -> mw::com GenericSkeleton and SHM
   -> gatewayd GenericProxy
   -> someipd
   -> SOME/IP service 0x4300, instance 0x1000, event 0x8430
@@ -247,22 +245,19 @@ On `10.56.121.79`:
 The remote app listens on UDP port `35001` and sends sensor frames to
 `10.56.121.101:35000`.
 
-GPIO is initialized once at program startup, before the software menu appears;
-there is no hardware/software selection prompt. Hardware reads high-beam state
-from BCM GPIO 17. Connect a momentary switch between physical
-pin 11 (GPIO 17) and a ground pin such as physical pin 6. The GPIO uses its
-internal pull-up, so pressing the switch means `High.IsOn=true` and releasing
-it means `false`. Do not connect 5 V to a GPIO pin. The input is debounced,
-and a changed state is sent to the vehicle immediately over the existing UDP
-route. The keyboard menu always accepts software high-beam and `Vehicle.speed`.
+The remote app has no hardware/software mode. It always reads the GPIO 17
+switch (BCM GPIO 17; connect a momentary switch between physical pin 11 and a
+ground pin such as physical pin 6), shows the keyboard menu, and drives the
+GPIO 27 LED. The GPIO uses its internal pull-up, so pressing the switch means
+`High.IsOn=true` and releasing it means `false`. Do not connect 5 V to a GPIO
+pin. The input is debounced, and a changed state is sent to the vehicle
+immediately over the existing UDP route. If GPIO cannot be opened (for example
+off a Pi), the error is logged and the menu and vehicle commands keep working.
 
-After hardware initialization the remote menu is shown immediately; GPIO
-monitoring and LED command reception continue in background workers while the
-menu accepts input. Option 1 sends a software high-beam value, and option 2
-sends speed; both return to the menu without reinitializing GPIO. GPIO switch
-changes and software high-beam entries share one outbound value: the latest
-input event wins, and a stable switch does not repeatedly overwrite software
-input. `q` exits the remote app and stops its GPIO workers.
+The remote menu is shown immediately; GPIO monitoring and LED command reception
+continue in background workers while the menu accepts input. Option 1 sets
+high-beam and option 2 sends speed, then returns to the menu. `q` exits the
+remote app and stops its GPIO workers.
 
 ```text
 Remote menu
@@ -271,48 +266,20 @@ Remote menu
 q  Quit remote app
 ```
 
-Startup also configures BCM GPIO 27 (physical pin 13) as an active-high
-LED output for commands received from the vehicle side. Wire GPIO 27 through
-a 330-1000 ohm resistor and LED to GND (LED cathode to GND). Do not connect a
-headlight, motor, or relay coil directly to GPIO. The output starts OFF and is
-set OFF on normal exit, Ctrl-C, or SIGTERM; SIGKILL cannot perform cleanup.
+The remote app configures BCM GPIO 27 (physical pin 13) as an active-high LED
+output for commands received from the vehicle side. Wire
+GPIO 27 through a 330-1000 ohm resistor and LED to GND (LED cathode to GND).
+Do not connect a headlight, motor, or relay coil directly to GPIO. The app
+restores the last received vehicle command at startup and sets the output OFF
+on normal exit, Ctrl-C, or SIGTERM; SIGKILL cannot perform cleanup.
 `HIGH_BEAM_GPIO_OUTPUT_CHIP` and `HIGH_BEAM_GPIO_OUTPUT_LINE` override its
 controller/line. Input and output must not share a GPIO line.
 
-GPIO 17 and GPIO 27 are independent. Both High.IsOn and Low.IsOn support
-commands and remote-to-KUKSA current-value updates:
-
-- GPIO17 switch changes and remote menu option 1 update High.IsOn. A KUKSA
-  High.IsOn command updates that same remote software state and reports it
-  back, without changing GPIO27 or driving GPIO17 as an output. The next
-  debounced switch change or menu entry overrides the software command;
-  a stable switch does not repeatedly overwrite it.
-- A KUKSA Low.IsOn command writes GPIO27 and reports the applied value back
-  only after the write succeeds. High state is unchanged. This confirms the
-  GPIO write, not whether the physical LED illuminated.
-- Both values are periodically republished so the vehicle can recover after
-  reconnecting. Low starts OFF and reports OFF on normal shutdown; UDP remains
-  best-effort. In software mode Low feedback represents simulated output.
-
-Reading High.IsOn does not acknowledge or gate the LED command. Read Low.IsOn
-for the latest reported applied LED output state, rather than the command target.
-
-For a runtime Velocitas application that turns the LED on at 110 km/h and off
-below 110 km/h, use this logic inside its polling loop:
-
-```python
-speed = (await self.Vehicle.Speed.get()).value
-await self.Vehicle.Body.Lights.Beam.Low.IsOn.set(speed >= 110)
-```
-
-The application must explicitly send both True and False. Do not condition
-the OFF command on High.IsOn or Low.IsOn current values. With the application
-running, remote menu speed 111 commands GPIO27 ON and speed 100 commands it
-OFF; GPIO17 remains an independent switch input.
-
-For development on hosts without GPIO devices, `HIGH_BEAM_INPUT=software`
-disables GPIO initialization. It retains the same software menu and logs
-received commands without accessing GPIO. GPIO is enabled by default.
+GPIO 17, the menu, and vehicle commands all set one shared `High.IsOn` state.
+A change from any source drives the GPIO 27 LED, is saved, and is reported to
+the vehicle immediately; a repeated value does nothing. The state is reported
+back so KUKSA's current value follows the LED. The idle switch at startup does
+not overwrite the restored state.
 
 The app detects Raspberry Pi pin-controller chips by name or label (including
 `pinctrl-rp1`). If startup reports a GPIO permission error, grant the runtime
@@ -337,19 +304,17 @@ This launcher:
 5. Starts KUKSA and waits for its gRPC port in combined command mode.
 6. Starts the vehicle application in the foreground.
 
-Default `HIGH_BEAM_COMMAND_MODE=kuksa` routes vehicle low-beam LED menu commands
+Default `HIGH_BEAM_COMMAND_MODE=kuksa` routes vehicle high-beam menu commands
 to the local KUKSA broker (`VDB_ADDRESS=127.0.0.1:55555`). The provider publishes
 them on `/vehicle_high_beam/local_tx`; the vehicle app does not offer a competing
 high-beam Tx instance. `HIGH_BEAM_COMMAND_MODE=direct` restores the legacy
-vehicle publisher and disables KUKSA High.IsOn and Low.IsOn actuation. Never mix the two Tx
+vehicle publisher and disables KUKSA high-beam actuation. Never mix the two Tx
 owners. `VEHICLE_APP_MODE=kuksa` runs just KUKSA after the gateway/bridge startup.
 
 KUKSA clients must use VAL v2 `Actuate` or Velocitas VDB `SetDatapoints` for
 commands. Writing a VAL v1 current value is not an actuator command. The broker
-contains separate bidirectional High.IsOn and Low.IsOn actuator entries, each
-with its own Rx feedback and Tx actuation event. High uses `high_beam_state`
-(SOME/IP Tx 33840, Rx 33841); Low uses `low_beam_state` (Tx 33842, Rx 33843).
-Both share the existing `/vehicle_high_beam` service instances. API acceptance means queued for dispatch,
+contains one bidirectional High.IsOn entry: Rx updates its current value, and
+actuation uses a separate Tx binding. API acceptance means queued for dispatch,
 not confirmed physical output. UDP remains best-effort.
 
 The vehicle application accepts:
@@ -362,7 +327,7 @@ false
 It also accepts this menu:
 
 ```text
-1   Select low-beam LED and enter true or false
+1   Select high-beam and enter true or false
 2   Select speed and enter a numeric value
 q   Quit
 ```
@@ -370,7 +335,7 @@ q   Quit
 The speed payload is the vehicle-dynamics example representation: an 8-byte
 `double` followed by a 1-byte quality value (currently `3`).
 
-When the remote app is started with `HIGH_BEAM_INPUT=menu`, it provides a keyboard menu:
+The remote app provides a keyboard menu:
 
 ```text
 1   Select high-beam and enter true or false
@@ -390,12 +355,11 @@ update every two seconds.
 In default combined mode the forward-command logs are:
 
 ```text
-Vehicle menu requested Low.IsOn=1 through KUKSA
-KUKSA accepted vehicle command Low.IsOn=1 (not remote output acknowledgement)
+Vehicle menu requested High.IsOn=1 through KUKSA
+KUKSA accepted vehicle command High.IsOn=1 (not remote output acknowledgement)
 Command transmitted through mw::com Tx service=/vehicle_high_beam_tx value=Bool(true)
-Remote received vehicle-side command Low.IsOn=1
-Remote GPIO output applied Low.IsOn=1 line=27
-Remote published feedback low_beam=1
+Remote received vehicle-side command High.IsOn=1
+Remote GPIO output applied High.IsOn=1 line=27
 ```
 
 The remote UDP frame cannot distinguish a KUKSA client from the vehicle menu;

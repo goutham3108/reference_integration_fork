@@ -70,7 +70,6 @@ class VehicleHighBeamRx : public Trait::Base
         using Trait::Base::Base;
 
         typename Trait::template Event<HighBeamState> high_beam_state{*this, "high_beam_state"};
-        typename Trait::template Event<HighBeamState> low_beam_state{*this, "low_beam_state"};
 };
 
 using VehicleHighBeamRxProxy = AsProxy<VehicleHighBeamRx>;
@@ -82,7 +81,6 @@ class HighBeamTx : public Trait::Base
     public:
         using Trait::Base::Base;
         typename Trait::template Event<HighBeamCommand> high_beam_state{*this, "high_beam_state"};
-        typename Trait::template Event<HighBeamCommand> low_beam_state{*this, "low_beam_state"};
 };
 
 using HighBeamTxProxy = AsProxy<HighBeamTx>;

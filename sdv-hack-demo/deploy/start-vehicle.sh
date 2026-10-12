@@ -119,35 +119,21 @@ sleep 10
 
 cd "${root}"
 start_kuksa() {
-    local attempt readiness_attempt resource
-    local -a missing_resources
-    for attempt in $(seq 1 5); do
-        for readiness_attempt in $(seq 1 60); do
-            missing_resources=()
-            for resource in /dev/shm/lola-{ctl,data}-0000000000006433-00002 \
-                            /dev/shm/lola-{ctl,data}-0000000000017152-04097; do
-                if [[ ! -r "$resource" ]]; then
-                    missing_resources+=("$resource")
-                fi
-            done
-            if [[ ${#missing_resources[@]} -eq 0 ]]; then
-                break
-            fi
-            sleep 0.5
-        done
-        if [[ ${#missing_resources[@]} -ne 0 ]]; then
-            echo "KUKSA not started: gateway remote shared memory is missing or unreadable:" >&2
-            printf '  %s\n' "${missing_resources[@]}" >&2
-            echo "Check gatewayd.log, someipd.log, and bridge.log before restarting." >&2
-            return 1
+    # gatewayd creates remote instances asynchronously; KUKSA aborts if they are absent.
+    for attempt in $(seq 1 60); do
+        if [[ -e /dev/shm/lola-data-0000000000006433-00002 && \
+              -e /dev/shm/lola-data-0000000000017152-04097 ]]; then
+            break
         fi
+        sleep 0.5
+    done
+    for attempt in $(seq 1 5); do
         "${root}/databroker-mw-com-demo" \
             --address 0.0.0.0:55555 \
             --provider-config "${root}/mw_com_provider/generated/mw_com_provider_config.json" \
             --score-config "${root}/mw_com_config.json" \
             --include-vss-path Vehicle.Speed \
-            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn \
-            --include-vss-path Vehicle.Body.Lights.Beam.Low.IsOn && return 0
+            --include-vss-path Vehicle.Body.Lights.Beam.High.IsOn && return 0
         echo "KUKSA exited (attempt ${attempt}/5); retrying." >&2
         sleep 2
     done

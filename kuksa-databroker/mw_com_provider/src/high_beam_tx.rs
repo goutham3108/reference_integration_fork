@@ -20,7 +20,6 @@ const _: () = assert!(std::mem::offset_of!(HighBeamCommand, data) == 16);
 score_com::interface!(interface HighBeamTx {
     Id = "HighBeamTx",
     high_beam_state: Event<HighBeamCommand>,
-    low_beam_state: Event<HighBeamCommand>,
 });
 
 type TxProducer = <HighBeamTxInterface as Interface>::Producer<LolaRuntimeImpl>;
@@ -42,23 +41,10 @@ pub fn offer(runtime: &LolaRuntimeImpl) -> Result<TxOfferedProducer, MwComProvid
         })
 }
 
-pub fn send(
-    producer: &TxOfferedProducer,
-    member: &str,
-    value: bool,
-) -> Result<(), MwComProviderError> {
+pub fn send(producer: &TxOfferedProducer, value: bool) -> Result<(), MwComProviderError> {
     let sample = command(value);
-    let result = match member {
-        "high_beam_state" => producer.high_beam_state.send(sample),
-        "low_beam_state" => producer.low_beam_state.send(sample),
-        other => {
-            return Err(MwComProviderError::Transport(format!(
-                "unknown lighting Tx event {other}"
-            )))
-        }
-    };
-    result.map_err(|error| {
-        MwComProviderError::Transport(format!("lighting Tx {member} send failed: {error:?}"))
+    producer.high_beam_state.send(sample).map_err(|error| {
+        MwComProviderError::Transport(format!("high-beam Tx send failed: {error:?}"))
     })
 }
 

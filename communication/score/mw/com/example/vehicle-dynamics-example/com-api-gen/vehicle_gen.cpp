@@ -34,7 +34,6 @@ BEGIN_EXPORT_MW_COM_INTERFACE(
     ::score::mw::com::VehicleHighBeamRxSkeleton)
 
 EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamState, high_beam_state)
-EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamState, low_beam_state)
 
 END_EXPORT_MW_COM_INTERFACE()
 
@@ -46,7 +45,6 @@ BEGIN_EXPORT_MW_COM_INTERFACE(
     ::score::mw::com::HighBeamTxSkeleton)
 
 EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamCommand, high_beam_state)
-EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamCommand, low_beam_state)
 
 END_EXPORT_MW_COM_INTERFACE()
 

@@ -26,9 +26,9 @@ unchanged.
 The provider now converts the LoLa double speed payload to the VSS float type.
 High.IsOn supports separate Rx input and Tx actuation bindings. In default
 combined mode the vehicle menu submits VAL v2 actuation commands to KUKSA,
-which owns the high-beam Tx instance. Remote hardware mode reads GPIO 17 and
-independently drives a command LED on GPIO 27. See the hardware and command-mode
-instructions in [the demo guide](sdv-hack-demo/README.md).
+which owns the high-beam Tx instance. The remote app initializes its command
+LED on GPIO 27 at startup in either input mode; hardware input reads GPIO 17.
+See the hardware and command-mode instructions in [the demo guide](sdv-hack-demo/README.md).
 
 ## Current Status
 

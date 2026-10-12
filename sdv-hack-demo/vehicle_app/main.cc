@@ -30,7 +30,6 @@ namespace {
 constexpr std::string_view kTxInstanceSpecifier{"/vehicle_high_beam/local_tx"};
 constexpr std::string_view kRxInstanceSpecifier{"/vehicle_high_beam/network_rx"};
 constexpr std::string_view kEventName{"high_beam_state"};
-constexpr std::string_view kLowEventName{"low_beam_state"};
 constexpr std::string_view kDynamicsTxInstanceSpecifier{"/Vehicle/Service1/Instance"};
 constexpr std::string_view kDynamicsRxInstanceSpecifier{"/Vehicle/Service2/Instance"};
 constexpr std::string_view kSpeedEventName{"speed"};
@@ -53,10 +52,7 @@ static_assert(score::someip_gateway::serializer::get_size_of_pre_serialized_data
 constexpr score::mw::com::DataTypeMetaInfo kDataTypeMetaInfo{
     score::someip_gateway::serializer::get_size_of_pre_serialized_data(kPayloadSize),
     alignof(PreSerializedData)};
-constexpr std::array<score::mw::com::EventInfo, 2> kEvents{{
-    {kEventName, kDataTypeMetaInfo},
-    {kLowEventName, kDataTypeMetaInfo},
-}};
+constexpr std::array<score::mw::com::EventInfo, 1> kEvents{{{kEventName, kDataTypeMetaInfo}}};
 constexpr score::mw::com::DataTypeMetaInfo kSpeedMetaInfo{sizeof(SpeedSample), alignof(SpeedSample)};
 constexpr std::array<score::mw::com::EventInfo, 2> kDynamicsEvents{{
     {kSpeedEventName, kSpeedMetaInfo},
@@ -121,7 +117,7 @@ std::optional<double> ParseSpeedInput(const std::string& input) {
 
 void PrintVehicleMenu() {
     std::cout << "\nVehicle menu\n"
-              << "1  Low-beam LED (true/false)\n"
+              << "1  High-beam (true/false)\n"
               << "2  Vehicle.speed (number)\n"
               << "q  Quit\n"
               << "Select: " << std::flush;
@@ -162,13 +158,13 @@ class VehicleHighBeamApplication {
                 break;
             }
             if (input == "1") {
-                std::cout << "Low-beam LED value (true/false): " << std::flush;
+                std::cout << "High-beam value (true/false): " << std::flush;
                 if (!std::getline(input_stream, input)) {
                     break;
                 }
                 const auto value = ParseBooleanInput(input);
                 if (!value.has_value()) {
-                    score::mw::log::LogWarn() << "Invalid low-beam input. Enter true or false.";
+                    score::mw::log::LogWarn() << "Invalid high-beam input. Enter true or false.";
                     continue;
                 }
                 PublishLocalState(value.value());
@@ -212,7 +208,7 @@ class VehicleHighBeamApplication {
             return false;
         }
         auto events = tx_skeleton_->GetEvents();
-        const auto event = events.find(kLowEventName);
+        const auto event = events.find(kEventName);
         if (event == events.cend()) {
             return false;
         }
@@ -283,15 +279,15 @@ class VehicleHighBeamApplication {
             grpc::ClientContext context;
             context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds{3});
             kuksa::val::v2::ActuateRequest request;
-            request.mutable_signal_id()->set_path("Vehicle.Body.Lights.Beam.Low.IsOn");
+            request.mutable_signal_id()->set_path("Vehicle.Body.Lights.Beam.High.IsOn");
             request.mutable_value()->set_bool_(value);
             kuksa::val::v2::ActuateResponse response;
-            score::mw::log::LogWarn() << "Vehicle menu requested Low.IsOn=" << value << " through KUKSA";
+            score::mw::log::LogWarn() << "Vehicle menu requested High.IsOn=" << value << " through KUKSA";
             const auto status = client->Actuate(&context, request, &response);
             if (!status.ok()) {
                 score::mw::log::LogError() << "KUKSA rejected vehicle command: " << status.error_message();
             } else {
-                score::mw::log::LogWarn() << "KUKSA accepted vehicle command Low.IsOn=" << value
+                score::mw::log::LogWarn() << "KUKSA accepted vehicle command High.IsOn=" << value
                                         << " (not remote output acknowledgement)";
             }
             return;
@@ -313,7 +309,7 @@ class VehicleHighBeamApplication {
             score::mw::log::LogError() << "Cannot publish Vehicle high-beam state";
             return;
         }
-        score::mw::log::LogWarn() << "Vehicle app published Vehicle.Body.Lights.Beam.Low.IsOn="
+        score::mw::log::LogWarn() << "Vehicle app published Vehicle.Body.Lights.Beam.High.IsOn="
                       << (value ? "true" : "false");
     }
 

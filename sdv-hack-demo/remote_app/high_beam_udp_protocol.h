@@ -62,30 +62,15 @@ inline std::optional<Frame> Decode(const std::uint8_t* bytes, const std::size_t 
 
 enum class CommandResult { kMalformed, kDisplayed, kApplied, kOutputFailed };
 
-inline std::optional<bool> BooleanValue(const Frame& frame) {
-    if (frame.payload_size != 1U || frame.payload[0] > 1U) {
-        return std::nullopt;
-    }
-    return frame.payload[0] == 1U;
-}
-
-inline std::optional<Frame> FeedbackFrame(const Frame& command, std::uint16_t instance, std::uint16_t event) {
-    if (!BooleanValue(command).has_value()) {
-        return std::nullopt;
-    }
-    return Frame{command.service, instance, event, command.payload_size, command.payload};
-}
-
 template <typename WriteOutput>
-CommandResult ApplyCommand(const Frame& frame, bool hardware, WriteOutput write_output) {
-    const auto value = BooleanValue(frame);
-    if (!value.has_value()) {
+CommandResult ApplyCommand(const Frame& frame, bool output_available, WriteOutput write_output) {
+    if (frame.payload_size != 1U || frame.payload[0] > 1U) {
         return CommandResult::kMalformed;
     }
-    if (!hardware) {
+    if (!output_available) {
         return CommandResult::kDisplayed;
     }
-    return write_output(*value) ? CommandResult::kApplied : CommandResult::kOutputFailed;
+    return write_output(frame.payload[0] == 1U) ? CommandResult::kApplied : CommandResult::kOutputFailed;
 }
 
 }  // namespace high_beam_udp

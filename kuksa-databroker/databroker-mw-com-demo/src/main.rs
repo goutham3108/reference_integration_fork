@@ -32,8 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = ProviderConfig::load_json(&args.provider_config)?;
     if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0") {
         for mapping in &mut config.mappings {
-            if matches!(mapping.vss_path.as_str(),
-                "Vehicle.Body.Lights.Beam.High.IsOn" | "Vehicle.Body.Lights.Beam.Low.IsOn") {
+            if mapping.vss_path == "Vehicle.Body.Lights.Beam.High.IsOn" {
                 mapping.direction = Direction::Datapoint;
                 mapping.actuation_binding = None;
             }
