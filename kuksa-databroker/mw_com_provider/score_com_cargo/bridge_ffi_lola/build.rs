@@ -8,6 +8,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SCORE_COM_BAZEL_BIN");
     println!("cargo:rerun-if-env-changed=SCORE_COM_LINK_PARAMS");
     println!("cargo:rerun-if-env-changed=SCORE_COM_VEHICLE_GEN_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=SCORE_COM_LINK_OWNER");
+
+    if env::var("SCORE_COM_LINK_OWNER").as_deref() == Ok("databroker-mw-com-demo") {
+        return;
+    }
 
     let Some(bazel_bin) = env::var_os("SCORE_COM_BAZEL_BIN").map(PathBuf::from) else {
         return;

@@ -99,7 +99,9 @@ fn link_from_bazel_params(bazel_bin: &Path) {
             println!("cargo:rustc-link-arg=-Wl,-l{library}");
         }
         println!("cargo:rustc-link-arg=-Wl,--end-group");
-        println!("cargo:rustc-link-arg=-Wl,-lgcc");
+        for library in ["stdc++", "rt", "atomic", "acl", "gcc", "c"] {
+            println!("cargo:rustc-link-arg=-Wl,-l{library}");
+        }
     }
 }
 
