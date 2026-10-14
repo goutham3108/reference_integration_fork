@@ -1,7 +1,16 @@
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
 load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@score_someip_gateway//bazel/tools:someip_config.bzl", "generate_someip_config_bin")
 
 exports_files(["signal_routes.json"])
+
+# Gateway configuration for this demo. Built here so inc_someip_gateway stays unmodified.
+generate_someip_config_bin(
+    name = "gateway_config",
+    json = "config/mw_someip_config.json",
+    output = "mw_someip_config.bin",
+    visibility = ["//visibility:public"],
+)
 
 cc_library(
 	name = "speed_payload",

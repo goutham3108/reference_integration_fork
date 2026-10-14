@@ -45,7 +45,7 @@ Result<std::unique_ptr<RemoteNetworkService>> RemoteNetworkService::Create(
         {service_type_config->service_version_major(),
          static_cast<uint16_t>(service_type_config->service_version_minor())}};
 
-    socom::Service_instance const inst{std::to_string(service_instance_config->instance_id())};
+    socom::Service_instance const inst{service_type_config->service_type_name()->string_view()};
 
     socom::Server_service_interface_definition const server_config{
         iface, socom::to_num_of_methods(0),
@@ -106,26 +106,13 @@ void RemoteNetworkService::setup_vsomeip() {
         vsomeip_app_->register_message_handler(
             service_id, instance_id, vsomeip_event_id,
             [this, socom_event_id, vsomeip_event_id](const std::shared_ptr<vsomeip::message>& msg) {
-                auto const* const data = msg->get_payload()->get_data();
-                auto const size = static_cast<std::size_t>(msg->get_payload()->get_length());
-
-                auto&& trace = score::mw::log::LogWarn();
-                trace << "[someipd] Network->IPC: service_id=0x"
-                      << score::mw::log::LogHex16{msg->get_service()} << " instance_id=0x"
-                      << score::mw::log::LogHex16{msg->get_instance()} << " event_id=0x"
-                      << score::mw::log::LogHex16{vsomeip_event_id} << " payload_size=" << size;
-                if (size == 1U) {
-                    trace << " value=" << (data[0] != 0U ? "true" : "false");
-                }
-
                 auto maybe_payload = server_connector_->allocate_event_payload(socom_event_id);
                 if (!maybe_payload.has_value()) {
-                    score::mw::log::LogWarn() << "[someipd] Dropping SOME/IP event: no IPC "
-                                                 "subscriber connected for event_id=0x"
-                                              << score::mw::log::LogHex16{vsomeip_event_id};
                     return;
                 }
                 auto& payload = *maybe_payload;
+                auto const* const data = msg->get_payload()->get_data();
+                auto const size = static_cast<std::size_t>(msg->get_payload()->get_length());
 
                 // Build SOME/IP header (16 bytes) + payload
                 // This matches what gatewayd expects when receiving events from someipd.
@@ -141,7 +128,7 @@ void RemoteNetworkService::setup_vsomeip() {
                 payload.wdata()[pos++] = static_cast<std::byte>(method_id & 0xFF);
 
                 // Length (4 bytes) - set to actual payload size + 8 (remaining header bytes)
-                std::uint32_t length = static_cast<std::uint32_t>(size + 8);
+                auto length = static_cast<std::uint32_t>(size + 8);
                 payload.wdata()[pos++] = static_cast<std::byte>((length >> 24) & 0xFF);
                 payload.wdata()[pos++] = static_cast<std::byte>((length >> 16) & 0xFF);
                 payload.wdata()[pos++] = static_cast<std::byte>((length >> 8) & 0xFF);
@@ -155,18 +142,16 @@ void RemoteNetworkService::setup_vsomeip() {
                 payload.wdata()[pos++] = static_cast<std::byte>(session_id >> 8);
                 payload.wdata()[pos++] = static_cast<std::byte>(session_id & 0xFF);
 
-                std::uint8_t protocol_version =
-                    static_cast<std::uint8_t>(msg->get_protocol_version());
+                auto protocol_version = msg->get_protocol_version();
                 payload.wdata()[pos++] = static_cast<std::byte>(protocol_version);
 
-                std::uint8_t interface_version =
-                    static_cast<std::uint8_t>(msg->get_interface_version());
+                auto interface_version = msg->get_interface_version();
                 payload.wdata()[pos++] = static_cast<std::byte>(interface_version);
 
-                std::uint8_t message_type = static_cast<std::uint8_t>(msg->get_message_type());
+                auto message_type = static_cast<std::uint8_t>(msg->get_message_type());
                 payload.wdata()[pos++] = static_cast<std::byte>(message_type);
 
-                std::uint8_t return_code = static_cast<std::uint8_t>(msg->get_return_code());
+                auto return_code = static_cast<std::uint8_t>(msg->get_return_code());
                 payload.wdata()[pos++] = static_cast<std::byte>(return_code);
 
                 // Copy payload data after header
@@ -175,17 +160,19 @@ void RemoteNetworkService::setup_vsomeip() {
 
                 // Shrink to actual size (header + payload)
                 payload.shrink(pos);
-                server_connector_->update_event(socom_event_id, std::move(payload));
+                if (const auto result =
+                        server_connector_->update_event(socom_event_id, std::move(payload));
+                    !result) {
+                    score::mw::log::LogError()
+                        << "[someipd] RemoteNetworkService - Failed to update event "
+                        << socom_event_id << ": " << result.error().Message();
+                }
             });
 
         vsomeip_app_->request_event(service_id, instance_id, vsomeip_event_id, groups);
-        for (auto const group : groups) {
-            score::mw::log::LogInfo()
-                << "[someipd] Subscribing service_id=0x" << score::mw::log::LogHex16{service_id}
-                << " instance_id=0x" << score::mw::log::LogHex16{instance_id} << " event_id=0x"
-                << score::mw::log::LogHex16{vsomeip_event_id} << " eventgroup_id=0x"
-                << score::mw::log::LogHex16{group};
-            vsomeip_app_->subscribe(service_id, instance_id, group);
+        for (auto const group_id : groups) {
+            vsomeip_app_->subscribe(service_id, instance_id, group_id,
+                                    service_type_config_->service_version_major());
         }
     }
 }

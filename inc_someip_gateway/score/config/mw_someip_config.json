@@ -1,80 +1,144 @@
 {
     "service_types": [
         {
-            "service_type_name": "vehicle_high_beam_tx",
-            "service_id": 17152,
+            "service_type_name": "window_control",
+            "service_id": 1,
             "service_version_major": 1,
             "service_version_minor": 0,
             "events": [
                 {
-                    "event_name": "high_beam_state",
-                    "event_id": 33840,
-                    "serialization_config_type": "NullSerializerConfig",
-                    "serialization_config": {
-                        "max_message_size": 1
-                    },
-                    "eventgroup_ids": [33840]
+                    "event_name": "window_control",
+                    "event_id": 1
                 }
             ],
             "local_service_instances": [
                 {
-                    "instance_specifier": "/vehicle_high_beam/local_tx",
-                    "instance_id": 4096
-                }
-            ]
-        },
-        {
-            "service_type_name": "vehicle_high_beam_rx",
-            "service_id": 17152,
-            "service_version_major": 1,
-            "service_version_minor": 0,
-            "events": [
-                {
-                    "event_name": "high_beam_state",
-                    "event_id": 33841,
-                    "serialization_config_type": "BooleanSerializerConfig",
-                    "serialization_config": {},
-                    "eventgroup_ids": [33841]
-                }
-            ],
-            "remote_service_instances": [
-                {
-                    "instance_specifier": "/vehicle_high_beam/network_rx",
-                    "instance_id": 4097
-                }
-            ]
-        },
-        {
-            "service_type_name": "vehicle::VehicleDynamicsService",
-            "service_id": 6433,
-            "service_version_major": 1,
-            "service_version_minor": 0,
-            "events": [
-                {
-                    "event_name": "speed",
-                    "event_id": 1,
-                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
-                    "serialization_config": {},
-                    "eventgroup_ids": [1]
-                },
-                {
-                    "event_name": "speedAck",
-                    "event_id": 2,
-                    "serialization_config_type": "VehicleDynamicsSerializerConfig",
-                    "serialization_config": {},
-                    "eventgroup_ids": [2]
-                }
-            ],
-            "local_service_instances": [
-                {
-                    "instance_specifier": "/Vehicle/Service1/Instance",
+                    "instance_specifier": "gatewayd/application_window_control",
                     "instance_id": 1
                 }
+            ]
+        },
+        {
+            "service_type_name": "echo_request",
+            "service_id": 4660,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "echo_request_tiny",
+                    "event_id": 34680,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    }
+                },
+                {
+                    "event_name": "echo_request_small",
+                    "event_id": 2,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 88
+                    }
+                },
+                {
+                    "event_name": "echo_request_medium",
+                    "event_id": 3,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048
+                    }
+                },
+                {
+                    "event_name": "echo_request_large",
+                    "event_id": 4,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 8216
+                    }
+                },
+                {
+                    "event_name": "echo_request_xlarge",
+                    "event_id": 5,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 65560
+                    }
+                },
+                {
+                    "event_name": "echo_request_xxlarge",
+                    "event_id": 6,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048600
+                    }
+                }
+            ],
+            "local_service_instances": [
+                {
+                    "instance_specifier": "gatewayd/application_echo_request",
+                    "instance_id": 22136
+                }
+            ]
+        },
+        {
+            "service_type_name": "echo_response",
+            "service_id": 17185,
+            "service_version_major": 1,
+            "service_version_minor": 0,
+            "events": [
+                {
+                    "event_name": "echo_response_tiny",
+                    "event_id": 34680,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    }
+                },
+                {
+                    "event_name": "echo_response_small",
+                    "event_id": 2,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 88
+                    }
+                },
+                {
+                    "event_name": "echo_response_medium",
+                    "event_id": 3,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048
+                    }
+                },
+                {
+                    "event_name": "echo_response_large",
+                    "event_id": 4,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 8216
+                    }
+                },
+                {
+                    "event_name": "echo_response_xlarge",
+                    "event_id": 5,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 65560
+                    }
+                },
+                {
+                    "event_name": "echo_response_xxlarge",
+                    "event_id": 6,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1048600
+                    }
+                }
             ],
             "remote_service_instances": [
                 {
-                    "instance_specifier": "/Vehicle/Service2/Instance",
-                    "instance_id": 2
+                    "instance_specifier": "benchmark/echo_response",
+                    "instance_id": 22136
                 }
             ]
         }

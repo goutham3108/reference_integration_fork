@@ -132,6 +132,4 @@
         "vsomeip"
     ],
     "python.analysis.typeCheckingMode": "off",
-    "python.languageServer": "None",
-    "cmake.sourceDirectory": "/home/goutham/Gitrepos/SDV-Hackathon/inc_someip_gateway/sdv-runtime-fork/kuksa-syncer-cpp",
 }

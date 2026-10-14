@@ -43,14 +43,17 @@ vsomeip_lib_dir="$(find "${root}/someipd.runfiles" -name libvsomeip3.so.3 -print
 test -n "${vsomeip_lib_dir}"
 export LD_LIBRARY_PATH="${root}:${vsomeip_lib_dir}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
+stale_pattern='someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo|start_kuksa'
+# Stop a previous launcher's KUKSA retry loop first, otherwise it respawns the broker and steals the port.
+pkill -KILL -f 'start_kuksa' 2>/dev/null || true
+pkill -TERM -f "${stale_pattern}" 2>/dev/null || true
 for attempt in $(seq 1 20); do
-    if ! pgrep -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' >/dev/null; then
+    if ! pgrep -f "${stale_pattern}" >/dev/null; then
         break
     fi
     sleep 0.25
 done
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam|databroker-mw-com-demo' 2>/dev/null || true
+pkill -KILL -f "${stale_pattern}" 2>/dev/null || true
 ensure_broker_port_free
 rm -f /tmp/vsomeip*.lck /tmp/vsomeip-[0-9]*
 
@@ -117,9 +120,26 @@ disown
 # remote-instance shared memory before the selected vehicle app starts.
 sleep 10
 
+# A crashed gateway daemon must not leave a half-running stack that only fails later.
+require_gateway_alive() {
+    local name
+    for name in someipd gatewayd; do
+        if ! pgrep -x "$name" >/dev/null; then
+            echo "${name} is not running; see ${root}/${name}.log" >&2
+            tail -n 20 "${root}/${name}.log" >&2 || true
+            pkill -KILL -x someipd 2>/dev/null || true
+            pkill -KILL -x gatewayd 2>/dev/null || true
+            pkill -KILL -f vehicle_high_beam_bridge 2>/dev/null || true
+            return 1
+        fi
+    done
+}
+require_gateway_alive || exit 1
+
 cd "${root}"
 start_kuksa() {
-    # gatewayd creates remote instances asynchronously; KUKSA aborts if they are absent.
+    # gatewayd creates its remote instances asynchronously; KUKSA's proxy creation fails if the
+    # shared memory is not there yet. Wait for it, then let the retry loop cover any remaining race.
     for attempt in $(seq 1 60); do
         if [[ -e /dev/shm/lola-data-0000000000006433-00002 && \
               -e /dev/shm/lola-data-0000000000017152-04097 ]]; then
@@ -151,13 +171,13 @@ case "${vehicle_app_mode}" in
             broker_host="${VDB_ADDRESS%:*}"
             broker_port="${VDB_ADDRESS##*:}"
             broker_ready=false
-            for attempt in $(seq 1 60); do
+            # Budget: up to 30 s for gateway shared memory, then KUKSA start-up and retries.
+            for attempt in $(seq 1 240); do
                 if ! kill -0 "$kuksa_launcher_pid" 2>/dev/null; then
                     echo "Demo broker exited during startup; see ${root}/kuksa.log" >&2
                     exit 1
                 fi
-                if grep -q 'Listening on .*:55555' "${root}/kuksa.log" &&
-                    timeout 1 bash -c ':</dev/tcp/$1/$2' _ "$broker_host" "$broker_port" 2>/dev/null; then
+                if timeout 1 bash -c ':</dev/tcp/$1/$2' _ "$broker_host" "$broker_port" 2>/dev/null; then
                     broker_ready=true
                     break
                 fi

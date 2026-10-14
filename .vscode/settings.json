@@ -14,5 +14,6 @@
     "./build/**": true,
     "./bazel-*/**": true,
     "**/*.orig": true,
-  }
+  },
+  "python.languageServer": "None"
 }

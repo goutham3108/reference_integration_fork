@@ -250,6 +250,10 @@ impl LolaScoreRuntimeAdapter {
 #[async_trait]
 impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
     async fn connect(&mut self) -> Result<(), MwComProviderError> {
+        // Subscription retries must not offer a second Tx skeleton.
+        if self.runtime.is_some() {
+            return Ok(());
+        }
         let mut builder = LolaRuntimeBuilderImpl::new();
         builder.load_config(&self.config_path);
         let runtime = builder

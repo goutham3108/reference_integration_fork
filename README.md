@@ -158,13 +158,22 @@ ends with `All requested Raspberry Pi targets built successfully.` and exits
 with status 0; if a command fails, the script exits nonzero and reports the
 failed step.
 
+The gateway configuration is built from
+`sdv-hack-demo/config/mw_someip_config.json` using `//sdv-hack-demo:gateway_config`
+and packaged as `mw_someip_config.bin`; the generic window-control/echo example
+configuration is not used by this demo. The demo also ships its own
+`score_com_serializer.so` plugin (`sdv-hack-demo/serializer/`) alongside the
+gateway's serializer; see [sdv-hack-demo/README.md](sdv-hack-demo/README.md).
+
 The build outputs are left in their project build directories; this command
 does not package them or run `scp`:
 
 ```text
 inc_someip_gateway/bazel-bin/score/gatewayd/gatewayd
 inc_someip_gateway/bazel-bin/score/someipd/someipd
-inc_someip_gateway/bazel-bin/score/serializer/score_com_serializer.so
+bazel-bin/sdv-hack-demo/mw_someip_config.bin
+bazel-bin/sdv-hack-demo/serializer/score_com_serializer.so
+bazel-bin/sdv-hack-demo/serializer/score_com_serializer_base.so
 bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com
 bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge
 bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app

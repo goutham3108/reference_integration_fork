@@ -31,6 +31,10 @@ namespace {
 
 constexpr std::uint16_t kDefaultBridgePort = 35000U;
 constexpr std::uint16_t kDefaultRemotePort = 35001U;
+// The gateway subscribes with the service_version_major of its config (1); vsomeip only
+// delivers events if the offered major version matches.
+constexpr vsomeip::major_version_t kGatewayServiceMajorVersion = 1U;
+constexpr vsomeip::minor_version_t kGatewayServiceMinorVersion = 0U;
 
 struct Route {
     std::string name;
@@ -172,7 +176,8 @@ int main() {
             const std::set<vsomeip::eventgroup_t> remote_groups{route.remote_event};
             vehicle_side->offer_event(route.service, route.remote_instance, route.remote_event, remote_groups,
                                       vsomeip::event_type_e::ET_EVENT, std::chrono::milliseconds::zero(), false, true);
-            vehicle_side->offer_service(route.service, route.remote_instance);
+            vehicle_side->offer_service(route.service, route.remote_instance, kGatewayServiceMajorVersion,
+                                        kGatewayServiceMinorVersion);
             score::mw::log::LogWarn() << "Bridge route ready: " << route.name;
         }
     });

@@ -135,6 +135,46 @@ dist/vehicle-aarch64.tar.gz
 dist/remote-aarch64.tar.gz
 ```
 
+The gateway configuration lives in this folder, not in `inc_someip_gateway`:
+`sdv-hack-demo/config/mw_someip_config.json`, built by
+`//sdv-hack-demo:gateway_config` and packaged as `mw_someip_config.bin`.
+The gateway's generic example config is not used (it only declares window-control
+and echo services). Packaging selects `bazel-out/aarch64-fastbuild/bin` in both
+Bazel workspaces rather than the most recent `bazel-bin` link.
+
+The gateway keys its SOCom connectors by service type name, so one type must
+not have both a local and a remote instance. The demo config therefore uses
+one type per direction: `vehicle_high_beam_tx`/`vehicle_high_beam_rx` and
+`vehicle::VehicleDynamicsService` (Tx, `/Vehicle/Service1/Instance`) /
+`vehicle::VehicleDynamicsService_rx` (Rx, `/Vehicle/Service2/Instance`). Both
+vehicle-dynamics types share SOME/IP service ID `6433`, so the wire format and
+`signal_routes.json` do not change.
+
+The gateway's serializer only knows the original type names. gatewayd therefore
+loads the demo plugin `score_com_serializer.so` (`sdv-hack-demo/serializer/`),
+which maps `..._rx` onto the original name and forwards every call to the
+gateway's own serializer, shipped next to it as `score_com_serializer_base.so`.
+Both libraries must be in the vehicle directory (the launcher puts it first on
+`LD_LIBRARY_PATH`).
+
+`start-vehicle.sh` waits for the gateway's receive shared memory before starting
+KUKSA, allows enough time (about two minutes) for the broker to listen, stops any
+earlier `start_kuksa` retry loop so it cannot respawn a broker and hold port
+`55555`, and aborts with the daemon's log tail if `gatewayd` or `someipd` is not
+running. Repeated subscription attempts reuse the existing LoLa runtime and
+high-beam Tx offer, avoiding a self-conflicting second skeleton.
+
+`inc_someip_gateway` is upstream `eclipse-score/inc_someip_gateway` `main` (commit `32624b21`) plus the
+local changes shown by `git -C inc_someip_gateway diff` (serializer/schema extensions for speed and
+boolean events, `eventgroup_ids` handling and trace logging in `someipd`, and in `gatewayd` the
+empty-handle guard, proxy-creation retry and `App->SOME/IP` trace line). Two upstream bumps are
+deliberately **not** taken because they change the LoLa runtime that KUKSA also links
+(`communication/`): `score_communication` stays `0.3.0` and `score_baselibs` stays `0.2.12` in
+`inc_someip_gateway/MODULE.bazel`. As a consequence upstream's mw::com IPC binding
+(`//score/gateway_ipc_binding:gateway_ipc_binding_mw_com`) and its aggregate test are disabled with
+`target_compatible_with`; re-enable them only when `communication/` and the gateway are upgraded
+together and the whole flow is re-validated.
+
 The vehicle archive includes the gateway executables and runfiles, bridge,
 `databroker-mw-com-demo`, `databroker-cli`, the KUKSA provider configuration
 files, legacy `vehicle_high_beam_mw_com` app and its runfiles, serializer, and
