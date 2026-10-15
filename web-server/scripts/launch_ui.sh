@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run on the LAPTOP. Opens the SSH tunnel to the Pi and serves the browser UI.
 #
-#   bash web-server/scripts/launch_ui.sh <pi-user>@<pi-ip>
-#   bash web-server/scripts/launch_ui.sh --no-tunnel      # UI only (API already reachable on 18443)
+#   bash web-server/scripts/launch_ui.sh                    # asks for the Pi username and IP
+#   bash web-server/scripts/launch_ui.sh <pi-user>@<pi-ip>   # skips the questions
+#   bash web-server/scripts/launch_ui.sh --no-tunnel        # UI only (API already reachable on 18443)
 #
 # Ctrl+C stops the UI server and closes the tunnel.
 set -euo pipefail
@@ -12,11 +13,21 @@ UI_PORT=8080
 API_PORT=18443
 PI_API_PORT=8443
 
-if [[ $# -ne 1 ]]; then
-    echo "Usage: $0 <pi-user>@<pi-ip> | --no-tunnel" >&2
+if [[ $# -gt 1 ]]; then
+    echo "Usage: $0 [<pi-user>@<pi-ip> | --no-tunnel]" >&2
     exit 2
 fi
-target="$1"
+if [[ $# -eq 1 ]]; then
+    target="$1"
+else
+    read -r -p "Pi username: " pi_user
+    read -r -p "Pi IP address: " pi_ip
+    if [[ -z "$pi_user" || -z "$pi_ip" ]]; then
+        echo "Both the username and the IP address are required." >&2
+        exit 2
+    fi
+    target="$pi_user@$pi_ip"
+fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ui_dir="$root/web-server/laptop-ui"
 control_socket=""

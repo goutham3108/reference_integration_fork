@@ -32,8 +32,6 @@ Run from the repository root.
 
 ```bash
 bash web-server/pi-server/package.sh
-bash web-server/examples/hello-app/build_bundle.sh
-bash web-server/examples/sample_sdv_python_app/build_sample_bundle.sh
 ```
 
 This creates the Pi package `web-server/pi-server/dist/pi-deployment-server.tar.gz` and two sample apps.
@@ -78,10 +76,10 @@ sudo systemctl restart sdv-deployer.service
 ## 3. Launch the UI (laptop)
 
 ```bash
-bash web-server/scripts/launch_ui.sh <pi-user>@<pi-ip>
+bash web-server/scripts/launch_ui.sh
 ```
 
-It opens the SSH tunnel, serves the UI, and tries to open `http://localhost:8080`. Press Ctrl+C to stop both. Ports 8080 and 18443 must be free. Use `localhost` or `127.0.0.1` for the UI address; other hosts are rejected by the Pi.
+It asks for the Pi username and IP address, opens the SSH tunnel, serves the UI, and tries to open `http://localhost:8080`. To skip the questions, pass them as `bash web-server/scripts/launch_ui.sh <pi-user>@<pi-ip>`. Press Ctrl+C to stop both. Ports 8080 and 18443 must be free. Use `localhost` or `127.0.0.1` for the UI address; other hosts are rejected by the Pi.
 
 Manual equivalent, in two terminals:
 
