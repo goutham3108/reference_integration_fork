@@ -1,212 +1,229 @@
-# SDV Web-Based Application Deployment Server
+# SDV Application Deployment Manager
 
-A two-part, isolated application deployment tool for **Eclipse S-CORE** and **Software-Defined Vehicle (SDV)** targets. The API-only server runs on Raspberry Pi A; the browser UI runs on the developer laptop.
-
-The laptop UI sends requests through an SSH local port forward to the Pi. The Pi reads its own environment, stages and validates uploaded packages, manages application services, and returns status and logs. The integration stack is not modified.
-
-The coworker handoff is [`pi-server/`](pi-server/), which contains no UI assets. The laptop client is in [`laptop-ui/`](laptop-ui/).
-
----
-
-## 🌟 Key Features
-
-1. **Pi API Service**:
-   Runs as an independent daemon (`sdv-deployer.service`), listening only on `127.0.0.1:8443` on Vehicle Pi A. Use the SSH tunnel for laptop access.
-2. **Supported Application Types**:
-   - **1] S-CORE Native Applications (`runtime: "native"`)**: AArch64 C++/Rust binaries that communicate over `mw::com` (LoLa shared memory in `/dev/shm`) directly to `gatewayd` and local S-CORE middleware.
-   - **2] SDV Python Applications (`runtime: "python"`)**: Python scripts/packages that interact with the KUKSA Databroker (`127.0.0.1:55555`) via VAL v2 gRPC to read and actuate vehicle signals (e.g. `Vehicle.Speed`, `Vehicle.Body.Lights.Beam.High.IsOn`).
-3. **Live Environment & Dependency Display**:
-   The UI calls the Pi's environment API only when the user selects **Get info**. Architecture, OS, kernel, `glibc`, `g++` version, Python, supervisor, and visible LoLa segments are inspected by the server at request time. KUKSA running status is detected from local Databroker processes. If the request fails, old values are cleared and the UI shows the error.
-4. **Active Application State & Real-Time Logs**:
-   Dashboard showing running status (`active`, `stopped`, `failed`), PID, uptime, version tracking, startup error capture, live rolling `journald` log output, and one-click rollback to the previous known-good version.
-5. **5-Stage Pre-Activation Benchmark Pipeline**:
-   Every uploaded package is statically and dynamically benchmarked before it is permitted to run.
-
----
-
-## 🛡️ 5-Stage Pre-Deployment Benchmarks
-
-Before any application package is promoted or executed on the Raspberry Pi, it must pass five automated benchmarks:
+Deploy and run applications on a Raspberry Pi from a browser. The Pi runs a small API service; the UI runs on your laptop and reaches the Pi through an SSH tunnel. Nothing in the S-CORE sources is modified.
 
 ```
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 1. Archive Safety Benchmark                                 │
-  │    - Valid .tar.gz format & size under 100 MB               │
-  │    - Rejection of path traversal (../), leading /, symlinks │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 2. Manifest & Checksum Benchmark                            │
-  │    - Schema validation (app_id, version, runtime, entry)    │
-  │    - SHA-256 verification of every packaged file            │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 3. Architecture & Compatibility Benchmark                   │
-  │    - Native: ELF header validation (EM_AARCH64 64-bit LSB)  │
-  │    - Python: Syntax compilation (py_compile) & deps check   │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 4. Execution Permissions & Security Benchmark               │
-  │    - No setuid / setgid bits allowed                        │
-  │    - Entrypoint existence & chmod +x applied                │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 5. Startup Smoke Benchmark                                  │
-  │    - Staging launch with 3-second grace window              │
-  │    - Immediate crash detection, stderr capture & abort      │
-  │    - Retention of previous known-good version on failure    │
-  └─────────────────────────────────────────────────────────────┘
+ Laptop browser ──> UI (localhost:8080) ──> SSH tunnel (localhost:18443) ──> Pi API (127.0.0.1:8443)
 ```
+
+| Folder | Runs on | Purpose |
+|---|---|---|
+| `pi-server/` | Pi | API service, installer, account tool |
+| `laptop-ui/` | Laptop | Browser UI (static files) |
+| `scripts/` | Both | `pi_setup.sh` (Pi), `launch_ui.sh` (laptop), `install_on_pi.sh`, `e2e_pi_test.py` |
+| `examples/` | Laptop | Sample app bundles |
+| `tests/` | Laptop | Unit and API tests |
+
+**How it behaves on the Pi**
+
+- The deployer is one systemd service, `sdv-deployer.service`. It runs as your Pi user, starts at boot, and has a memory and CPU limit (default `512M`, `100%`).
+- Apps are plain processes started by the deployer, not separate services. Each app lives in `/home/<user>/sdv-apps/<app-id>/` and logs to `/var/log/sdv-deployer/<app-id>.log`.
+- The service limit covers the deployer and its apps together.
+- Running apps survive a restart of the deployer.
+- Apps do not start by themselves after a Pi reboot. Press Start in the UI.
+
+Requirements: Pi with Python 3.10+, `aarch64`, systemd, SSH access. Laptop with `python3` and `ssh`.
 
 ---
 
-## 📦 Package Bundle Specification
+## 1. Build the package (laptop)
 
-Applications are packaged as standard `.tar.gz` archives with a root `manifest.json`:
-
-```json
-{
-  "app_id": "vehicle-speed-reader",
-  "name": "S-CORE Vehicle Speed Reader",
-  "version": "1.0.0",
-  "description": "Reads vehicle speed from S-CORE mw::com shared memory",
-  "runtime": "native",
-  "entrypoint": "vehicle_speed_reader",
-  "target_architecture": "aarch64",
-  "author": "Eclipse S-CORE SDV Team",
-  "checksums": {
-    "vehicle_speed_reader": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-  }
-}
-```
-
-### Example Packages Provided
-
-- [examples/sample_score_app](examples/sample_score_app/): S-CORE native C binary reading `/dev/shm` dynamics.
-- [examples/sample_sdv_python_app](examples/sample_sdv_python_app/): Python application reading `Vehicle.Speed` and toggling `Vehicle.Body.Lights.Beam.High.IsOn` on KUKSA (`127.0.0.1:55555`).
-- [examples/hello-app](examples/hello-app/): independent Python heartbeat app for multi-app deployment and per-app live-log testing. Build it with `bash web-server/examples/hello-app/build_bundle.sh`.
-
----
-
-## Quick Start: Pi Server and Laptop UI
-
-### Test the UI locally before the Pi is available
-
-This starts a local copy of the API on port `18443` and the laptop UI on port `8080`. It exercises login, navigation, upload, and API behavior, but **Get info reports the development machine (for example WSL), not the Pi**.
-
-In terminal 1:
+Run from the repository root.
 
 ```bash
-cp web-server/pi-server/config.example.json /tmp/sdv-deployer-local.json
-python3 web-server/pi-server/manage_users.py \
-   --config /tmp/sdv-deployer-local.json add demo@example.com
-SDV_DEPLOYER_PORT=18443 python3 web-server/pi-server/server.py /tmp/sdv-deployer-local.json
+bash web-server/pi-server/package.sh
+bash web-server/examples/hello-app/build_bundle.sh
+bash web-server/examples/sample_sdv_python_app/build_sample_bundle.sh
 ```
 
-In terminal 2:
+This creates the Pi package `web-server/pi-server/dist/pi-deployment-server.tar.gz` and two sample apps.
+
+## 2. Install on the Pi
+
+Copy the package and the setup script, then run it as your normal user (not root).
 
 ```bash
-python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui
-```
-
-Open `http://localhost:8080`. Use the email and password created by the account command. The existing Python sample bundle is at `web-server/examples/sample_sdv_python_app/kuksa-high-beam-controller-1.0.0.tar.gz`.
-
-Stop each local process with `Ctrl+C` in its terminal. To see real Pi environment and logs, use the Pi installation and SSH tunnel instructions below instead.
-
-### Package and install the Pi-only server
-
-On the build/workspace host:
-
-```bash
-cd web-server/pi-server
-bash package.sh
-scp dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:/tmp/
+scp web-server/scripts/pi_setup.sh web-server/pi-server/dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:~
 ssh <pi-user>@<pi-ip>
-tar -xzf /tmp/pi-deployment-server.tar.gz
-sudo bash pi-deployment-server/deploy/install.sh
+bash pi_setup.sh
 ```
 
-This installs the API, account tool, runner, and systemd units on the Pi. The server binds to `127.0.0.1:8443`; it does not include or serve the laptop UI and does not modify S-CORE source or launch configuration.
+The script checks the Pi is `aarch64`, installs or upgrades the service, shows the status, and asks for an email and password if no login exists. Type the password at the prompt.
 
-### Create a browser account on the Pi
+Other commands:
 
 ```bash
-sudo python3 /opt/sdv-deployer/manage_users.py \
-   --config /etc/sdv-deployer/config.json add developer@example.com
+bash pi_setup.sh status      # service state, limits, apps, logins
+bash pi_setup.sh adduser     # add or replace a login
+bash pi_setup.sh /path/to/pi-deployment-server.tar.gz   # install from another location
 ```
 
-Enter a password when prompted, then restart the service:
+Change the limits at install time (run from the extracted `pi-deployment-server/` folder):
 
 ```bash
+sudo SDV_MEMORY_MAX=768M SDV_CPU_QUOTA=150% bash deploy/install.sh
+```
+
+Manual install, without the script:
+
+```bash
+scp web-server/pi-server/dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:/tmp/
+ssh <pi-user>@<pi-ip>
+cd /tmp && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server
+sudo bash deploy/install.sh
+python3 /opt/sdv-deployer/manage_users.py --config /etc/sdv-deployer/config.json add <email>
 sudo systemctl restart sdv-deployer.service
 ```
 
-The email is stored as the account identifier. The password is stored only as a salted PBKDF2-HMAC-SHA256 hash in `/etc/sdv-deployer/config.json` (mode `0600`); plaintext is not saved. CI Bearer credentials are stored separately in that Pi-side config.
+## 3. Launch the UI (laptop)
 
-### Open the laptop UI through SSH
+```bash
+bash web-server/scripts/launch_ui.sh <pi-user>@<pi-ip>
+```
 
-Keep this tunnel running on the laptop:
+It opens the SSH tunnel, serves the UI, and tries to open `http://localhost:8080`. Press Ctrl+C to stop both. Ports 8080 and 18443 must be free. Use `localhost` or `127.0.0.1` for the UI address; other hosts are rejected by the Pi.
+
+Manual equivalent, in two terminals:
 
 ```bash
 ssh -N -L 18443:127.0.0.1:8443 <pi-user>@<pi-ip>
-```
-
-In a second laptop terminal, from the workspace root:
-
-```bash
 python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui
 ```
 
-Open `http://localhost:8080` and sign in with the account provisioned on the Pi. `laptop-ui/config.js` points the client to `http://localhost:18443`; update both that setting and the Pi's `allowed_origins` if you use different local ports.
+## 4. Use the UI
 
-The four menu sections are Target Environment & Compatibility, Upload & Validate Application Package, Application Logs & Diagnostics, and Deployed Applications. **Get info** explicitly requests live data from the Pi. Uploads go to the Pi for staging, validation, extraction, and launch; the selected application's logs refresh every two seconds while its Logs view is open.
+1. **Sign in** with the email and password created on the Pi.
+2. **Target Environment**: click **Get info** to read the Pi's architecture, OS, kernel, glibc, `g++`, Python and KUKSA status.
+3. **Upload & Validate**: choose one or more `.tar.gz` bundles and click **Validate & Deploy**. Each bundle goes through 5 checks and is started if all pass.
+4. **Logs**: choose one app. The log follows new lines every 2 seconds.
+5. **Deployed Applications**: Stop, Start, Restart, Rollback or Remove each app.
+
+Each app needs a unique `app_id`. Uploading an existing ID updates that app and keeps the previous version for Rollback.
 
 ---
 
-## 📡 REST API Reference (for CI/CD & Automation)
+## Application bundle
 
-REST automation requests require `Authorization: Bearer <token>`. Browser users instead sign in with a provisioned email/password account; passwords are stored as salted PBKDF2 hashes.
+A `.tar.gz` with a `manifest.json` at its root:
 
-| Method | Endpoint | Description |
+```json
+{
+  "app_id": "pi-heartbeat-monitor",
+  "name": "Pi Heartbeat Monitor",
+  "version": "1.0.0",
+  "runtime": "python",
+  "entrypoint": "pi_heartbeat.py",
+  "target_architecture": "aarch64",
+  "checksums": { "pi_heartbeat.py": "<sha256 of the file>" }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `runtime` | `python` or `native` (an AArch64 ELF binary) |
+| `entrypoint` | File to run, relative to the bundle root |
+| `checksums` | SHA-256 of each listed file, verified on the Pi |
+
+Create one:
+
+```bash
+sha256sum pi_heartbeat.py                       # put the value in manifest.json
+tar -czf pi-heartbeat-monitor-1.0.0.tar.gz manifest.json pi_heartbeat.py
+```
+
+Samples: `examples/hello-app` (Python heartbeat), `examples/sample_sdv_python_app` (KUKSA demo), `examples/sample_score_app` (native, x86-64 only; it fails the Pi's architecture check).
+
+## Validation (done by the Pi, shown by the UI)
+
+| Stage | Checks |
+|---|---|
+| 1. Archive safety | Valid tar, under 100 MB, no `..`, absolute paths or unsafe links |
+| 2. Manifest and checksums | Required fields, valid `app_id` and runtime, SHA-256 of every listed file |
+| 3. Compatibility | Native: AArch64 ELF header. Python: syntax compiles |
+| 4. Permissions and security | No setuid/setgid bits, entrypoint made executable |
+| 5. Startup smoke test | App runs for 3 seconds without crashing |
+
+If a stage fails, the UI shows the reason on that row and marks the later stages "Not run". Nothing is installed.
+
+---
+
+## Check the Pi by hand
+
+```bash
+systemctl status sdv-deployer.service --no-pager
+systemctl show sdv-deployer -p User -p MemoryMax -p CPUQuotaPerSecUSec
+journalctl -u sdv-deployer.service -n 50 --no-pager
+ls /home/<pi-user>/sdv-apps/
+ps -eo pid,user,args | grep -E "pi_heartbeat|high_beam" | grep -v grep
+tail -f /var/log/sdv-deployer/<app-id>.log
+sudo systemctl restart sdv-deployer.service
+```
+
+| Item | Location |
+|---|---|
+| Installed server | `/opt/sdv-deployer/` |
+| Config and logins | `/etc/sdv-deployer/config.json` (mode `0600`, passwords stored as salted PBKDF2 hashes) |
+| Deployed apps | `/home/<pi-user>/sdv-apps/<app-id>/` |
+| Upload staging | `/var/lib/sdv-deployer/staging/` |
+| App logs | `/var/log/sdv-deployer/<app-id>.log` |
+
+Remove the server and stop its apps (config and app files are kept):
+
+```bash
+sudo bash /tmp/pi-deployment-server/deploy/uninstall.sh
+```
+
+---
+
+## Test
+
+Without a Pi, on the laptop (Get info then shows the laptop, not a Pi):
+
+```bash
+cp web-server/pi-server/config.example.json /tmp/sdv-local.json
+python3 web-server/pi-server/manage_users.py --config /tmp/sdv-local.json add demo@example.com
+SDV_DATA_DIR=/tmp/sdv-local-data SDV_DEPLOYER_PORT=18443 python3 web-server/pi-server/server.py /tmp/sdv-local.json
+python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui     # second terminal
+```
+
+Automated tests:
+
+```bash
+bash web-server/tests/run_tests.sh
+```
+
+Against the real Pi, with the tunnel open (deploys both samples, reads logs, stops, restarts and removes them):
+
+```bash
+python3 web-server/scripts/e2e_pi_test.py --email <email>
+```
+
+---
+
+## REST API
+
+Browser users sign in with email and password (session cookie). Automation can use `Authorization: Bearer <auth_token>` from the Pi config.
+
+| Method | Endpoint | Purpose |
 |---|---|---|
-| `GET` | `/api/v1/environment` | Returns live target hardware, kernel, glibc, Python, KUKSA, and LoLa SHM status |
-| `POST` | `/api/v1/apps/upload` | Upload `.tar.gz` package (multipart or raw stream), executes 5 benchmarks, and activates |
-| `GET` | `/api/v1/apps` | List all deployed applications with status, active version, uptime, PID |
-| `GET` | `/api/v1/apps/:id` | Get details and metadata for a specific application |
-| `POST` | `/api/v1/apps/:id/start` | Start application |
-| `POST` | `/api/v1/apps/:id/stop` | Stop application |
-| `POST` | `/api/v1/apps/:id/restart` | Restart application |
-| `POST` | `/api/v1/apps/:id/rollback` | Roll back to previous known-good version |
-| `DELETE` | `/api/v1/apps/:id` | Stop and completely remove application |
-| `GET` | `/api/v1/apps/:id/logs?lines=100` | Stream application stdout/stderr and journald logs |
-
-### Example: Upload from CI/CD Pipeline
+| `POST` | `/api/v1/login`, `/api/v1/logout` | Sign in and out |
+| `GET` | `/api/v1/session` | Current session |
+| `GET` | `/api/v1/environment` | Live data from the Pi |
+| `POST` | `/api/v1/apps/upload` | Upload, validate and start a bundle |
+| `GET` | `/api/v1/apps`, `/api/v1/apps/<id>` | List apps, or one app |
+| `POST` | `/api/v1/apps/<id>/{start,stop,restart,rollback}` | Control an app |
+| `DELETE` | `/api/v1/apps/<id>` | Stop and remove an app |
+| `GET` | `/api/v1/apps/<id>/logs?lines=100` | Last lines of the app log |
 
 ```bash
-curl -X POST http://localhost:18443/api/v1/apps/upload \
-   -H "Authorization: Bearer <ci-api-token>" \
-  -F "package=@kuksa-high-beam-controller-1.0.0.tar.gz"
+curl -X POST http://127.0.0.1:18443/api/v1/apps/upload \
+  -H "Authorization: Bearer <auth_token>" \
+  --data-binary @pi-heartbeat-monitor-1.0.0.tar.gz -H "Content-Type: application/gzip"
 ```
 
+## Limitations
 
----
-
-## 🧪 Running the Test Suite
-
-From the `web-server` directory:
-
-```bash
-bash tests/run_tests.sh
-```
-
-Validates:
-- Traversal attack rejection
-- Corrupt archive rejection
-- Checksum integrity matching
-- ELF architecture matching
-- Python syntax compilation
-- Startup smoke test crash detection
-- REST API lifecycle, environment, authentication, and rollback
+- The KUKSA status is "a Databroker process is running" on the Pi. It does not prove an app is connected to it.
+- Containers are not supported; apps are Python scripts or native AArch64 binaries.
+- Apps run as your Pi user, so they can access everything that user can.
+- The API listens only on `127.0.0.1:8443`. Always reach it through the SSH tunnel.

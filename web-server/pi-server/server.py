@@ -53,7 +53,6 @@ class DeploymentConfig:
         self.allowed_origins = ["http://localhost:8080"]
         self.app_user = "sdv-apps"
         self.app_group = "sdv-apps"
-        self.systemctl_helper = "/usr/local/libexec/sdv-appctl"
         self.data_dir = str(base_dir / "runtime" / "data")
         self.apps_dir = str(base_dir / "runtime" / "apps")
         self.staging_dir = str(base_dir / "runtime" / "staging")
@@ -220,7 +219,7 @@ class EnvironmentInspector:
         return {
             "has_systemctl": has_systemctl,
             "booted_with_systemd": booted_systemd,
-            "supervision_mode": "systemd" if (has_systemctl and booted_systemd) else "process_runner"
+            "supervision_mode": "process_runner"
         }
 
     def _check_container_runtime(self):
@@ -481,17 +480,7 @@ class BenchmarkValidator:
     def run_smoke_test(self, entrypoint_path: Path, runtime: str, args=None):
         """Stage 5: Runs the application for a grace period to verify no immediate crash."""
         args = args or []
-        extracted_root = next((parent for parent in entrypoint_path.parents if parent.name == "unpacked"), None)
-        helper_path = Path(self.config.systemctl_helper)
-        use_app_user = extracted_root is not None and helper_path.exists() and shutil.which("sudo")
-        if use_app_user:
-            relative_entrypoint = entrypoint_path.relative_to(extracted_root)
-            staging_id = extracted_root.parent.name
-            cmd = [
-                "sudo", "-n", str(helper_path), "smoke-test", staging_id,
-                runtime, str(relative_entrypoint), *args
-            ]
-        elif runtime == "python":
+        if runtime == "python":
             cmd = [sys.executable, str(entrypoint_path)] + args
         else:
             cmd = [str(entrypoint_path)] + args
@@ -506,7 +495,7 @@ class BenchmarkValidator:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                preexec_fn=None if use_app_user else self._drop_privileges
+                preexec_fn=self._drop_privileges
             )
             # Monitor during grace period
             timeout_sec = self.config.smoke_test_seconds
@@ -574,25 +563,13 @@ class BenchmarkValidator:
 
 
 class ApplicationManager:
-    """Manages installation, versioning, systemd units, and lifecycle of deployed apps."""
+    """Installs, versions, and runs deployed apps as child processes of the deployer."""
     def __init__(self, config):
         self.config = config
         self.apps_dir = Path(config.apps_dir)
         self.logs_dir = Path(config.logs_dir)
         self.app_user = config.app_user
-        self.systemctl_helper = Path(config.systemctl_helper)
-        self.processes = {}  # In-memory process table when running without systemd
-
-    def _run_unit_action(self, action: str, app_id: str | None = None) -> subprocess.CompletedProcess:
-        if os.geteuid() == 0:
-            command = ["systemctl", action]
-        elif self.systemctl_helper.exists() and shutil.which("sudo"):
-            command = ["sudo", "-n", str(self.systemctl_helper), action]
-        else:
-            command = ["systemctl", action]
-        if app_id is not None:
-            command.append(app_id)
-        return subprocess.run(command, capture_output=True, text=True)
+        self.processes = {}
 
     def _find_app_pids(self, app_id: str) -> list[int]:
         """Find live processes launched from this app's directory, including orphans from earlier API runs."""
@@ -625,11 +602,6 @@ class ApplicationManager:
             except OSError:
                 pass
 
-    def _can_manage_systemd_units(self) -> bool:
-        if not shutil.which("systemctl") or not Path("/run/systemd/system").exists():
-            return False
-        return os.geteuid() == 0 or (self.systemctl_helper.is_file() and shutil.which("sudo") is not None)
-
     def list_applications(self):
         apps = []
         if not self.apps_dir.exists():
@@ -658,23 +630,6 @@ class ApplicationManager:
         return meta
 
     def get_application_status(self, app_id: str):
-        # Check systemd first if available
-        if self._can_manage_systemd_units():
-            try:
-                res = self._run_unit_action("is-active", app_id)
-                active_state = res.stdout.strip()
-                if active_state == "active":
-                    pid_res = self._run_unit_action("show-main-pid", app_id)
-                    pid = pid_res.stdout.strip().split("=")[-1]
-                    return {"state": "running", "active": True, "pid": int(pid) if pid.isdigit() else None, "mode": "systemd"}
-                elif active_state == "failed":
-                    return {"state": "failed", "active": False, "mode": "systemd"}
-                else:
-                    return {"state": "stopped", "active": False, "mode": "systemd"}
-            except Exception:
-                pass
-
-        # Fallback to local process runner
         proc_info = self.processes.get(app_id)
         if proc_info and proc_info.get("process"):
             proc = proc_info["process"]
@@ -748,20 +703,7 @@ class ApplicationManager:
         if not app:
             raise ValueError(f"Application '{app_id}' not found")
 
-        # Try systemd first
-        if self._can_manage_systemd_units():
-            reload_result = self._run_unit_action("daemon-reload")
-            if reload_result.returncode != 0:
-                detail = (reload_result.stderr or reload_result.stdout).strip()
-                raise RuntimeError(f"systemd daemon-reload failed: {detail or 'unknown error'}")
-            res = self._run_unit_action("restart", app_id)
-            if res.returncode == 0:
-                logger.info(f"Started application {app_id} via systemd")
-                return True
-            detail = (res.stderr or res.stdout).strip()
-            raise RuntimeError(f"systemd restart failed for '{app_id}': {detail or 'unknown error'}")
-
-        # Process runner fallback; never leave a previous instance running
+        # Never leave a previous instance running
         self.stop_application(app_id)
         current_dir = self.apps_dir / app_id / "current"
         entrypoint = current_dir / app["entrypoint"]
@@ -807,12 +749,6 @@ class ApplicationManager:
         return drop_identity
 
     def stop_application(self, app_id: str):
-        if self._can_manage_systemd_units():
-            res = self._run_unit_action("stop", app_id)
-            if res.returncode != 0:
-                detail = (res.stderr or res.stdout).strip()
-                raise RuntimeError(f"systemd stop failed for '{app_id}': {detail or 'unknown error'}")
-
         proc_info = self.processes.get(app_id)
         if proc_info and proc_info.get("process"):
             proc = proc_info["process"]
@@ -873,20 +809,6 @@ class ApplicationManager:
         return True
 
     def get_logs(self, app_id: str, lines=100):
-        # Try journald first
-        if shutil.which("journalctl"):
-            unit = f"sdv-app@{app_id}.service"
-            try:
-                res = subprocess.run(["journalctl", "-u", unit, "-n", str(lines), "--no-pager"], capture_output=True, text=True)
-                journal_output = res.stdout.strip()
-                if journal_output and not all(
-                    line.strip() == "-- No entries --" for line in journal_output.splitlines()
-                ):
-                    return res.stdout
-            except Exception:
-                pass
-
-        # Fallback to local log file
         log_file = self.logs_dir / f"{app_id}.log"
         if log_file.exists():
             try:

@@ -28,7 +28,6 @@ class TestValidationBenchmarks(unittest.TestCase):
         self.config.data_dir = str(self.test_dir / "data")
         self.config.staging_dir = str(self.test_dir / "staging")
         self.config.smoke_test_seconds = 1
-        self.config.systemctl_helper = str(self.test_dir / "missing-controller")
         self.validator = BenchmarkValidator(self.config)
 
     def tearDown(self):

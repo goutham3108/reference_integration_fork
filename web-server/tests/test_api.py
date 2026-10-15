@@ -10,6 +10,7 @@ import platform
 import time
 import shutil
 import hashlib
+import subprocess
 import tarfile
 import tempfile
 import threading
@@ -48,7 +49,6 @@ class TestDeploymentApi(unittest.TestCase):
         cls.config.logs_dir = str(cls.test_dir / "logs")
         cls.config.smoke_test_seconds = 1
         cls.config.use_tls = False
-        cls.config.systemctl_helper = str(cls.test_dir / "missing-systemctl-helper")
 
         Path(cls.config.apps_dir).mkdir(parents=True, exist_ok=True)
         Path(cls.config.staging_dir).mkdir(parents=True, exist_ok=True)
@@ -92,7 +92,8 @@ class TestDeploymentApi(unittest.TestCase):
             with urllib.request.urlopen(req) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            return e.code, json.loads(e.read().decode("utf-8"))
+            with e:
+                return e.code, json.loads(e.read().decode("utf-8"))
 
     def test_00_browser_session_login_and_logout(self):
         login_body = json.dumps({
@@ -270,7 +271,26 @@ class TestDeploymentApi(unittest.TestCase):
         self.assertIn("logs", data)
 
         # Simulate an orphan left by an earlier API run: forget the tracked process.
-        self.app_manager.processes.clear()
+        orphaned_process = self.app_manager.processes.pop("test-pilot-app")
+        process = orphaned_process["process"]
+        log_handle = orphaned_process["log_handle"]
+
+        def cleanup_orphaned_process():
+            try:
+                if process.poll() is None:
+                    try:
+                        process.terminate()
+                    except ProcessLookupError:
+                        pass
+                    try:
+                        process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+            finally:
+                log_handle.close()
+
+        self.addCleanup(cleanup_orphaned_process)
         self.assertEqual(len(self.app_manager._find_app_pids("test-pilot-app")), 1)
         status, _ = self._request("POST", "/api/v1/apps/test-pilot-app/stop")
         self.assertEqual(status, 200)
