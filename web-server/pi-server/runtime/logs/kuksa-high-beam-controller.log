@@ -1,0 +1,277 @@
+============================================================
+ [SDV Python App] KUKSA High-Beam Controller
+ Target KUKSA Databroker: 127.0.0.1:55555
+============================================================
+[SDV Python App] Successfully reached KUKSA Databroker on 127.0.0.1:55555
+[SDV Monitor] Cycle #1: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #2: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #3: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #4: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #5: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #6: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #7: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #8: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #9: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #10: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #11: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #12: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #13: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #14: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #15: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #16: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #17: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #18: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #19: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #20: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #21: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #22: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #23: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #24: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #25: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #26: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #27: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #28: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #29: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #30: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #31: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #32: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #33: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #34: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #35: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #36: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #37: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #38: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #39: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #40: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #41: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #42: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #43: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #44: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #45: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #46: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #47: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #48: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #49: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #50: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #51: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #52: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #53: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #54: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #55: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #56: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #57: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #58: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #59: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #60: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #61: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #62: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #63: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #64: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #65: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #66: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #67: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #68: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #69: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #70: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #71: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #72: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #73: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #74: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #75: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #76: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #77: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #78: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #79: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #80: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #81: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #82: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #83: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #84: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #85: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #86: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #87: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #88: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #89: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #90: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #91: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #92: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #93: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #94: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #95: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #96: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #97: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #98: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #99: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #100: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #101: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #102: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #103: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #104: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #105: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #106: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #107: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #108: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #109: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #110: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #111: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #112: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #113: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #114: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #115: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #116: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #117: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #118: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #119: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #120: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #121: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #122: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #123: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #124: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #125: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #126: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #127: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #128: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #129: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #130: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #131: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #132: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #133: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #134: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #135: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #136: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #137: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #138: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #139: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #140: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #141: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #142: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #143: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #144: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #145: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #146: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #147: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #148: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #149: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #150: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #151: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #152: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #153: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #154: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #155: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #156: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #157: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #158: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #159: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #160: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #161: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #162: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #163: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #164: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #165: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #166: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #167: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #168: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #169: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #170: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #171: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #172: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #173: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #174: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #175: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #176: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #177: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #178: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #179: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #180: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #181: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #182: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #183: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #184: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #185: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #186: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #187: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #188: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #189: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #190: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #191: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #192: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #193: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #194: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #195: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #196: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #197: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #198: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #199: High.IsOn=False, Broker=ONLINE
+[SDV Monitor] Cycle #200: High.IsOn=False, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> True
+[SDV Monitor] Cycle #201: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #202: High.IsOn=True, Broker=ONLINE
+[SDV Monitor] Cycle #203: High.IsOn=True, Broker=ONLINE
+[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> False
+[SDV Monitor] Cycle #204: High.IsOn=False, Broker=ONLINE

@@ -1,0 +1,20 @@
+{
+  "host": "127.0.0.1",
+  "port": 8443,
+  "use_tls": false,
+  "tls_cert_file": "/etc/sdv-deployer/server.crt",
+  "tls_key_file": "/etc/sdv-deployer/server.key",
+  "auth_token": "replace-with-a-random-ci-token",
+  "users": [],
+  "allowed_origins": ["http://localhost:8080", "http://127.0.0.1:8080"],
+  "app_user": "sdv-apps",
+  "app_group": "sdv-apps",
+  "systemctl_helper": "/usr/local/libexec/sdv-appctl",
+  "data_dir": "/var/lib/sdv-deployer",
+  "apps_dir": "/var/lib/sdv-deployer/apps",
+  "staging_dir": "/var/lib/sdv-deployer/staging",
+  "logs_dir": "/var/log/sdv-deployer",
+  "max_upload_size_mb": 100,
+  "smoke_test_seconds": 3,
+  "target_architecture": "aarch64"
+}

@@ -1,0 +1,14 @@
+{
+  "application": "vehicle_speed_reader",
+  "mw_com": {
+    "shm_binding": "lola",
+    "services": [
+      {
+        "service_name": "VehicleDynamicsService",
+        "instance_id": 2,
+        "event_name": "vehicle_speed",
+        "event_id": 4097
+      }
+    ]
+  }
+}

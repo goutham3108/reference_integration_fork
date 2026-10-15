@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eclipse S-CORE / SDV Application Deployment Manager</title>
+    <link rel="stylesheet" href="styles.css?v=7">
+</head>
+<body>
+    <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
+        <div class="login-story">
+            <span class="login-kicker">Vehicle deployment</span>
+            <h1>Deploy to<br>your target.</h1>
+        </div>
+        <form id="loginForm" class="login-panel">
+            <h2 id="loginTitle">Sign in</h2>
+            <label for="loginEmail">Email</label>
+            <input id="loginEmail" name="email" type="email" autocomplete="username" required>
+            <label for="loginPassword">Password</label>
+            <div class="password-field">
+                <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+                <label class="show-password-control" for="showPassword">
+                    <input id="showPassword" type="checkbox">
+                    Show password
+                </label>
+            </div>
+            <button id="loginButton" class="btn btn-primary" type="submit">Sign in</button>
+            <p id="loginError" class="login-error" role="alert" hidden></p>
+        </form>
+    </section>
+
+    <div id="applicationShell" hidden>
+    <header class="navbar">
+        <div class="nav-brand">
+            <span class="logo-icon" aria-hidden="true">SDV</span>
+            <div>
+                <h1>Vehicle Deployment</h1>
+                <p class="subtitle">Application manager</p>
+            </div>
+        </div>
+        <div class="nav-actions">
+            <span id="sessionLabel" class="session-label">Signed in</span>
+            <button id="logoutBtn" class="btn btn-secondary btn-sm">Sign out</button>
+        </div>
+    </header>
+
+    <aside class="sidebar" aria-label="Deployment sections">
+        <p class="sidebar-heading">Manage target</p>
+        <nav id="viewNavigation" class="view-navigation">
+            <button type="button" class="view-nav-item" data-view="environment" aria-current="page">
+                <span class="nav-index">01</span><span>Target Environment &amp; Compatibility</span>
+            </button>
+            <button type="button" class="view-nav-item" data-view="upload">
+                <span class="nav-index">02</span><span>Upload &amp; Validate Application Package</span>
+            </button>
+            <button type="button" class="view-nav-item" data-view="logs">
+                <span class="nav-index">03</span><span>Application Logs &amp; Diagnostics</span>
+            </button>
+            <button type="button" class="view-nav-item" data-view="applications">
+                <span class="nav-index">04</span><span>Deployed Applications</span>
+            </button>
+        </nav>
+    </aside>
+
+    <main class="container" id="viewContent">
+        <section id="environmentView" class="view-panel" data-panel="environment">
+        <!-- Target Environment & Dependency Matching Card -->
+        <section class="card environment-card">
+            <div class="card-header">
+                <h2>Target Environment & Compatibility</h2>
+                <div class="env-actions">
+                    <span id="envTimestamp" class="badge badge-neutral">Not checked</span>
+                    <button id="getEnvironmentBtn" class="btn btn-primary btn-sm" type="button">Get info</button>
+                </div>
+            </div>
+            <p class="view-description">Read the operating system, architecture, runtimes, and middleware reported by this Raspberry Pi.</p>
+            <div class="env-grid">
+                <div class="env-item">
+                    <span class="env-label">Architecture</span>
+                    <span id="envArch" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">Operating System</span>
+                    <span id="envOs" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">Linux Kernel</span>
+                    <span id="envKernel" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">Glibc Baseline</span>
+                    <span id="envGlibc" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">g++ Compiler</span>
+                    <span id="envGxx" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">Python Runtime</span>
+                    <span id="envPython" class="env-val">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">KUKSA Databroker</span>
+                    <span id="envKuksa" class="badge">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">S-CORE mw::com (LoLa)</span>
+                    <span id="envLola" class="badge">--</span>
+                </div>
+                <div class="env-item">
+                    <span class="env-label">Runtime Supervisor</span>
+                    <span id="envSupervisor" class="badge">--</span>
+                </div>
+            </div>
+        </section>
+        <p id="environmentError" class="alert alert-error" role="alert" hidden></p>
+        </section>
+
+        <section id="uploadView" class="view-panel" data-panel="upload" hidden>
+        <!-- Application Upload Card with 5-Stage Benchmark -->
+        <section class="card upload-card">
+            <div class="card-header">
+                <h2>Upload & Validate Application Package</h2>
+                <div class="app-types-pill">
+                    <span class="badge badge-neutral">1] S-CORE Native (C++/Rust)</span>
+                    <span class="badge badge-neutral">2] SDV Python Code</span>
+                </div>
+            </div>
+
+            <div class="upload-area" id="dropZone">
+                <div class="upload-icon" aria-hidden="true">↑</div>
+                <h3>Drag & drop application bundles here</h3>
+                <p>Select one or more <code>.tar.gz</code> or <code>.tgz</code> packages</p>
+                <input type="file" id="fileInput" accept=".tar.gz,.tgz" multiple style="display:none">
+                <button id="browseBtn" class="btn btn-primary" type="button">Browse Packages</button>
+                <div id="selectedFileInfo" class="selected-file-info" style="display:none">
+                    <div class="selected-package-summary">
+                        <strong id="selectedFileName">0 packages selected</strong>
+                        <ul id="selectedFileList" class="selected-package-list"></ul>
+                    </div>
+                    <span id="selectedFileSize">0 MB total</span>
+                    <button id="uploadBtn" class="btn btn-success btn-sm" type="button">Validate & Deploy</button>
+                </div>
+            </div>
+            <div id="uploadFeedback" class="upload-feedback" role="status" aria-live="polite" hidden></div>
+
+            <!-- 5-Stage Benchmark Validation Results Panel -->
+            <div id="benchmarkPanel" class="benchmark-panel" style="display:none">
+                <h3>Validation Benchmarks</h3>
+                <div class="benchmarks-list">
+                    <div class="benchmark-step" id="step1">
+                        <span class="step-index">1</span>
+                        <div class="step-content">
+                            <strong>Archive Safety &amp; Integrity</strong>
+                            <p class="step-desc">Path traversal check, size limits, tar decompression</p>
+                        </div>
+                        <span class="step-status">Pending</span>
+                    </div>
+                    <div class="benchmark-step" id="step2">
+                        <span class="step-index">2</span>
+                        <div class="step-content">
+                            <strong>Manifest &amp; Checksum Verification</strong>
+                            <p class="step-desc">Schema validation, SemVer, SHA-256 payload integrity</p>
+                        </div>
+                        <span class="step-status">Pending</span>
+                    </div>
+                    <div class="benchmark-step" id="step3">
+                        <span class="step-index">3</span>
+                        <div class="step-content">
+                            <strong>Architecture &amp; Binary Compatibility</strong>
+                            <p class="step-desc">ELF header verification (AArch64) or Python syntax check</p>
+                        </div>
+                        <span class="step-status">Pending</span>
+                    </div>
+                    <div class="benchmark-step" id="step4">
+                        <span class="step-index">4</span>
+                        <div class="step-content">
+                            <strong>Execution Permissions &amp; Security</strong>
+                            <p class="step-desc">Entrypoint check, setuid/setgid verification, chmod +x</p>
+                        </div>
+                        <span class="step-status">Pending</span>
+                    </div>
+                    <div class="benchmark-step" id="step5">
+                        <span class="step-index">5</span>
+                        <div class="step-content">
+                            <strong>Startup Smoke Benchmark</strong>
+                            <p class="step-desc">Initial staging launch grace test (crash detection &amp; auto-abort)</p>
+                        </div>
+                        <span class="step-status">Pending</span>
+                    </div>
+                </div>
+                <div id="benchmarkError" class="alert alert-error" style="display:none"></div>
+                <div id="benchmarkSuccess" class="alert alert-success" style="display:none"></div>
+            </div>
+        </section>
+        </section>
+
+        <section id="applicationsView" class="view-panel" data-panel="applications" hidden>
+        <!-- Deployed Applications Management Card -->
+        <section class="card apps-card">
+            <div class="card-header">
+                <h2>Deployed Applications</h2>
+                <div class="apps-actions">
+                    <span id="appCountBadge" class="badge badge-info">0 Apps</span>
+                    <button id="refreshAppsBtn" class="btn btn-outline btn-sm" type="button">Refresh list</button>
+                </div>
+            </div>
+            <div id="appsContainer" class="apps-grid">
+                <div class="empty-state">No applications deployed yet. Upload a bundle above.</div>
+            </div>
+        </section>
+        </section>
+
+        <section id="logsView" class="view-panel" data-panel="logs" hidden>
+        <!-- Live Log Console Modal/Card -->
+        <section class="card logs-card" id="logsSection">
+            <div class="card-header">
+                <h2>Application Logs & Diagnostics</h2>
+                <div class="log-controls">
+                    <label class="log-app-label" for="logAppSelect">Application</label>
+                    <select id="logAppSelect" aria-label="Select application for logs">
+                        <option value="">Choose an application</option>
+                    </select>
+                </div>
+            </div>
+            <p id="logsSyncState" class="logs-sync-state" aria-live="polite">Choose an application to follow its live logs.</p>
+            <div class="log-viewer" id="logConsole">
+                <pre id="logContent">Select an application to load its logs.</pre>
+            </div>
+        </section>
+        </section>
+    </main>
+
+    </div>
+
+    <script src="config.js?v=2"></script>
+    <script src="app.js?v=11"></script>
+</body>
+</html>

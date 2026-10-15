@@ -1,0 +1,21 @@
+[Unit]
+Description=SDV Pi Application Deployment API
+After=network.target
+
+[Service]
+Type=simple
+User=sdv-deployer
+Group=sdv-deployer
+SupplementaryGroups=sdv-apps systemd-journal
+WorkingDirectory=/opt/sdv-deployer
+ExecStart=/usr/bin/python3 /opt/sdv-deployer/server.py /etc/sdv-deployer/config.json
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/sdv-deployer /var/lib/sdv-deployer /var/log/sdv-deployer /dev/shm
+
+[Install]
+WantedBy=multi-user.target
