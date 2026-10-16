@@ -4,32 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Eclipse S-CORE / SDV Application Deployment Manager</title>
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
-    <section id="loginScreen" class="login-screen" aria-labelledby="loginTitle">
-        <div class="login-story">
-            <span class="login-kicker">Vehicle deployment</span>
-            <h1>Deploy to<br>your target.</h1>
-        </div>
-        <form id="loginForm" class="login-panel">
-            <h2 id="loginTitle">Sign in</h2>
-            <label for="loginEmail">Email</label>
-            <input id="loginEmail" name="email" type="email" autocomplete="username" required>
-            <label for="loginPassword">Password</label>
-            <div class="password-field">
-                <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
-                <label class="show-password-control" for="showPassword">
-                    <input id="showPassword" type="checkbox">
-                    Show password
-                </label>
-            </div>
-            <button id="loginButton" class="btn btn-primary" type="submit">Sign in</button>
-            <p id="loginError" class="login-error" role="alert" hidden></p>
-        </form>
-    </section>
-
-    <div id="applicationShell" hidden>
+    <div id="applicationShell">
     <header class="navbar">
         <div class="nav-brand">
             <span class="logo-icon" aria-hidden="true">SDV</span>
@@ -37,10 +15,6 @@
                 <h1>Vehicle Deployment</h1>
                 <p class="subtitle">Application manager</p>
             </div>
-        </div>
-        <div class="nav-actions">
-            <span id="sessionLabel" class="session-label">Signed in</span>
-            <button id="logoutBtn" class="btn btn-secondary btn-sm">Sign out</button>
         </div>
     </header>
 
@@ -234,6 +208,6 @@
     </div>
 
     <script src="config.js?v=2"></script>
-    <script src="app.js?v=11"></script>
+    <script src="app.js?v=12"></script>
 </body>
 </html>

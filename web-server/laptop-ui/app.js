@@ -18,52 +18,6 @@ let logsRequestInFlight = false;
 let logsFirstLoad = true;
 
 document.addEventListener("DOMContentLoaded", () => {
-    const passwordInput = document.getElementById("loginPassword");
-    document.getElementById("showPassword").addEventListener("change", (event) => {
-        passwordInput.type = event.target.checked ? "text" : "password";
-    });
-
-    document.getElementById("loginForm").addEventListener("submit", async (event) => {
-        event.preventDefault();
-        const emailInput = document.getElementById("loginEmail");
-        const passwordInput = document.getElementById("loginPassword");
-        const error = document.getElementById("loginError");
-        const button = document.getElementById("loginButton");
-        error.hidden = true;
-        button.disabled = true;
-
-        try {
-            const response = await fetch(apiUrl("/api/v1/login"), {
-                method: "POST",
-                credentials: "include",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email: emailInput.value, password: passwordInput.value })
-            });
-            const result = await response.json();
-            if (!response.ok || !result.success) {
-                throw new Error(result.error || "Sign-in failed");
-            }
-
-            const sessionResponse = await fetch(apiUrl("/api/v1/session"), { credentials: "include" });
-            const session = await sessionResponse.json();
-            if (!sessionResponse.ok || !session.authenticated) {
-                throw new Error("Sign-in succeeded but the browser session was not established. Try again.");
-            }
-            passwordInput.value = "";
-            showDashboard(session.email || result.email);
-        } catch (err) {
-            error.textContent = err.message;
-            error.hidden = false;
-        } finally {
-            button.disabled = false;
-        }
-    });
-
-    document.getElementById("logoutBtn").addEventListener("click", async () => {
-        await fetch(apiUrl("/api/v1/logout"), { method: "POST", credentials: "include" });
-        showLogin();
-    });
-
     document.querySelectorAll(".view-nav-item").forEach((button) => {
         button.addEventListener("click", () => showView(button.dataset.view));
     });
@@ -83,27 +37,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     setupUploadEvents();
-    checkSession();
-});
-
-async function checkSession() {
-    try {
-        const response = await fetch(apiUrl("/api/v1/session"), { credentials: "include" });
-        const session = await response.json();
-        if (session.authenticated) showDashboard(session.email);
-        else showLogin();
-    } catch (_) {
-        showLogin();
-    }
-}
-
-function showDashboard(email = "") {
-    document.getElementById("loginScreen").hidden = true;
-    document.getElementById("applicationShell").hidden = false;
-    document.getElementById("sessionLabel").textContent = email ? `Signed in as ${email}` : "Signed in";
-    window.scrollTo(0, 0);
     showView("environment");
-}
+});
 
 function showView(viewName) {
     if (activeView === "logs" && viewName !== "logs") stopLogPolling();
@@ -156,17 +91,8 @@ async function populateLogApplications() {
     }
 }
 
-function showLogin() {
-    document.getElementById("applicationShell").hidden = true;
-    document.getElementById("loginScreen").hidden = false;
-    stopLogPolling();
-    window.scrollTo(0, 0);
-}
-
-async function apiFetch(url, options = {}) {
-    const response = await fetch(apiUrl(url), { ...options, credentials: "include" });
-    if (response.status === 401) showLogin();
-    return response;
+function apiFetch(url, options = {}) {
+    return fetch(apiUrl(url), options);
 }
 
 // ----------------- Environment Detection -----------------

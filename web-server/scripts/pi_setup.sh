@@ -4,7 +4,6 @@
 #   bash pi_setup.sh                       install or upgrade from ./pi-deployment-server.tar.gz or /tmp/
 #   bash pi_setup.sh /path/to/archive.tar.gz
 #   bash pi_setup.sh status                show service state, limits, and deployed apps
-#   bash pi_setup.sh adduser               add or replace a browser login
 set -euo pipefail
 
 if [[ $EUID -eq 0 ]]; then
@@ -13,7 +12,6 @@ if [[ $EUID -eq 0 ]]; then
 fi
 
 config="/etc/sdv-deployer/config.json"
-manage_users="/opt/sdv-deployer/manage_users.py"
 
 show_status() {
     echo "== Service =="
@@ -34,16 +32,6 @@ show_status() {
     else
         echo "apps directory not found (run the install first)"
     fi
-    echo
-    echo "== Users =="
-    python3 "$manage_users" --config "$config" list
-}
-
-add_user() {
-    read -r -p "Email for the new login: " email
-    python3 "$manage_users" --config "$config" add "$email"
-    sudo systemctl restart sdv-deployer.service
-    echo "Login added and service restarted."
 }
 
 install_server() {
@@ -69,17 +57,12 @@ install_server() {
 
     echo
     show_status
-    if python3 "$manage_users" --config "$config" list | grep -q "No users configured"; then
-        echo
-        add_user
-    fi
     echo
     echo "Done. On your laptop run: bash web-server/scripts/launch_ui.sh $(id -un)@<this-pi-ip>"
 }
 
 case "${1:-install}" in
     status)  show_status ;;
-    adduser) add_user ;;
     install) install_server "" ;;
     *)       install_server "$1" ;;
 esac

@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """End-to-end API test against a Pi API reached through the SSH tunnel.
 
-Usage: python3 web-server/scripts/e2e_pi_test.py --email <email> [--base-url http://127.0.0.1:18443]
-The password is read from SDV_E2E_PASSWORD or prompted; it is never taken from arguments.
+Usage: python3 web-server/scripts/e2e_pi_test.py [--base-url http://127.0.0.1:18443] [--keep]
+Run it with the SSH tunnel open (see launch_ui.sh). Requests carry the UI origin, as the browser does.
 """
 
 import argparse
-import getpass
-import http.cookiejar
 import io
 import json
-import os
 import subprocess
 import sys
 import tarfile
@@ -30,17 +27,17 @@ failures = []
 
 
 class Client:
-    def __init__(self, base_url):
+    def __init__(self, base_url, origin=ORIGIN):
         self.base_url = base_url.rstrip("/")
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        self.origin = origin
 
     def request(self, method, path, body=None, content_type="application/json"):
-        headers = {"Origin": ORIGIN}
+        headers = {"Origin": self.origin}
         if body is not None:
             headers["Content-Type"] = content_type
         req = urllib.request.Request(self.base_url + path, data=body, headers=headers, method=method)
         try:
-            with self.opener.open(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=60) as resp:
                 return resp.status, json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as error:
             return error.code, json.loads(error.read().decode("utf-8") or "{}")
@@ -90,24 +87,18 @@ def upload(client, data):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--email", required=True)
     parser.add_argument("--base-url", default="http://127.0.0.1:18443")
     parser.add_argument("--keep", action="store_true", help="leave deployed apps in place at the end")
     args = parser.parse_args()
-    password = os.environ.get("SDV_E2E_PASSWORD") or getpass.getpass("Password: ")
 
     ensure_bundles()
     client = Client(args.base_url)
 
-    bad_status, _ = Client(args.base_url).request("GET", "/api/v1/apps")
-    check("unauthenticated request rejected", bad_status == 401, f"got HTTP {bad_status}")
+    bad_status, _ = Client(args.base_url, origin="http://evil.example").request("GET", "/api/v1/apps")
+    check("request from an unknown origin rejected", bad_status == 401, f"got HTTP {bad_status}")
 
-    status, _ = Client(args.base_url).request(
-        "POST", "/api/v1/login", json.dumps({"email": args.email, "password": password + "x"}).encode())
-    check("wrong password rejected", status == 401, f"got HTTP {status}")
-
-    status, data = client.request("POST", "/api/v1/login", json.dumps({"email": args.email, "password": password}).encode())
-    if not check("login", status == 200 and data.get("success"), data.get("error", "")):
+    status, data = client.request("GET", "/api/v1/apps")
+    if not check("Pi API reachable from the UI origin", status == 200, data.get("error", "")):
         return 1
 
     status, data = client.request("GET", "/api/v1/environment")
@@ -160,7 +151,6 @@ def main():
         remaining = [app["app_id"] for app in data.get("data", []) if app["app_id"] in BUNDLES]
         check("removed apps are gone from the server", status == 200 and not remaining, ", ".join(remaining))
 
-    client.request("POST", "/api/v1/logout")
     print(f"\n{len(failures)} check(s) failed" if failures else "\nAll checks passed")
     return 1 if failures else 0
 

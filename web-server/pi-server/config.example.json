@@ -5,7 +5,6 @@
   "tls_cert_file": "/etc/sdv-deployer/server.crt",
   "tls_key_file": "/etc/sdv-deployer/server.key",
   "auth_token": "replace-with-a-random-ci-token",
-  "users": [],
   "allowed_origins": ["http://localhost:8080", "http://127.0.0.1:8080"],
   "app_user": "",
   "app_group": "",

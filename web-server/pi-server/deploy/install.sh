@@ -37,8 +37,6 @@ install -d -o "$sdv_user" -g "$sdv_group" -m 0750 "$config_dir" "$log_dir" "$dat
 chown -R "$sdv_user:$sdv_group" "$log_dir" "$data_dir/staging"
 install -m 0755 "$source_dir/server.py" "$install_dir/server.py"
 install -m 0755 "$source_dir/runner.py" "$install_dir/runner.py"
-install -m 0644 "$source_dir/auth.py" "$install_dir/auth.py"
-install -m 0755 "$source_dir/manage_users.py" "$install_dir/manage_users.py"
 
 if [[ ! -f "$config_dir/config.json" ]]; then
     install -o "$sdv_user" -g "$sdv_group" -m 0600 "$source_dir/config.example.json" "$config_dir/config.json"
@@ -79,6 +77,4 @@ systemctl restart sdv-deployer.service
 
 printf '\nDeployer installed and started as user %s (MemoryMax=%s, CPUQuota=%s).\n' "$sdv_user" "$memory_max" "$cpu_quota"
 printf 'Apps are stored and run in %s\n' "$apps_dir"
-printf 'Provision an account: python3 %s/manage_users.py --config %s/config.json add user@example.com\n' "$install_dir" "$config_dir"
-printf 'then: sudo systemctl restart sdv-deployer.service\n'
 printf 'API listens on 127.0.0.1:8443. Open the SSH tunnel before using the laptop UI.\n'

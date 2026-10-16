@@ -6,7 +6,7 @@ This folder is the browser client only. The deployment API runs on the Raspberry
    `ssh -N -L 18443:127.0.0.1:8443 <pi-user>@<pi-ip>`
 2. From the workspace root, serve this folder on the laptop:
    `python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui`
-3. Open `http://localhost:8080` and sign in with an account provisioned on the Pi.
+3. Open `http://localhost:8080`. There is no sign-in; access is controlled by the SSH login to the Pi.
 
 Set `apiBaseUrl` in `config.js` if the local forwarded port changes. UI API calls, including environment, uploads, lifecycle actions, and logs, are sent to that API URL.
 

@@ -8,7 +8,7 @@ Deploy and run applications on a Raspberry Pi from a browser. The Pi runs a smal
 
 | Folder | Runs on | Purpose |
 |---|---|---|
-| `pi-server/` | Pi | API service, installer, account tool |
+| `pi-server/` | Pi | API service and installer |
 | `laptop-ui/` | Laptop | Browser UI (static files) |
 | `scripts/` | Both | `pi_setup.sh` (Pi), `launch_ui.sh` (laptop), `install_on_pi.sh`, `e2e_pi_test.py` |
 | `examples/` | Laptop | Sample app bundles |
@@ -46,13 +46,12 @@ ssh <pi-user>@<pi-ip>
 bash pi_setup.sh
 ```
 
-The script checks the Pi is `aarch64`, installs or upgrades the service, shows the status, and asks for an email and password if no login exists. Type the password at the prompt.
+The script checks the Pi is `aarch64`, installs or upgrades the service, and shows the status.
 
 Other commands:
 
 ```bash
-bash pi_setup.sh status      # service state, limits, apps, logins
-bash pi_setup.sh adduser     # add or replace a login
+bash pi_setup.sh status      # service state, limits, apps
 bash pi_setup.sh /path/to/pi-deployment-server.tar.gz   # install from another location
 ```
 
@@ -69,8 +68,6 @@ scp web-server/pi-server/dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:/tmp
 ssh <pi-user>@<pi-ip>
 cd /tmp && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server
 sudo bash deploy/install.sh
-python3 /opt/sdv-deployer/manage_users.py --config /etc/sdv-deployer/config.json add <email>
-sudo systemctl restart sdv-deployer.service
 ```
 
 ## 3. Launch the UI (laptop)
@@ -90,7 +87,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui
 
 ## 4. Use the UI
 
-1. **Sign in** with the email and password created on the Pi.
+1. **Open the UI** at `http://localhost:8080`. There is no sign-in page: access is controlled by your SSH login to the Pi.
 2. **Target Environment**: click **Get info** to read the Pi's architecture, OS, kernel, glibc, `g++`, Python and KUKSA status.
 3. **Upload & Validate**: choose one or more `.tar.gz` bundles and click **Validate & Deploy**. Each bundle goes through 5 checks and is started if all pass.
 4. **Logs**: choose one app. The log follows new lines every 2 seconds.
@@ -160,7 +157,7 @@ sudo systemctl restart sdv-deployer.service
 | Item | Location |
 |---|---|
 | Installed server | `/opt/sdv-deployer/` |
-| Config and logins | `/etc/sdv-deployer/config.json` (mode `0600`, passwords stored as salted PBKDF2 hashes) |
+| Config | `/etc/sdv-deployer/config.json` (mode `0600`) |
 | Deployed apps | `/home/<pi-user>/sdv-apps/<app-id>/` |
 | Upload staging | `/var/lib/sdv-deployer/staging/` |
 | App logs | `/var/log/sdv-deployer/<app-id>.log` |
@@ -179,7 +176,6 @@ Without a Pi, on the laptop (Get info then shows the laptop, not a Pi):
 
 ```bash
 cp web-server/pi-server/config.example.json /tmp/sdv-local.json
-python3 web-server/pi-server/manage_users.py --config /tmp/sdv-local.json add demo@example.com
 SDV_DATA_DIR=/tmp/sdv-local-data SDV_DEPLOYER_PORT=18443 python3 web-server/pi-server/server.py /tmp/sdv-local.json
 python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui     # second terminal
 ```
@@ -193,19 +189,17 @@ bash web-server/tests/run_tests.sh
 Against the real Pi, with the tunnel open (deploys both samples, reads logs, stops, restarts and removes them):
 
 ```bash
-python3 web-server/scripts/e2e_pi_test.py --email <email>
+python3 web-server/scripts/e2e_pi_test.py
 ```
 
 ---
 
 ## REST API
 
-Browser users sign in with email and password (session cookie). Automation can use `Authorization: Bearer <auth_token>` from the Pi config.
+The UI has no sign-in. The API accepts requests that carry the UI's origin (`http://localhost:8080` or `http://127.0.0.1:8080`, set by `allowed_origins`) and rejects other websites. Scripts can instead send `Authorization: Bearer <auth_token>` from the Pi config.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| `POST` | `/api/v1/login`, `/api/v1/logout` | Sign in and out |
-| `GET` | `/api/v1/session` | Current session |
 | `GET` | `/api/v1/environment` | Live data from the Pi |
 | `POST` | `/api/v1/apps/upload` | Upload, validate and start a bundle |
 | `GET` | `/api/v1/apps`, `/api/v1/apps/<id>` | List apps, or one app |
@@ -221,6 +215,7 @@ curl -X POST http://127.0.0.1:18443/api/v1/apps/upload \
 
 ## Limitations
 
+- There is no sign-in. Anyone who can reach the API on the Pi can deploy and run code as your Pi user. The API listens only on `127.0.0.1:8443`, so access needs an SSH login to the Pi (or a local account on it). Do not expose the port, and be careful on a Pi shared with other users.
 - The KUKSA status is "a Databroker process is running" on the Pi. It does not prove an app is connected to it.
 - Containers are not supported; apps are Python scripts or native AArch64 binaries.
 - Apps run as your Pi user, so they can access everything that user can.

@@ -32,18 +32,6 @@ Run the installer with `sudo` from the regular user that should own the deployme
 
 Deployed applications are not separate services. The deployer starts each one as a normal process from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
 
-## Create browser users
-
-On the Pi, create a browser account with:
-
-```bash
-python3 /opt/sdv-deployer/manage_users.py \
-  --config /etc/sdv-deployer/config.json add developer@example.com
-sudo systemctl restart sdv-deployer.service
-```
-
-Run the first command as the deployment user. The password is prompted interactively and stored only as a salted PBKDF2-HMAC-SHA256 hash in `/etc/sdv-deployer/config.json`, which is mode `0600`. The email is the account identifier. The browser receives only an HttpOnly session cookie.
-
 ## Laptop connection using SSH
 
 Keep the tunnel open in one laptop terminal:
@@ -62,7 +50,6 @@ Open `http://localhost:8080`. The UI calls the Pi API through `http://localhost:
 
 ## API endpoints
 
-- `POST /api/v1/login`, `GET /api/v1/session`, `POST /api/v1/logout`
 - `GET /api/v1/environment` returns live data collected on the Pi
 - `POST /api/v1/apps/upload` accepts application bundles
 - `GET /api/v1/apps`, `GET /api/v1/apps/<id>`
@@ -72,13 +59,13 @@ Open `http://localhost:8080`. The UI calls the Pi API through `http://localhost:
 
 While the laptop UI's Logs view is open, it polls the selected app's log endpoint every two seconds and updates the log panel.
 
-For CI, API clients may use the configured Bearer token. Browser sessions use email/password login and cookies.
+There is no sign-in. The API accepts requests from the configured UI origins (`allowed_origins`) or with the configured Bearer token (`Authorization: Bearer <auth_token>`), and reaches only through the SSH tunnel.
 
 Each upload request installs or updates one `app_id`. Multiple distinct IDs can be installed and run concurrently; uploading another version under an existing ID updates that app. The laptop UI sends selected bundles one at a time. Its Logs view can fetch one app or combine recent logs from all installed apps by requesting each app's log endpoint.
 
 ## Pi-side storage
 
-- Configuration/accounts: `/etc/sdv-deployer/config.json`
+- Configuration: `/etc/sdv-deployer/config.json`
 - Application staging and state: `/var/lib/sdv-deployer/`
 - Deployed applications and their versions: `/home/<user>/sdv-apps/<app-id>/`
 - Service logs: systemd journal (`journalctl -u sdv-deployer.service`)

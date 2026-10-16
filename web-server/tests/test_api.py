@@ -31,7 +31,6 @@ from server import (
     ApplicationManager,
     DeploymentRequestHandler
 )
-from auth import make_password_record
 
 
 class TestDeploymentApi(unittest.TestCase):
@@ -42,7 +41,6 @@ class TestDeploymentApi(unittest.TestCase):
         cls.config.host = "127.0.0.1"
         cls.config.port = 0
         cls.config.auth_token = "test-token-12345"
-        cls.config.users = [make_password_record("developer@example.com", "test-user-password-123")]
         cls.config.data_dir = str(cls.test_dir / "data")
         cls.config.apps_dir = str(cls.test_dir / "apps")
         cls.config.staging_dir = str(cls.test_dir / "staging")
@@ -75,13 +73,11 @@ class TestDeploymentApi(unittest.TestCase):
         cls.httpd.server_close()
         shutil.rmtree(cls.test_dir, ignore_errors=True)
 
-    def _request(self, method, path, body=None, token="test-token-12345", cookie=None, origin=None, content_type="application/json"):
+    def _request(self, method, path, body=None, token="test-token-12345", origin=None, content_type="application/json"):
         url = f"http://127.0.0.1:{self.config.port}{path}"
         headers = {}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        if cookie:
-            headers["Cookie"] = cookie
         if origin:
             headers["Origin"] = origin
         if content_type:
@@ -95,41 +91,23 @@ class TestDeploymentApi(unittest.TestCase):
             with e:
                 return e.code, json.loads(e.read().decode("utf-8"))
 
-    def test_00_browser_session_login_and_logout(self):
-        login_body = json.dumps({
-            "email": "developer@example.com",
-            "password": "test-user-password-123"
-        }).encode("utf-8")
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{self.config.port}/api/v1/login",
-            data=login_body,
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-        with urllib.request.urlopen(request) as response:
-            self.assertEqual(response.status, 200)
-            session_cookie = response.headers.get("Set-Cookie")
-            self.assertIn("HttpOnly", session_cookie)
-            cookie_pair = session_cookie.split(";", 1)[0]
-
-        status, data = self._request("GET", "/api/v1/session", token=None, cookie=cookie_pair)
+    def test_00_ui_origin_is_accepted_without_a_token(self):
+        status, data = self._request("GET", "/api/v1/apps", token=None, origin="http://localhost:8080")
         self.assertEqual(status, 200)
-        self.assertTrue(data["authenticated"])
+        self.assertTrue(data["success"])
 
-        status, data = self._request("GET", "/api/v1/apps", token=None, cookie=cookie_pair)
-        self.assertEqual(status, 200)
+    def test_00_unknown_origin_without_a_token_is_rejected(self):
+        status, data = self._request("GET", "/api/v1/apps", token=None, origin="http://evil.example")
+        self.assertEqual(status, 401)
+        self.assertFalse(data["success"])
 
-        status, data = self._request("POST", "/api/v1/logout", token=None, cookie=cookie_pair)
-        self.assertEqual(status, 200)
-        status, data = self._request("GET", "/api/v1/session", token=None, cookie=cookie_pair)
-        self.assertFalse(data["authenticated"])
+    def test_00_state_changing_request_from_unknown_origin_is_rejected(self):
+        status, _ = self._request("POST", "/api/v1/apps/upload", body=b"x", token=None,
+                                  origin="http://evil.example", content_type="multipart/form-data; boundary=x")
+        self.assertEqual(status, 401)
 
-    def test_00_invalid_browser_password_rejected(self):
-        body = json.dumps({
-            "email": "developer@example.com",
-            "password": "incorrect-password"
-        }).encode("utf-8")
-        status, data = self._request("POST", "/api/v1/login", body=body, token=None)
+    def test_00_request_without_origin_or_token_is_rejected(self):
+        status, data = self._request("GET", "/api/v1/apps", token=None)
         self.assertEqual(status, 401)
         self.assertFalse(data["success"])
 
@@ -153,9 +131,8 @@ class TestDeploymentApi(unittest.TestCase):
         )
         with urllib.request.urlopen(request) as response:
             self.assertEqual(response.headers.get("Access-Control-Allow-Origin"), "http://localhost:8080")
-            self.assertEqual(response.headers.get("Access-Control-Allow-Credentials"), "true")
 
-        status, data = self._request("OPTIONS", "/api/v1/login", token=None, origin="http://evil.example")
+        status, data = self._request("OPTIONS", "/api/v1/environment", token=None, origin="http://evil.example")
         self.assertEqual(status, 403)
         self.assertFalse(data["success"])
 

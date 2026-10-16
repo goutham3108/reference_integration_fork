@@ -19,15 +19,12 @@ import platform
 import py_compile
 import subprocess
 import hmac
-import secrets
 import signal
 import pwd
 import grp
-from http.cookies import SimpleCookie
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import urllib.parse
-from auth import verify_password
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,7 +46,6 @@ class DeploymentConfig:
         self.tls_cert_file = str(base_dir / "certs" / "server.crt")
         self.tls_key_file = str(base_dir / "certs" / "server.key")
         self.auth_token = "sdv-dev-secret-token-2026"
-        self.users = []
         self.allowed_origins = ["http://localhost:8080"]
         self.app_user = "sdv-apps"
         self.app_group = "sdv-apps"
@@ -825,11 +821,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
     inspector = None
     validator = None
     app_manager = None
-    sessions = {}
-    session_ttl_seconds = 8 * 60 * 60
-    login_failures = {}
-    login_window_seconds = 5 * 60
-    max_login_failures = 5
 
     def log_request(self, code="-", size="-"):
         request_parts = self.requestline.split(" ", 2)
@@ -842,7 +833,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin and origin in self.config.allowed_origins:
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Credentials", "true")
             self.send_header("Vary", "Origin")
             self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
             self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
@@ -862,46 +852,16 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
         self._send_json(status_code, {"success": False, "error": message})
 
     def _is_authenticated(self):
+        """Allow the configured UI origin (browsers cannot forge Origin) or a Bearer token."""
+        if self.headers.get("Origin") in self.config.allowed_origins:
+            return True
+
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
-            if hmac.compare_digest(token, self.config.auth_token):
-                return True
-
-        cookie_header = self.headers.get("Cookie", "")
-        if cookie_header:
-            cookies = SimpleCookie()
-            try:
-                cookies.load(cookie_header)
-                session_cookie = cookies.get("sdv_session")
-            except Exception:
-                session_cookie = None
-            if session_cookie:
-                session_id = session_cookie.value
-                session = self.sessions.get(session_id)
-                if session and session["expires_at"] > time.time():
-                    return True
-                self.sessions.pop(session_id, None)
+            return hmac.compare_digest(token, self.config.auth_token)
 
         return False
-
-    def _get_session(self):
-        cookie_header = self.headers.get("Cookie", "")
-        if not cookie_header:
-            return None
-        cookies = SimpleCookie()
-        try:
-            cookies.load(cookie_header)
-            session_cookie = cookies.get("sdv_session")
-        except Exception:
-            return None
-        if not session_cookie:
-            return None
-        session = self.sessions.get(session_cookie.value)
-        if session and session["expires_at"] > time.time():
-            return session
-        self.sessions.pop(session_cookie.value, None)
-        return None
 
     def do_OPTIONS(self):
         origin = self.headers.get("Origin")
@@ -915,14 +875,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-
-        if path == "/api/v1/session":
-            session = self._get_session()
-            self._send_json(200, {
-                "authenticated": bool(session),
-                "email": session.get("email") if session else None
-            })
-            return
 
         if not path.startswith("/api/"):
             self._send_error_json(404, "API server only")
@@ -962,67 +914,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
-
-        if path == "/api/v1/login":
-            client_ip = self.client_address[0]
-            now = time.time()
-            recent_failures = [
-                timestamp for timestamp in self.login_failures.get(client_ip, [])
-                if now - timestamp < self.login_window_seconds
-            ]
-            if len(recent_failures) >= self.max_login_failures:
-                self.login_failures[client_ip] = recent_failures
-                self._send_error_json(429, "Too many login attempts; try again in a few minutes")
-                return
-
-            content_length = int(self.headers.get("Content-Length", 0))
-            if content_length <= 0 or content_length > 4096:
-                self._send_error_json(400, "Invalid login request")
-                return
-            try:
-                credentials = json.loads(self.rfile.read(content_length))
-                email = str(credentials.get("email", "")).strip().casefold()
-                password = str(credentials.get("password", ""))
-            except (json.JSONDecodeError, AttributeError):
-                self._send_error_json(400, "Invalid login request")
-                return
-            user = next(
-                (entry for entry in self.config.users if str(entry.get("email", "")).casefold() == email),
-                None
-            )
-            if not user or not verify_password(password, user):
-                recent_failures.append(now)
-                self.login_failures[client_ip] = recent_failures
-                self._send_error_json(401, "Invalid email or password")
-                return
-
-            self.login_failures.pop(client_ip, None)
-            session_id = secrets.token_urlsafe(32)
-            self.sessions[session_id] = {
-                "expires_at": time.time() + self.session_ttl_seconds,
-                "email": email
-            }
-            cookie = f"sdv_session={session_id}; Path=/; HttpOnly; SameSite=Strict; Max-Age={self.session_ttl_seconds}"
-            if self.config.use_tls:
-                cookie += "; Secure"
-            self._send_json(200, {"success": True, "email": email}, {"Set-Cookie": cookie})
-            return
-
-        if path == "/api/v1/logout":
-            cookie_header = self.headers.get("Cookie", "")
-            cookies = SimpleCookie()
-            try:
-                cookies.load(cookie_header)
-                session_cookie = cookies.get("sdv_session")
-            except Exception:
-                session_cookie = None
-            if session_cookie:
-                self.sessions.pop(session_cookie.value, None)
-            expired_cookie = "sdv_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"
-            if self.config.use_tls:
-                expired_cookie += "; Secure"
-            self._send_json(200, {"success": True}, {"Set-Cookie": expired_cookie})
-            return
 
         if not self._is_authenticated():
             self._send_error_json(401, "Unauthorized")
@@ -1213,7 +1104,6 @@ def run_server(config_file=None):
     logger.info(" SDV Web-Based Application Deployment Server")
     logger.info(f" Listening on {proto}://{cfg.host}:{cfg.port}")
     logger.info(f" Target Architecture: {cfg.target_architecture}")
-    logger.info(f" Browser accounts configured: {len(cfg.users)}")
     logger.info(f" Apps Root Directory: {cfg.apps_dir}")
     logger.info("=" * 60)
 

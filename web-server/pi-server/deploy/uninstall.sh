@@ -16,4 +16,4 @@ rm -f /etc/systemd/system/sdv-deployer.service /etc/systemd/system/sdv-app@.serv
 systemctl daemon-reload
 printf '%s\n' "Pi deployment API service removed." \
     "App data and /etc/sdv-deployer/config.json were preserved." \
-    "Remove those directories manually only if you intend to delete deployed apps and accounts."
+    "Remove those directories manually only if you intend to delete deployed apps."
