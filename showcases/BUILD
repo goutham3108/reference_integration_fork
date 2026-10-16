@@ -14,7 +14,10 @@ load("//bazel_common:bundlers.bzl", "score_pkg_bundle")
 
 score_pkg_bundle(
     name = "showcases",
-    bins = ["//showcases/cli"],
+    bins = [
+        "//showcases/cli",
+        "//sdv-hack-demo/vehicle_app",
+    ],
     other_package_files = [
         "//showcases/standalone:comm_pkg_files",
         "//showcases/standalone:kyron_pkg_files",

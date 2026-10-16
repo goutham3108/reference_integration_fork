@@ -1,0 +1,56 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "Cargo.lock",
+    "Cargo.toml",
+])
+
+filegroup(
+    name = "mw_com_provider_sources",
+    srcs = glob([
+        "src/**/*.rs",
+    ]),
+)
+
+filegroup(
+    name = "provider_model",
+    srcs = ["models/vehicle_dynamics.json"],
+)
+
+filegroup(
+    name = "provider_reference_codegen_templates",
+    srcs = ["//templates/reference-codegen:mw_com_provider_templates"],
+)
+
+filegroup(
+    name = "provider_generated_artifacts",
+    srcs = glob([
+        "generated/*.json",
+        "generated/*.rs",
+    ]),
+)
+
+sh_binary(
+    name = "cargo_check_mw_com_provider",
+    srcs = ["//bazel:cargo_provider.sh"],
+    args = ["check"],
+)
+
+sh_binary(
+    name = "cargo_test_mw_com_provider",
+    srcs = ["//bazel:cargo_provider.sh"],
+    args = ["test"],
+)
+
+sh_binary(
+    name = "score_lola_live_e2e",
+    srcs = ["//bazel:cargo_provider.sh"],
+    args = ["score-lola-live-e2e-local"],
+    data = [
+        "scripts/run-score-lola-live-e2e-local.sh",
+        ":provider_generated_artifacts",
+        "@score_communication//score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example",
+    ],
+)
