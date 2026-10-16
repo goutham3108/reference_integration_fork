@@ -30,6 +30,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args = DemoArgs::parse()?;
     let mut config = ProviderConfig::load_json(&args.provider_config)?;
+    if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() == Ok("0") {
+        for mapping in &mut config.mappings {
+            if mapping.vss_path == "Vehicle.Body.Lights.Beam.High.IsOn" {
+                mapping.direction = Direction::Datapoint;
+                mapping.actuation_binding = None;
+            }
+        }
+    }
     config
         .mappings
         .retain(|mapping| args.includes_path(&mapping.vss_path));
@@ -54,7 +62,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Starting Databroker with in-process mw::com provider"
     );
 
-    let apis = [grpc::server::Api::KuksaValV1, grpc::server::Api::KuksaValV2];
+    let apis = [
+        grpc::server::Api::KuksaValV1,
+        grpc::server::Api::KuksaValV2,
+        grpc::server::Api::SdvDatabrokerV1,
+    ];
     let server = grpc::server::serve_tcp(
         args.address,
         broker,

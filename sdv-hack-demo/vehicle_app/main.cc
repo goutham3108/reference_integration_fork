@@ -16,6 +16,8 @@
 #include <string_view>
 #include <thread>
 #include <utility>
+#include <grpcpp/grpcpp.h>
+#include "kuksa/val/v2/val.grpc.pb.h"
 
 #include "score/mw/com/runtime.h"
 #include "score/mw/com/types.h"
@@ -25,7 +27,7 @@
 
 namespace {
 
-constexpr std::string_view kTxInstanceSpecifier{"vehicle_high_beam/local_tx"};
+constexpr std::string_view kTxInstanceSpecifier{"/vehicle_high_beam/local_tx"};
 constexpr std::string_view kRxInstanceSpecifier{"/vehicle_high_beam/network_rx"};
 constexpr std::string_view kEventName{"high_beam_state"};
 constexpr std::string_view kDynamicsTxInstanceSpecifier{"/Vehicle/Service1/Instance"};
@@ -43,6 +45,9 @@ struct SpeedSample {
 };
 
 using PreSerializedData = score::someip_gateway::serializer::PreSerializedData<0>;
+static_assert(alignof(PreSerializedData) == 16U);
+static_assert(offsetof(PreSerializedData, data) == 16U);
+static_assert(score::someip_gateway::serializer::get_size_of_pre_serialized_data(1U) == 32U);
 
 constexpr score::mw::com::DataTypeMetaInfo kDataTypeMetaInfo{
     score::someip_gateway::serializer::get_size_of_pre_serialized_data(kPayloadSize),
@@ -132,7 +137,9 @@ class VehicleHighBeamApplication {
             return EXIT_FAILURE;
         }
         score::mw::com::runtime::InitializeRuntime(score::mw::com::runtime::RuntimeConfiguration{manifest});
-        if (!OfferLocalService() || !SubscribeToRemoteService() || !OfferDynamicsService() ||
+        const char* command_mode = std::getenv("HIGH_BEAM_COMMAND_MODE");
+        broker_commands_ = command_mode != nullptr && std::string_view{command_mode} == "kuksa";
+        if ((!broker_commands_ && !OfferLocalService()) || !SubscribeToRemoteService() || !OfferDynamicsService() ||
             !SubscribeToDynamicsService()) {
             Cleanup();
             return EXIT_FAILURE;
@@ -264,6 +271,27 @@ class VehicleHighBeamApplication {
     }
 
     void PublishLocalState(const bool value) {
+        if (broker_commands_) {
+            const char* configured_address = std::getenv("VDB_ADDRESS");
+            const std::string address = configured_address == nullptr ? "127.0.0.1:55555" : configured_address;
+            auto client = kuksa::val::v2::VAL::NewStub(
+                grpc::CreateChannel(address, grpc::InsecureChannelCredentials()));
+            grpc::ClientContext context;
+            context.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds{3});
+            kuksa::val::v2::ActuateRequest request;
+            request.mutable_signal_id()->set_path("Vehicle.Body.Lights.Beam.High.IsOn");
+            request.mutable_value()->set_bool_(value);
+            kuksa::val::v2::ActuateResponse response;
+            score::mw::log::LogWarn() << "Vehicle menu requested High.IsOn=" << value << " through KUKSA";
+            const auto status = client->Actuate(&context, request, &response);
+            if (!status.ok()) {
+                score::mw::log::LogError() << "KUKSA rejected vehicle command: " << status.error_message();
+            } else {
+                score::mw::log::LogWarn() << "KUKSA accepted vehicle command High.IsOn=" << value
+                                        << " (not remote output acknowledgement)";
+            }
+            return;
+        }
         if (tx_event_ == nullptr) {
             score::mw::log::LogError() << "Vehicle Tx service is unavailable";
             return;
@@ -416,6 +444,7 @@ class VehicleHighBeamApplication {
     }
 
     std::string configuration_path_;
+    bool broker_commands_{false};
     std::optional<score::mw::com::GenericSkeleton> tx_skeleton_;
     std::optional<score::mw::com::GenericSkeleton> dynamics_skeleton_;
     std::optional<score::mw::com::GenericProxy> rx_proxy_;

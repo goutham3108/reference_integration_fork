@@ -16,6 +16,46 @@ load("@score_sbom//:defs.bzl", "sbom")
 load("@score_tooling//:defs.bzl", "setup_starpls")
 load("@score_tooling//third_party/format:macros.bzl", "use_format_targets")
 load("//bazel_common:docs_bundles.bzl", "DOCS_BUNDLES")
+load("@protobuf//bazel:proto_library.bzl", "proto_library")
+load("@protobuf//bazel:cc_proto_library.bzl", "cc_proto_library")
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
+proto_library(
+    name = "kuksa_val_types_proto",
+    srcs = ["kuksa-databroker/proto/kuksa/val/v2/types.proto"],
+    strip_import_prefix = "kuksa-databroker/proto",
+    deps = ["@protobuf//:timestamp_proto"],
+    visibility = ["//visibility:public"],
+)
+
+proto_library(
+    name = "kuksa_val_proto",
+    srcs = ["kuksa-databroker/proto/kuksa/val/v2/val.proto"],
+    strip_import_prefix = "kuksa-databroker/proto",
+    deps = [":kuksa_val_types_proto"],
+    visibility = ["//visibility:public"],
+)
+
+cc_proto_library(name = "kuksa_val_cc_proto", deps = [":kuksa_val_proto"])
+genrule(
+    name = "kuksa_val_grpc_codegen",
+    srcs = ["kuksa-databroker/proto/kuksa/val/v2/val.proto", "kuksa-databroker/proto/kuksa/val/v2/types.proto", "@protobuf//:well_known_type_protos"],
+    outs = ["kuksa/val/v2/val.grpc.pb.cc", "kuksa/val/v2/val.grpc.pb.h"],
+        cmd = "for proto in $(locations @protobuf//:well_known_type_protos); do " +
+            "proto_root=$$(dirname $$(dirname $$(dirname $$proto))); break; done; " +
+            "$(location @protobuf//:protoc) -Ikuksa-databroker/proto -I$$proto_root " +
+          "--plugin=protoc-gen-grpc=$(location @grpc//src/compiler:grpc_cpp_plugin) " +
+          "--grpc_out=$(RULEDIR) kuksa-databroker/proto/kuksa/val/v2/val.proto",
+    tools = ["@protobuf//:protoc", "@grpc//src/compiler:grpc_cpp_plugin"],
+)
+
+cc_library(
+    name = "kuksa_val_client",
+    srcs = ["kuksa/val/v2/val.grpc.pb.cc"],
+    hdrs = ["kuksa/val/v2/val.grpc.pb.h"],
+    deps = [":kuksa_val_cc_proto", "@grpc//:grpc++"],
+    visibility = ["//visibility:public"],
+)
 
 # Alias causing doc build here being independet of what doc-as-code do.
 # This allows to changge labels of real doc build indepedent of pull_request_target
@@ -48,6 +88,8 @@ setup_starpls(
 use_format_targets()
 
 exports_files([
+    "kuksa-databroker/proto/kuksa/val/v2/val.proto",
+    "kuksa-databroker/proto/kuksa/val/v2/types.proto",
     "MODULE.bazel",
     "MODULE.bazel.lock",
     "pyproject.toml",

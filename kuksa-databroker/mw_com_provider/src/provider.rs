@@ -315,7 +315,11 @@ where
             loop {
                 self.drain_actuation_queue().await?;
                 tokio::select! {
-                    result = self.recv_and_publish_one() => {
+                    result = self.transport.recv() => {
+                        let result = match result {
+                            Ok(message) => self.publish_message(message).await,
+                            Err(error) => Err(error),
+                        };
                         match result {
                             Ok(()) => {}
                             Err(MwComProviderError::Quality(error)) | Err(MwComProviderError::Mapping(error)) => {
@@ -336,6 +340,12 @@ where
                             }
                         }
                     }
+                    Some(message) = self.actuation_rx.recv() => {
+                        let service = message.service.clone();
+                        let value = message.value.clone();
+                        self.transport.send_actuation(message).await?;
+                        info!(%service, ?value, "Command transmitted through mw::com Tx");
+                    }
                     _ = &mut shutdown => {
                         self.shutdown().await?;
                         return Ok(());
@@ -350,20 +360,27 @@ where
 
     async fn drain_actuation_queue(&mut self) -> Result<(), MwComProviderError> {
         while let Ok(message) = self.actuation_rx.try_recv() {
+            let service = message.service.clone();
+            let value = message.value.clone();
             self.transport.send_actuation(message).await?;
+            info!(%service, ?value, "Command transmitted through mw::com Tx");
         }
         Ok(())
     }
 
-    async fn recv_and_publish_one(&mut self) -> Result<(), MwComProviderError> {
-        let message = self.transport.recv().await?;
+    async fn publish_message(&self, message: MwComMessage) -> Result<(), MwComProviderError> {
+        let value = message.value.clone();
         let (signal_id, update) = self.mapper.message_to_update(&message)?;
         let broker = self.broker.authorized_access(&self.permissions);
         broker
             .update_entries(vec![(signal_id, update)])
             .await
             .map_err(|errors| MwComProviderError::BrokerUpdate(format!("{errors:?}")))?;
-        debug!(signal_id, "mw::com sample written to Databroker");
+        info!(
+            signal_id,
+            ?value,
+            "Remote input received through mw::com Rx and written to Databroker"
+        );
         Ok(())
     }
 }
@@ -420,6 +437,7 @@ impl ActuationProvider for QueuedActuationProvider {
                     format!("mw::com actuation worker is not available: {error}"),
                 )
             })?;
+            info!(signal_id = change.id, value = ?change.data_value, "KUKSA actuator command queued for mw::com Tx");
         }
         Ok(())
     }
@@ -569,6 +587,7 @@ mod tests {
             service: "VehicleDynamicsService".into(),
             instance: "front_vehicle".into(),
             member: "speed".into(),
+            actuation_binding: None,
             field: None,
             unit: Some("km/h".into()),
             scale: 1.0,

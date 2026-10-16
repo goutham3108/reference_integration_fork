@@ -16,6 +16,8 @@ pub mod config;
 pub mod error;
 pub mod lifecycle;
 pub mod mapper;
+#[cfg(feature = "score-lola")]
+pub mod high_beam_tx;
 #[cfg(feature = "mw-com-native")]
 pub mod native_bridge;
 pub mod provider;

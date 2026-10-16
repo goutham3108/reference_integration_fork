@@ -1,0 +1,2 @@
+Defaults:sdv-deployer !requiretty
+sdv-deployer ALL=(root) NOPASSWD: /usr/local/libexec/sdv-appctl *

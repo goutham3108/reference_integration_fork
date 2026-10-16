@@ -64,7 +64,7 @@
   ],
   "serviceInstances": [
     {
-      "instanceSpecifier": "vehicle_high_beam/local_tx",
+      "instanceSpecifier": "/vehicle_high_beam/local_tx",
       "serviceTypeName": "/vehicle_high_beam_tx",
       "version": {
         "major": 1,

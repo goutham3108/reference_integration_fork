@@ -60,6 +60,19 @@ inline std::optional<Frame> Decode(const std::uint8_t* bytes, const std::size_t 
     return frame;
 }
 
+enum class CommandResult { kMalformed, kDisplayed, kApplied, kOutputFailed };
+
+template <typename WriteOutput>
+CommandResult ApplyCommand(const Frame& frame, bool output_available, WriteOutput write_output) {
+    if (frame.payload_size != 1U || frame.payload[0] > 1U) {
+        return CommandResult::kMalformed;
+    }
+    if (!output_available) {
+        return CommandResult::kDisplayed;
+    }
+    return write_output(frame.payload[0] == 1U) ? CommandResult::kApplied : CommandResult::kOutputFailed;
+}
+
 }  // namespace high_beam_udp
 
 #endif  // HIGH_BEAM_UDP_PROTOCOL_H_

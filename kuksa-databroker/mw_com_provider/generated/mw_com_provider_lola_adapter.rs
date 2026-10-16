@@ -53,6 +53,7 @@ type VehicleHighBeamRxHighBeamStateSubscription = <<LolaRuntime as Runtime>::Sub
 >>::Subscription;
 
 pub struct LolaScoreRuntimeAdapter {
+    high_beam_tx: Option<crate::high_beam_tx::TxOfferedProducer>,
     config_path: PathBuf,
     runtime: Option<LolaRuntime>,
     vehicledynamicsservice_speed_subscription: Option<VehicleDynamicsServiceSpeedSubscription>,
@@ -72,6 +73,7 @@ impl LolaScoreRuntimeAdapter {
     pub fn new(config_path: impl Into<PathBuf>) -> Self {
         let config_path = config_path.into();
         Self {
+            high_beam_tx: None,
             config_path,
             runtime: None,
             vehicledynamicsservice_speed_subscription: None,
@@ -178,11 +180,18 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         let runtime = builder
             .build()
             .map_err(|error| Self::score_error("SCORE LoLa runtime build failed", error))?;
+        if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0")
+            && crate::high_beam_tx::configured(&self.config_path)? {
+            self.high_beam_tx = Some(crate::high_beam_tx::offer(&runtime)?);
+        }
         self.runtime = Some(runtime);
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+        if let Some(producer) = self.high_beam_tx.take() {
+            producer.unoffer().map_err(|error| Self::score_error("high-beam Tx unoffer failed", error))?;
+        }
         if let Some(subscription) = self.vehicledynamicsservice_speed_subscription.take() {
             let _ = subscription.unsubscribe();
         }
@@ -429,6 +438,12 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
         match (binding.service_name, binding.member_name) {
+            ("/vehicle_high_beam_tx", "high_beam_state") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.high_beam_tx.as_ref().ok_or_else(||
+                    MwComProviderError::Transport("high-beam Tx actuation is disabled".into()))?;
+                crate::high_beam_tx::send(producer, value)
+            }
             ("VehicleDynamicsService", "target_speed") => {
                 let value = numeric_value(&message.value, binding).map(|value| value as f64)?;
                 let producer = self.ensure_vehicledynamicsservice_offered_producer(binding)?;

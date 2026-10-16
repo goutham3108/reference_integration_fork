@@ -28,6 +28,9 @@
       "max": {% if event.provider.vss.max is defined %}{{ event.provider.vss.max }}{% else %}null{% endif %},
       "required_quality": "{{ event.provider.vss.required_quality | default("valid") }}",
       "direction": "{{ event.provider.vss.direction | default("datapoint") }}",
+    {% if event.provider.vss.actuation_binding is defined %}
+      "actuation_binding": {{ event.provider.vss.actuation_binding | tojson }},
+    {% endif %}
       "cycle_time_ms": {{ event.provider.vss.cycle_time_ms | default(100) }}
     }
 {% endif %}

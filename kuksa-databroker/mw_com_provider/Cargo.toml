@@ -46,4 +46,5 @@ required-features = ["score-lola"]
 cc = "1.0"
 
 [dev-dependencies]
+tonic = { workspace = true }
 tokio = { version = "1.46.1", features = ["macros", "rt"] }

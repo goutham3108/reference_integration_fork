@@ -1,0 +1,20 @@
+[Unit]
+Description=SDV Pi Application Deployment API
+After=network.target
+
+[Service]
+Type=simple
+User=@SDV_USER@
+Group=@SDV_GROUP@
+WorkingDirectory=/opt/sdv-deployer
+ExecStart=/usr/bin/python3 /opt/sdv-deployer/server.py /etc/sdv-deployer/config.json
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+MemoryMax=@SDV_MEMORY_MAX@
+CPUQuota=@SDV_CPU_QUOTA@
+NoNewPrivileges=true
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

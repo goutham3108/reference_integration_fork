@@ -78,7 +78,7 @@
                 "vss": {
                   "signal_id": 42,
                   "path": "Vehicle.Speed",
-                  "datatype": "double",
+                  "datatype": "float",
                   "unit": "km/h",
                   "scale": 1.0,
                   "offset": 0.0,
@@ -178,7 +178,12 @@
                   "path": "Vehicle.Body.Lights.Beam.High.IsOn",
                   "datatype": "boolean",
                   "required_quality": "valid",
-                  "direction": "datapoint",
+                  "direction": "bidirectional",
+                  "actuation_binding": {
+                    "service": "/vehicle_high_beam_tx",
+                    "instance": "local_tx",
+                    "member": "high_beam_state"
+                  },
                   "cycle_time_ms": 100
                 }
               }

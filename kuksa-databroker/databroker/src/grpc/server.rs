@@ -25,7 +25,7 @@ use tonic::transport::ServerTlsConfig;
 use tonic::transport::{server::Connected, Server};
 use tracing::{debug, info};
 
-use databroker_proto::kuksa;
+use databroker_proto::{kuksa, sdv};
 
 use crate::{
     authorization::Authorization,
@@ -46,6 +46,7 @@ pub enum ServerTLS {
 pub enum Api {
     KuksaValV1,
     KuksaValV2,
+    SdvDatabrokerV1,
 }
 
 impl tonic::service::Interceptor for Authorization {
@@ -238,6 +239,11 @@ where
             .register_encoded_file_descriptor_set(kuksa::val::v2::FILE_DESCRIPTOR_SET);
     }
 
+    if apis.contains(&Api::SdvDatabrokerV1) {
+        reflection_builder = reflection_builder
+            .register_encoded_file_descriptor_set(sdv::databroker::v1::FILE_DESCRIPTOR_SET);
+    }
+
     let reflection_service = reflection_builder.build_v1()?;
     let mut router = server.add_service(reflection_service);
 
@@ -254,6 +260,15 @@ where
     if apis.contains(&Api::KuksaValV2) {
         router = router.add_optional_service(Some(
             kuksa::val::v2::val_server::ValServer::with_interceptor(
+                broker.clone(),
+                authorization.clone(),
+            ),
+        ));
+    }
+
+    if apis.contains(&Api::SdvDatabrokerV1) {
+        router = router.add_optional_service(Some(
+            sdv::databroker::v1::broker_server::BrokerServer::with_interceptor(
                 broker.clone(),
                 authorization.clone(),
             ),

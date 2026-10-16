@@ -18,7 +18,7 @@
             ],
             "local_service_instances": [
                 {
-                    "instance_specifier": "vehicle_high_beam/local_tx",
+                    "instance_specifier": "/vehicle_high_beam/local_tx",
                     "instance_id": 4096
                 }
             ]

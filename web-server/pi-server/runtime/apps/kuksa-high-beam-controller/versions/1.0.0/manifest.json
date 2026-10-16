@@ -1,0 +1,13 @@
+{
+  "app_id": "kuksa-high-beam-controller",
+  "name": "KUKSA High Beam Controller",
+  "version": "1.0.0",
+  "description": "Python SDV application connecting to KUKSA Databroker on 127.0.0.1:55555",
+  "runtime": "python",
+  "entrypoint": "high_beam_kuksa_controller.py",
+  "target_architecture": "aarch64",
+  "author": "Eclipse S-CORE SDV Team",
+  "checksums": {
+    "high_beam_kuksa_controller.py": "b6fd3bbbddf99df953ba1e5ad2ae7f0de3eeaec12dfd3b368e0646107bbae83b"
+  }
+}
