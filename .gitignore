@@ -29,6 +29,23 @@ ubproject.toml
 /.gita-workspace.csv
 /build
 artifacts
+/sdv-hack-demo/dist/
 
 #Macos
 .DS_Store
+
+# VM provisioning stays local
+vm-provisioning/
+
+# Generated build output
+dist/
+node_modules/
+*.pyc
+*.pyo
+/communication/New folder_generatedFilesAfterBuild/
+*.o
+*.obj
+*.so
+*.a
+*.gcda
+*.gcno

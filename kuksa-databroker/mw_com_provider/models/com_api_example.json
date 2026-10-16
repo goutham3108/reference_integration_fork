@@ -1,0 +1,66 @@
+{
+  "namespaces": [
+    {
+      "name": "vehicle",
+      "structs": [
+        {
+          "name": "Tire",
+          "members": [
+            {
+              "name": "pressure",
+              "datatype": "float",
+              "sample_size": 4,
+              "sample_alignment": 4
+            }
+          ]
+        },
+        {
+          "name": "Exhaust",
+          "members": []
+        }
+      ],
+      "interfaces": [
+        {
+          "name": "Vehicle",
+          "interface_id": "VehicleInterface",
+          "events": [
+            {
+              "name": "left_tire",
+              "datatype": "Tire",
+              "sample_size": 4,
+              "sample_alignment": 4,
+              "has_serialized_format": false,
+              "provider": {
+                "service": "VehicleInterface",
+                "instance": "Service1",
+                "instance_specifier": "/Vehicle/Service1/Instance",
+                "field": "pressure",
+                "vss": {
+                  "signal_id": 101,
+                  "path": "Vehicle.Chassis.Axle.Row1.Wheel.Left.Tire.Pressure",
+                  "datatype": "float",
+                  "unit": "kPa",
+                  "scale": 1.0,
+                  "offset": 0.0,
+                  "min": 0.0,
+                  "max": 1000.0,
+                  "required_quality": "valid",
+                  "direction": "datapoint",
+                  "cycle_time_ms": 100
+                }
+              }
+            },
+            {
+              "name": "exhaust",
+              "datatype": "Exhaust",
+              "sample_size": 0,
+              "sample_alignment": 1,
+              "has_serialized_format": false
+            }
+          ]
+        }
+      ],
+      "namespaces": []
+    }
+  ]
+}

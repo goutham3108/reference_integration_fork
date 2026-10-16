@@ -74,6 +74,13 @@ build:linux-x86_64 --config=_common
 build:linux-x86_64 --extra_toolchains=@score_gcc_x86_64_toolchain//:x86_64-linux-gcc_12.2.0
 build:linux-x86_64 --platforms=@score_bazel_platforms//:x86_64-linux-gcc_12.2.0-posix
 
+# Linux aarch64 cross-compilation for Raspberry Pi deployment.
+build:aarch64-linux --config=_common
+build:aarch64-linux --platforms=@score_bazel_platforms//:aarch64-linux-gcc_12.2.0-posix
+build:aarch64-linux --extra_toolchains=@score_gcc_aarch64_toolchain//:all
+build:aarch64-linux --cpu=aarch64
+build:aarch64-linux --repo_env=TARGET_ARCH=aarch64
+
 build:eb-aarch64 --config=_common
 build:eb-aarch64 --extra_toolchains=@score_ebclfsa_toolchain//:aarch64-linux-sdk_2.0.0-beta2-ebclfsa
 build:eb-aarch64 --extra_toolchains=@ferrocene_aarch64_ebclfsa//:rust_ferrocene_toolchain

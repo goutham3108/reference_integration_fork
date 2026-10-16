@@ -1,0 +1,89 @@
+/********************************************************************************
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation
+ *
+ * See the NOTICE file(s) distributed with this work for additional
+ * information regarding copyright ownership.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Apache License Version 2.0 which is available at
+ * https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ ********************************************************************************/
+#include "score/mw/com/impl/bindings/lola/test/skeleton_event_test_resources.h"
+
+#include "score/mw/com/impl/bindings/lola/skeleton_event_properties.h"
+
+namespace score::mw::com::impl::lola
+{
+
+namespace
+{
+
+using ::testing::_;
+using ::testing::Invoke;
+using ::testing::Return;
+using ::testing::ReturnRef;
+
+}  // namespace
+
+SkeletonEventFixture::SkeletonEventFixture() : SkeletonMockedMemoryFixture{}
+{
+    ON_CALL(runtime_mock_, GetServiceDiscovery()).WillByDefault(ReturnRef(service_discovery_mock_));
+}
+
+void SkeletonEventFixture::InitialiseSkeletonEvent(const ElementFqId element_fq_id,
+                                                   const std::string& service_element_name,
+                                                   const std::size_t max_samples,
+                                                   const std::uint8_t max_subscribers,
+                                                   const bool enforce_max_samples,
+                                                   impl::tracing::SkeletonEventTracingData skeleton_event_tracing_data,
+                                                   const bool field_getter_enabled,
+                                                   std::optional<InstanceIdentifier> instance_identifier)
+{
+    // We defer initialisation of the Skeleton to InitialiseSkeletonEvent to allow test fixtures to set any mocked
+    // expectations before creating the skeleton.
+    InitialiseSkeleton(instance_identifier.has_value() ? *instance_identifier : GetValidInstanceIdentifier());
+
+    SkeletonBinding::SkeletonEventBindings events{};
+    SkeletonBinding::SkeletonFieldBindings fields{};
+    // Offer the single service-element that will be registered below (via the SkeletonEvent's own PrepareOffer). This
+    // sizes the fixed-capacity containers within ServiceDataStorage. The mock binding itself is only counted; no
+    // expectations on it are required for the offer/sizing path.
+    events.emplace(service_element_name, mock_event_binding_);
+    std::optional<SkeletonBinding::RegisterShmObjectTraceCallback> register_shm_object_trace_callback{};
+    std::ignore = skeleton_->PrepareOffer(events, fields, std::move(register_shm_object_trace_callback));
+
+    const auto number_of_field_getter_slots = field_getter_enabled ? kMaxConcurrentFieldGetterSamplePtrs : 0U;
+
+    skeleton_event_ = std::make_unique<SkeletonEvent<test::TestSampleType>>(
+        *skeleton_,
+        element_fq_id,
+        service_element_name,
+        SkeletonEventProperties{
+            max_samples, 0U, number_of_field_getter_slots, false, max_subscribers, enforce_max_samples},
+        skeleton_event_tracing_data);
+}
+
+EventControl* SkeletonEventFixture::GetEventControl(const ElementFqId element_fq_id,
+                                                    const QualityType quality_type) const noexcept
+{
+    auto* service_data_control = SkeletonAttorney{*skeleton_}.GetServiceDataControl(quality_type);
+    if (service_data_control == nullptr)
+    {
+        return nullptr;
+    }
+    const auto event_entry = service_data_control->event_controls_.find(element_fq_id);
+    if (event_entry != service_data_control->event_controls_.end())
+    {
+        return &event_entry->second;
+    }
+    return nullptr;
+}
+
+InstanceIdentifier SkeletonEventFixture::GetValidInstanceIdentifier()
+{
+    return make_InstanceIdentifier(valid_asil_instance_deployment_, valid_type_deployment_);
+}
+
+}  // namespace score::mw::com::impl::lola
