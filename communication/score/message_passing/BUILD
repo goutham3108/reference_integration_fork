@@ -106,7 +106,7 @@ cc_library(
 unit(
     name = "client_connection",
     scope = [
-        "@@//score/message_passing:__subpackages__",
+        "//score/message_passing:__subpackages__",
     ],
     tests = [
         "//score/message_passing:client_connection_test_linux",
@@ -121,7 +121,7 @@ unit(
 unit(
     name = "server_connection",
     scope = [
-        "@@//score/message_passing:__subpackages__",
+        "//score/message_passing:__subpackages__",
     ],
     tests = [],
     unit_design = ["//score/message_passing/dependability/software_unit_design:server_connection_unit_design"],
@@ -147,6 +147,7 @@ cc_library(
         "unix_domain/unix_domain_socket_address.h",
     ],
     features = COMPILER_WARNING_FEATURES,
+    target_compatible_with = ["@platforms//os:linux"],
     visibility = [
         "//score/mw/com/impl:__subpackages__",
     ],
@@ -162,7 +163,7 @@ cc_library(
 unit(
     name = "unix_domain",
     scope = [
-        "@@//score/message_passing:__subpackages__",
+        "//score/message_passing:__subpackages__",
     ],
     tests = [
         ":unix_domain_test_linux",
@@ -228,7 +229,7 @@ cc_library(
 unit(
     name = "qnx_dispatch",
     scope = [
-        "@@//score/message_passing:__subpackages__",
+        "//score/message_passing:__subpackages__",
     ],
     tests = [],
     unit_design = ["//score/message_passing/dependability/software_unit_design:qnx_dispatch_unit_design"],

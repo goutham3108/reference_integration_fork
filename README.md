@@ -165,6 +165,47 @@ configuration is not used by this demo. The demo also ships its own
 `score_com_serializer.so` plugin (`sdv-hack-demo/serializer/`) alongside the
 gateway's serializer; see [sdv-hack-demo/README.md](sdv-hack-demo/README.md).
 
+### Communication (LoLa) version: one checkout for every process
+
+`communication/` is a copy of upstream `eclipse-score/communication`
+(currently `main` at `64c2b272`, 14 Oct 2026) plus a few local additions: the
+`vehicle-dynamics-example` that KUKSA links against, docs, and extra
+`[registry]`/`[rust]` log lines in `registry_bridge_macro.*` and `consumer.rs`.
+
+**Every process that uses LoLa must be built from this same folder**:
+`gatewayd`, the vehicle app (and the bridge and remote app, which share the
+workspace), and KUKSA. LoLa keeps its data in shared memory, and upstream
+changed the layout of those structures in PR #897 (14 Sep 2026). A KUKSA built
+on one side of that change and a `gatewayd` on the other abort with `SIGABRT`
+as soon as KUKSA opens the gateway's shared memory; with every process on the
+same checkout the full flow works. How that is wired:
+
+| Built by | Gets communication from |
+| --- | --- |
+| KUKSA (`kuksa-databroker/scripts/build-rpi-aarch64.sh`) | `communication/` directly (Cargo paths and the Bazel build in that folder) |
+| Demo apps (root workspace) | `local_path_override` in `bazel_common/score_modules_target_sw.MODULE.bazel` |
+| `gatewayd`/`someipd` (`inc_someip_gateway`) | `inc_someip_gateway/user.bazelrc` (git-ignored) with `--override_module=score_communication=<absolute path to communication/>`; its `MODULE.bazel` is untouched |
+
+`user.bazelrc` contains an absolute path (Bazel does not resolve `%workspace%/..`
+here) and `--lockfile_mode=off`, which keeps the tracked
+`inc_someip_gateway/MODULE.bazel.lock` from being rewritten. Recreate the file if
+the repository moves or is cloned elsewhere. Without it the gateway is built
+from its pinned upstream commit and the flow breaks as described above.
+`scripts/known_good/update_module_from_known_good.py` (and the matching VS Code
+tasks) regenerate the `bazel_common/score_modules_*.MODULE.bazel` files; re-check
+the `score_communication` entry after running it.
+
+Updating `communication/` again: copy upstream over it while keeping the local
+additions, then rebuild **all** targets (`bash sdv-hack-demo/build-aarch64.sh`
+and `bash sdv-hack-demo/package-aarch64.sh`) and redeploy **both** archives. Two
+things changed for KUKSA in the last update and are worth knowing if it breaks
+again: `score_com_concept` needs `pastey` (it replaced `paste`;
+`kuksa-databroker/.../score_com_concept/Cargo.toml`), and
+`databroker-mw-com-demo/build.rs` now links archives whose file name occurs in
+more than one Bazel package (for example baselibs' two
+`libstring_comparison_adaptor.a`) by full path, because a bare `-l` finds only
+the first.
+
 The build outputs are left in their project build directories; this command
 does not package them or run `scp`:
 

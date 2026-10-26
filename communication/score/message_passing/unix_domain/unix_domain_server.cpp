@@ -100,7 +100,7 @@ void UnixDomainServer::ServerConnection::RequestDisconnect() noexcept
 
 bool UnixDomainServer::ServerConnection::ProcessInput()
 {
-    std::uint8_t code;
+    std::uint8_t code{0U};
     auto& user_data = *user_data_;
     using HandlerPointerT = score::cpp::pmr::unique_ptr<IConnectionHandler>;
     auto message_expected = server_.engine_->ReceiveProtocolMessage(endpoint_.fd, code);
@@ -109,14 +109,17 @@ bool UnixDomainServer::ServerConnection::ProcessInput()
         return false;
     }
     auto message = message_expected.value();
+    // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
     switch (code)
     {
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(ClientToServer::REQUEST):
             return (std::holds_alternative<HandlerPointerT>(user_data)
                         ? std::get<HandlerPointerT>(user_data)->OnMessageSentWithReply(*this, message)
                         : server_.sent_with_reply_callback_(*this, message))
                 .has_value();
 
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(ClientToServer::SEND):
             return (std::holds_alternative<HandlerPointerT>(user_data)
                         ? std::get<HandlerPointerT>(user_data)->OnMessageSent(*this, message)
@@ -242,7 +245,7 @@ void UnixDomainServer::ProcessConnect() noexcept
     // no support for SO_PEERCRED on QNX
     ClientIdentity identity{0, 0, 0};
 #else
-    ucred cr;
+    ucred cr{};
     socklen_t cr_len = sizeof(cr);
     auto sockopt_expected = socket->getsockopt(data_fd, SOL_SOCKET, SO_PEERCRED, &cr, &cr_len);
     if ((!sockopt_expected.has_value()) || (cr_len != sizeof(cr)))

@@ -29,16 +29,15 @@ git_override(
 )
 
 bazel_dep(name = "score_communication")
-git_override(
+
+# Use the checked-in communication/ folder (the same sources KUKSA links) instead of a pinned upstream
+# commit: every LoLa process on the vehicle Pi (gatewayd, the demo apps, KUKSA) must share one
+# shared-memory layout, and the gateway daemons are pointed at the same folder through
+# inc_someip_gateway/user.bazelrc. The patches in //patches/communication targeted the previous
+# pinned commit (313f1178) and are no longer applied.
+local_path_override(
     module_name = "score_communication",
-    commit = "313f1178628189d267c8cd0d75971bdac04c20ee",
-    patch_strip = 1,
-    patches = [
-        "//patches/communication:001-expose-comm-examples.patch",
-        "//patches/communication:003-module-deps-visibility.patch",
-        "//patches/communication:004-rules-build-error-not-dev-dependency.patch",
-    ],
-    remote = "https://github.com/eclipse-score/communication.git",
+    path = "communication",
 )
 
 bazel_dep(name = "score_persistency")

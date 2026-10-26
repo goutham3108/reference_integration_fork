@@ -65,13 +65,15 @@ fn link_from_bazel_params(bazel_bin: &Path) {
 
     let mut alwayslink_archives = Vec::new();
     let mut libraries = Vec::new();
+    let mut native_dirs: Vec<PathBuf> = Vec::new();
     let mut lines = params.lines().map(str::trim).filter(|line| !line.is_empty()).peekable();
     while let Some(line) = lines.next() {
         if let Some(path) = line.strip_prefix("-Lnative=") {
-            println!(
-                "cargo:rustc-link-search=native={}",
-                score_build_root.join(path).display()
-            );
+            let dir = score_build_root.join(path);
+            println!("cargo:rustc-link-search=native={}", dir.display());
+            if !native_dirs.contains(&dir) {
+                native_dirs.push(dir);
+            }
         } else if let Some(library) = line.strip_prefix("-lstatic=") {
             libraries.push(library);
         } else if let Some(argument) = line.strip_prefix("-Clink-arg=") {
@@ -96,7 +98,24 @@ fn link_from_bazel_params(bazel_bin: &Path) {
         }
         println!("cargo:rustc-link-arg=-Wl,--no-whole-archive");
         for library in libraries {
-            println!("cargo:rustc-link-arg=-Wl,-l{library}");
+            // Some archives share a file name across Bazel packages (for example baselibs'
+            // string_comparison_adaptor and split_string_view, and communication's
+            // generic_skeleton_event). A bare -l<name> only finds the first one, so link every
+            // match by its full path in that case.
+            let archive_name = format!("lib{library}.a");
+            let matches: Vec<PathBuf> = native_dirs
+                .iter()
+                .map(|dir| dir.join(&archive_name))
+                .filter(|path| path.is_file())
+                .collect();
+            if matches.len() > 1 {
+                for archive in matches {
+                    println!("cargo:rerun-if-changed={}", archive.display());
+                    println!("cargo:rustc-link-arg={}", archive.display());
+                }
+            } else {
+                println!("cargo:rustc-link-arg=-Wl,-l{library}");
+            }
         }
         println!("cargo:rustc-link-arg=-Wl,--end-group");
         for library in ["stdc++", "rt", "atomic", "acl", "gcc", "c"] {

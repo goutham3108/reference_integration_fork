@@ -37,14 +37,26 @@ permissions:
   contents: read
 
 jobs:
+  # gcc15-unit, qnx-unit and qnx-integration were regularly hitting the
+  # GitHub-hosted-runner 360-minute default timeout and getting hard-cancelled
+  # (losing their report). They are split into shards here: the runner queries
+  # the matching test targets once per shard and divides them by index modulo
+  # shard-count, so shards stay balanced automatically as tests are
+  # added/removed - no manual per-directory target lists to maintain.
   flaky-gcc15-unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     uses: ./.github/workflows/_nightly_flaky_detection_runner.yml
     with:
-      config-name: gcc15-unit
+      config-name: gcc15-unit-shard${{ matrix.shard }}
       bazel-config: ""
       target-pattern: //...
       test-tag-filters: unit
       runs-per-test: ${{ fromJSON(github.event.inputs.runs_per_test || '300') }}
+      shard-index: ${{ matrix.shard }}
+      shard-count: 3
     permissions:
       contents: read
       actions: write
@@ -94,14 +106,20 @@ jobs:
       UBUNTU_SNAPSHOT_MIRROR_URL: ${{ secrets.UBUNTU_SNAPSHOT_MIRROR_URL }}
 
   flaky-qnx-unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     uses: ./.github/workflows/_nightly_flaky_detection_runner.yml
     with:
-      config-name: qnx-unit
+      config-name: qnx-unit-shard${{ matrix.shard }}
       bazel-config: qnx
       target-pattern: //score/...
       test-tag-filters: unit
       runs-per-test: ${{ fromJSON(github.event.inputs.runs_per_test || '300') }}
       use-qnx-environment: true
+      shard-index: ${{ matrix.shard }}
+      shard-count: 3
     permissions:
       contents: read
       actions: write
@@ -112,14 +130,20 @@ jobs:
       SCORE_QNX_PASSWORD: ${{ secrets.SCORE_QNX_PASSWORD }}
 
   flaky-qnx-integration:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
     uses: ./.github/workflows/_nightly_flaky_detection_runner.yml
     with:
-      config-name: qnx-integration
+      config-name: qnx-integration-shard${{ matrix.shard }}
       bazel-config: qnx
       target-pattern: //score/...
       test-tag-filters: integration-test
       runs-per-test: ${{ fromJSON(github.event.inputs.integration_runs_per_test || '100') }}
       use-qnx-environment: true
+      shard-index: ${{ matrix.shard }}
+      shard-count: 3
     permissions:
       contents: read
       actions: write
@@ -138,7 +162,7 @@ jobs:
       - flaky-tsan
       - flaky-qnx-unit
       - flaky-qnx-integration
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -165,11 +189,11 @@ jobs:
             --github-output "${GITHUB_OUTPUT}"
 
       - name: Add summary to workflow
-        if: always()
+        if: ${{ !cancelled() }}
         run: cat /tmp/nightly_flaky/merged/summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Sync flaky test issues
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -184,7 +208,7 @@ jobs:
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Upload consolidated artifact
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: nightly-flaky-summary-${{ github.run_id }}
