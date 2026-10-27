@@ -1,7 +1,8 @@
 def mw_com_provider_cargo_commands(
         check_name = "cargo_check_mw_com_provider",
         test_name = "cargo_test_mw_com_provider",
-        live_e2e_name = "score_lola_live_e2e",
+    codegen_name = "generate_mw_com_provider_artifacts",
+    verify_codegen_name = "verify_mw_com_provider_codegen",
         visibility = None):
     native.sh_binary(
         name = check_name,
@@ -18,13 +19,24 @@ def mw_com_provider_cargo_commands(
     )
 
     native.sh_binary(
-        name = live_e2e_name,
+        name = codegen_name,
         srcs = ["bazel/cargo_provider.sh"],
-        args = ["score-lola-live-e2e-local"],
+        args = ["codegen"],
         data = [
-            "scripts/run-score-lola-live-e2e-local.sh",
+            ":provider_codegen_inputs",
+            "//xtask:xtask_sources",
+        ],
+        visibility = visibility,
+    )
+
+    native.sh_binary(
+        name = verify_codegen_name,
+        srcs = ["bazel/cargo_provider.sh"],
+        args = ["verify-codegen"],
+        data = [
+            ":provider_codegen_inputs",
             ":provider_generated_artifacts",
-            "@score_communication//score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example",
+            "//xtask:xtask_sources",
         ],
         visibility = visibility,
     )

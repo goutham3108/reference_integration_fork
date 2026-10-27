@@ -15,54 +15,312 @@ use crate::error::MwComProviderError;
 use crate::quality::SignalQuality;
 use crate::score_bindings::{ScoreBinding, ScoreRuntimeAdapter};
 use crate::transport::{MwComMessage, MwComValue};
+use crate::mw_com_provider_types::vehicle::{BoolSample, F32Sample, U8Sample};
 use async_trait::async_trait;
 use score_com::{
     Builder, FindServiceSpecifier, InstanceSpecifier, Interface, LolaRuntimeBuilderImpl,
     LolaRuntimeImpl, OfferedProducer, Producer, Publisher, Runtime, RuntimeBuilder,
-    SampleContainer, ServiceDiscovery, Subscriber, Subscription,
+    SampleContainer, SampleMaybeUninit, SampleMut, ServiceDiscovery, Subscriber, Subscription,
 };
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
+const SCORE_DEFAULT_SUBSCRIPTION_QUEUE_CAPACITY: usize = 3;
+const SCORE_DEFAULT_RECEIVE_BATCH_SIZE: usize = 16;
+
 type LolaRuntime = LolaRuntimeImpl;
 
-type VehicleDynamicsServiceInterfaceAlias =
-    crate::mw_com_provider_interfaces::vehicle::VehicleDynamicsServiceInterface;
-type VehicleDynamicsServiceProducer =
-    <VehicleDynamicsServiceInterfaceAlias as Interface>::Producer<LolaRuntime>;
-type VehicleDynamicsServiceOfferedProducer =
-    <VehicleDynamicsServiceProducer as Producer<LolaRuntime>>::OfferedProducer;
-type VehicleDynamicsServiceSpeedSubscription = <<LolaRuntime as Runtime>::Subscriber<
-    crate::mw_com_provider_types::vehicle::SpeedSample,
-> as Subscriber<
-    crate::mw_com_provider_types::vehicle::SpeedSample,
-    LolaRuntime,
->>::Subscription;
-type VehicleDynamicsServiceTargetSpeedSubscription = <<LolaRuntime as Runtime>::Subscriber<
-    crate::mw_com_provider_types::vehicle::TargetSpeed,
-> as Subscriber<
-    crate::mw_com_provider_types::vehicle::TargetSpeed,
-    LolaRuntime,
->>::Subscription;
-type VehicleHighBeamRxInterfaceAlias =
-    crate::mw_com_provider_interfaces::high_beam::VehicleHighBeamRxInterface;
-type VehicleHighBeamRxHighBeamState = crate::mw_com_provider_types::high_beam::HighBeamState;
-type VehicleHighBeamRxHighBeamStateSubscription = <<LolaRuntime as Runtime>::Subscriber<VehicleHighBeamRxHighBeamState> as Subscriber<
-    VehicleHighBeamRxHighBeamState,
-    LolaRuntime,
->>::Subscription;
+type BodyControlModuleServiceInterfaceAlias =
+    crate::mw_com_provider_interfaces::vehicle::BodyControlModuleServiceInterface;
+type BodyControlModuleServiceProducer =
+    <BodyControlModuleServiceInterfaceAlias as Interface>::Producer<LolaRuntime>;
+type BodyControlModuleServiceOfferedProducer =
+    <BodyControlModuleServiceProducer as Producer<LolaRuntime>>::OfferedProducer;
+type BodyControlModuleServiceFrontWasherFluidLevelSubscription =
+    <<LolaRuntime as Runtime>::Subscriber<U8Sample> as Subscriber<U8Sample, LolaRuntime>>::Subscription;
+type BodyControlModuleServiceFrontWasherFluidIsLowSubscription =
+    <<LolaRuntime as Runtime>::Subscriber<BoolSample> as Subscriber<BoolSample, LolaRuntime>>::Subscription;
+type BodyControlModuleServiceRainIntensitySubscription =
+    <<LolaRuntime as Runtime>::Subscriber<U8Sample> as Subscriber<U8Sample, LolaRuntime>>::Subscription;
+type BodyControlModuleServiceDriverDoorChildLockIsActiveSubscription =
+    <<LolaRuntime as Runtime>::Subscriber<BoolSample> as Subscriber<BoolSample, LolaRuntime>>::Subscription;
+type BodyControlModuleServiceVehicleSpeedSubscription =
+    <<LolaRuntime as Runtime>::Subscriber<F32Sample> as Subscriber<F32Sample, LolaRuntime>>::Subscription;
+
+#[allow(dead_code)]
+enum GeneratedReceiveSubscription {
+    NoReceive,
+    BodyControlModuleServiceFrontWasherFluidLevel {
+        instance_name: String,
+        instance_specifier: String,
+        subscription: BodyControlModuleServiceFrontWasherFluidLevelSubscription,
+    },
+    BodyControlModuleServiceFrontWasherFluidIsLow {
+        instance_name: String,
+        instance_specifier: String,
+        subscription: BodyControlModuleServiceFrontWasherFluidIsLowSubscription,
+    },
+    BodyControlModuleServiceRainIntensity {
+        instance_name: String,
+        instance_specifier: String,
+        subscription: BodyControlModuleServiceRainIntensitySubscription,
+    },
+    BodyControlModuleServiceDriverDoorChildLockIsActive {
+        instance_name: String,
+        instance_specifier: String,
+        subscription: BodyControlModuleServiceDriverDoorChildLockIsActiveSubscription,
+    },
+    BodyControlModuleServiceVehicleSpeed {
+        instance_name: String,
+        instance_specifier: String,
+        subscription: BodyControlModuleServiceVehicleSpeedSubscription,
+    },
+}
+
+impl GeneratedReceiveSubscription {
+    fn matches(&self, service_name: &str, instance_specifier: &str, member_name: &str) -> bool {
+        match self {
+            Self::NoReceive => false,
+            Self::BodyControlModuleServiceFrontWasherFluidLevel {
+                instance_specifier: subscribed_instance,
+                ..
+            } => {
+                service_name == "BodyControlModuleService"
+                    && subscribed_instance == instance_specifier
+                    && member_name == "front_washer_fluid_level"
+            }
+            Self::BodyControlModuleServiceFrontWasherFluidIsLow {
+                instance_specifier: subscribed_instance,
+                ..
+            } => {
+                service_name == "BodyControlModuleService"
+                    && subscribed_instance == instance_specifier
+                    && member_name == "front_washer_fluid_is_low"
+            }
+            Self::BodyControlModuleServiceRainIntensity {
+                instance_specifier: subscribed_instance,
+                ..
+            } => {
+                service_name == "BodyControlModuleService"
+                    && subscribed_instance == instance_specifier
+                    && member_name == "rain_intensity"
+            }
+            Self::BodyControlModuleServiceDriverDoorChildLockIsActive {
+                instance_specifier: subscribed_instance,
+                ..
+            } => {
+                service_name == "BodyControlModuleService"
+                    && subscribed_instance == instance_specifier
+                    && member_name == "driver_door_child_lock_is_active"
+            }
+            Self::BodyControlModuleServiceVehicleSpeed {
+                instance_specifier: subscribed_instance,
+                ..
+            } => {
+                service_name == "BodyControlModuleService"
+                    && subscribed_instance == instance_specifier
+                    && member_name == "vehicle_speed"
+            }
+        }
+    }
+
+    fn unsubscribe(self) {
+        match self {
+            Self::NoReceive => {}
+            Self::BodyControlModuleServiceFrontWasherFluidLevel { subscription, .. } => {
+                let _ = subscription.unsubscribe();
+            }
+            Self::BodyControlModuleServiceFrontWasherFluidIsLow { subscription, .. } => {
+                let _ = subscription.unsubscribe();
+            }
+            Self::BodyControlModuleServiceRainIntensity { subscription, .. } => {
+                let _ = subscription.unsubscribe();
+            }
+            Self::BodyControlModuleServiceDriverDoorChildLockIsActive { subscription, .. } => {
+                let _ = subscription.unsubscribe();
+            }
+            Self::BodyControlModuleServiceVehicleSpeed { subscription, .. } => {
+                let _ = subscription.unsubscribe();
+            }
+        }
+    }
+
+    fn try_receive(
+        &self,
+        pending_messages: &mut VecDeque<MwComMessage>,
+        receive_batch_size: usize,
+    ) -> Result<(), MwComProviderError> {
+        match self {
+            Self::NoReceive => Ok(()),
+            Self::BodyControlModuleServiceFrontWasherFluidLevel {
+                instance_name,
+                subscription,
+                ..
+            } => {
+                let mut samples = SampleContainer::new(receive_batch_size);
+                let count = subscription
+                    .try_receive(&mut samples, receive_batch_size)
+                    .map_err(|error| {
+                        LolaScoreRuntimeAdapter::score_error(
+                            "SCORE front_washer_fluid_level receive failed",
+                            error,
+                        )
+                    })?;
+                for _ in 0..count {
+                    let sample = samples.pop_front().ok_or_else(|| {
+                        MwComProviderError::Transport(
+                            "SCORE front_washer_fluid_level receive returned no sample".into(),
+                        )
+                    })?;
+                    pending_messages.push_back(MwComMessage {
+                        service: "BodyControlModuleService".into(),
+                        instance: instance_name.clone(),
+                        member: "front_washer_fluid_level".into(),
+                        value: MwComValue::U64(sample.value as u64),
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    });
+                }
+                Ok(())
+            }
+            Self::BodyControlModuleServiceFrontWasherFluidIsLow {
+                instance_name,
+                subscription,
+                ..
+            } => {
+                let mut samples = SampleContainer::new(receive_batch_size);
+                let count = subscription
+                    .try_receive(&mut samples, receive_batch_size)
+                    .map_err(|error| {
+                        LolaScoreRuntimeAdapter::score_error(
+                            "SCORE front_washer_fluid_is_low receive failed",
+                            error,
+                        )
+                    })?;
+                for _ in 0..count {
+                    let sample = samples.pop_front().ok_or_else(|| {
+                        MwComProviderError::Transport(
+                            "SCORE front_washer_fluid_is_low receive returned no sample".into(),
+                        )
+                    })?;
+                    pending_messages.push_back(MwComMessage {
+                        service: "BodyControlModuleService".into(),
+                        instance: instance_name.clone(),
+                        member: "front_washer_fluid_is_low".into(),
+                        value: MwComValue::Bool(sample.value),
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    });
+                }
+                Ok(())
+            }
+            Self::BodyControlModuleServiceRainIntensity {
+                instance_name,
+                subscription,
+                ..
+            } => {
+                let mut samples = SampleContainer::new(receive_batch_size);
+                let count = subscription
+                    .try_receive(&mut samples, receive_batch_size)
+                    .map_err(|error| {
+                        LolaScoreRuntimeAdapter::score_error(
+                            "SCORE rain_intensity receive failed",
+                            error,
+                        )
+                    })?;
+                for _ in 0..count {
+                    let sample = samples.pop_front().ok_or_else(|| {
+                        MwComProviderError::Transport(
+                            "SCORE rain_intensity receive returned no sample".into(),
+                        )
+                    })?;
+                    pending_messages.push_back(MwComMessage {
+                        service: "BodyControlModuleService".into(),
+                        instance: instance_name.clone(),
+                        member: "rain_intensity".into(),
+                        value: MwComValue::U64(sample.value as u64),
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    });
+                }
+                Ok(())
+            }
+            Self::BodyControlModuleServiceDriverDoorChildLockIsActive {
+                instance_name,
+                subscription,
+                ..
+            } => {
+                let mut samples = SampleContainer::new(receive_batch_size);
+                let count = subscription
+                    .try_receive(&mut samples, receive_batch_size)
+                    .map_err(|error| {
+                        LolaScoreRuntimeAdapter::score_error(
+                            "SCORE driver_door_child_lock_is_active receive failed",
+                            error,
+                        )
+                    })?;
+                for _ in 0..count {
+                    let sample = samples.pop_front().ok_or_else(|| {
+                        MwComProviderError::Transport(
+                            "SCORE driver_door_child_lock_is_active receive returned no sample"
+                                .into(),
+                        )
+                    })?;
+                    pending_messages.push_back(MwComMessage {
+                        service: "BodyControlModuleService".into(),
+                        instance: instance_name.clone(),
+                        member: "driver_door_child_lock_is_active".into(),
+                        value: MwComValue::Bool(sample.value),
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    });
+                }
+                Ok(())
+            }
+            Self::BodyControlModuleServiceVehicleSpeed {
+                instance_name,
+                subscription,
+                ..
+            } => {
+                let mut samples = SampleContainer::new(receive_batch_size);
+                let count = subscription
+                    .try_receive(&mut samples, receive_batch_size)
+                    .map_err(|error| {
+                        LolaScoreRuntimeAdapter::score_error(
+                            "SCORE vehicle_speed receive failed",
+                            error,
+                        )
+                    })?;
+                for _ in 0..count {
+                    let sample = samples.pop_front().ok_or_else(|| {
+                        MwComProviderError::Transport(
+                            "SCORE vehicle_speed receive returned no sample".into(),
+                        )
+                    })?;
+                    pending_messages.push_back(MwComMessage {
+                        service: "BodyControlModuleService".into(),
+                        instance: instance_name.clone(),
+                        member: "vehicle_speed".into(),
+                        value: MwComValue::F64(sample.value as f64),
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    });
+                }
+                Ok(())
+            }
+        }
+    }
+}
 
 pub struct LolaScoreRuntimeAdapter {
-    high_beam_tx: Option<crate::high_beam_tx::TxOfferedProducer>,
     config_path: PathBuf,
     runtime: Option<LolaRuntime>,
-    vehicledynamicsservice_speed_subscription: Option<VehicleDynamicsServiceSpeedSubscription>,
-    vehicledynamicsservice_target_speed_subscription:
-        Option<VehicleDynamicsServiceTargetSpeedSubscription>,
-    vehiclehighbeamrx_high_beam_state_subscription:
-        Option<VehicleHighBeamRxHighBeamStateSubscription>,
-    vehicledynamicsservice_offered_producer: Option<VehicleDynamicsServiceOfferedProducer>,
-    vehicledynamicsservice_producer_instance_specifier: Option<String>,
+    receive_subscriptions: Vec<GeneratedReceiveSubscription>,
+    bodycontrolmoduleservice_offered_producers:
+        HashMap<String, BodyControlModuleServiceOfferedProducer>,
+    pending_messages: VecDeque<MwComMessage>,
+    receive_cursor: usize,
 }
 
 // SAFETY: The adapter does not expose references to the native LoLa handles it owns, and provider
@@ -73,14 +331,12 @@ impl LolaScoreRuntimeAdapter {
     pub fn new(config_path: impl Into<PathBuf>) -> Self {
         let config_path = config_path.into();
         Self {
-            high_beam_tx: None,
             config_path,
             runtime: None,
-            vehicledynamicsservice_speed_subscription: None,
-            vehicledynamicsservice_target_speed_subscription: None,
-            vehiclehighbeamrx_high_beam_state_subscription: None,
-            vehicledynamicsservice_offered_producer: None,
-            vehicledynamicsservice_producer_instance_specifier: None,
+            receive_subscriptions: Vec::new(),
+            bodycontrolmoduleservice_offered_producers: HashMap::new(),
+            pending_messages: VecDeque::new(),
+            receive_cursor: 0,
         }
     }
 
@@ -103,8 +359,7 @@ impl LolaScoreRuntimeAdapter {
 
     fn validate_binding(binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
         match binding.service_name {
-            "VehicleDynamicsService" => Ok(()),
-            "/vehicle_high_beam_rx" => Ok(()),
+            "BodyControlModuleService" => Ok(()),
             other => Err(MwComProviderError::Transport(format!(
                 "LolaScoreRuntimeAdapter is not generated for SCORE service {other}"
             ))),
@@ -126,48 +381,54 @@ impl LolaScoreRuntimeAdapter {
         MwComProviderError::Transport(format!("{context}: {error:?}"))
     }
 
-    fn ensure_vehicledynamicsservice_offered_producer(
+    fn subscription_queue_capacity() -> usize {
+        std::env::var("SCORE_SUBSCRIPTION_QUEUE_CAPACITY")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(SCORE_DEFAULT_SUBSCRIPTION_QUEUE_CAPACITY)
+    }
+
+    fn receive_batch_size() -> usize {
+        std::env::var("SCORE_RECEIVE_BATCH_SIZE")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(SCORE_DEFAULT_RECEIVE_BATCH_SIZE)
+            .min(Self::subscription_queue_capacity())
+    }
+
+    fn ensure_bodycontrolmoduleservice_offered_producer(
         &mut self,
         binding: ScoreBinding<'_>,
-    ) -> Result<&VehicleDynamicsServiceOfferedProducer, MwComProviderError> {
-        if binding.service_name != "VehicleDynamicsService" {
+    ) -> Result<&BodyControlModuleServiceOfferedProducer, MwComProviderError> {
+        if binding.service_name != "BodyControlModuleService" {
             return Err(MwComProviderError::Transport(format!(
-                "VehicleDynamicsService producer cannot publish {}",
+                "BodyControlModuleService producer cannot publish {}",
                 binding.service_name
             )));
         }
 
-        if self.vehicledynamicsservice_offered_producer.is_none() {
+        let instance_specifier = binding.instance_specifier.to_string();
+        if !self
+            .bodycontrolmoduleservice_offered_producers
+            .contains_key(&instance_specifier)
+        {
             let specifier = Self::instance_specifier(binding)?;
             let producer = self
                 .runtime()?
-                .producer_builder::<VehicleDynamicsServiceInterfaceAlias>(specifier)
+                .producer_builder::<BodyControlModuleServiceInterfaceAlias>(specifier)
                 .build()
                 .map_err(|error| Self::score_error("SCORE producer build failed", error))?;
             let offered = producer
                 .offer()
                 .map_err(|error| Self::score_error("SCORE producer offer failed", error))?;
-            self.vehicledynamicsservice_offered_producer = Some(offered);
-            self.vehicledynamicsservice_producer_instance_specifier =
-                Some(binding.instance_specifier.to_string());
+            self.bodycontrolmoduleservice_offered_producers
+                .insert(instance_specifier.clone(), offered);
         }
 
-        if self
-            .vehicledynamicsservice_producer_instance_specifier
-            .as_deref()
-            != Some(binding.instance_specifier)
-        {
-            return Err(MwComProviderError::Transport(format!(
-                "SCORE producer is already offered for {}, cannot publish {}",
-                self.vehicledynamicsservice_producer_instance_specifier
-                    .as_deref()
-                    .unwrap_or("<unknown>"),
-                binding.instance_specifier
-            )));
-        }
-
-        self.vehicledynamicsservice_offered_producer
-            .as_ref()
+        self.bodycontrolmoduleservice_offered_producers
+            .get(&instance_specifier)
             .ok_or_else(|| MwComProviderError::Transport("SCORE producer was not offered".into()))
     }
 }
@@ -175,7 +436,6 @@ impl LolaScoreRuntimeAdapter {
 #[async_trait]
 impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
     async fn connect(&mut self) -> Result<(), MwComProviderError> {
-        // Subscription retries must not offer a second Tx skeleton.
         if self.runtime.is_some() {
             return Ok(());
         }
@@ -184,33 +444,295 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         let runtime = builder
             .build()
             .map_err(|error| Self::score_error("SCORE LoLa runtime build failed", error))?;
-        if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0")
-            && crate::high_beam_tx::configured(&self.config_path)? {
-            self.high_beam_tx = Some(crate::high_beam_tx::offer(&runtime)?);
-        }
         self.runtime = Some(runtime);
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "horn_is_active",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "low_beam_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "high_beam_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "high_beam_switch_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "parking_lights_are_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "running_lights_are_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_fog_lights_are_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_fog_lights_are_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "hazard_lights_are_signaling",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "left_indicator_is_signaling",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "right_indicator_is_signaling",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "brake_lights_are_active",
+            element_kind: "event",
+            payload_type: "string",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "hood_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_trunk_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_trunk_is_locked",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_trunk_position",
+            element_kind: "event",
+            payload_type: "uint8",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "driver_mirror_is_folded",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "passenger_mirror_is_folded",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "driver_mirror_heating_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "passenger_mirror_heating_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_wiper_mode",
+            element_kind: "event",
+            payload_type: "string",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_wiper_intensity",
+            element_kind: "event",
+            payload_type: "uint8",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_windshield_heating_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_windshield_heating_is_on",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "driver_door_is_locked",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "driver_door_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "driver_door_window_position",
+            element_kind: "event",
+            payload_type: "uint8",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_passenger_door_is_locked",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_passenger_door_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "front_passenger_door_window_position",
+            element_kind: "event",
+            payload_type: "uint8",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_driver_door_is_locked",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_driver_door_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_passenger_door_is_locked",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
+        self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle",
+            instance_specifier: "",
+            member_name: "rear_passenger_door_is_open",
+            element_kind: "event",
+            payload_type: "boolean",
+        })?;
         Ok(())
     }
 
     async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
-        if let Some(producer) = self.high_beam_tx.take() {
-            producer.unoffer().map_err(|error| Self::score_error("high-beam Tx unoffer failed", error))?;
+        for subscription in self.receive_subscriptions.drain(..) {
+            subscription.unsubscribe();
         }
-        if let Some(subscription) = self.vehicledynamicsservice_speed_subscription.take() {
-            let _ = subscription.unsubscribe();
-        }
-        if let Some(subscription) = self.vehicledynamicsservice_target_speed_subscription.take() {
-            let _ = subscription.unsubscribe();
-        }
-        if let Some(subscription) = self.vehiclehighbeamrx_high_beam_state_subscription.take() {
-            let _ = subscription.unsubscribe();
-        }
-        if let Some(producer) = self.vehicledynamicsservice_offered_producer.take() {
+        for (_instance_specifier, producer) in
+            self.bodycontrolmoduleservice_offered_producers.drain()
+        {
             producer
                 .unoffer()
                 .map_err(|error| Self::score_error("SCORE producer unoffer failed", error))?;
         }
-        self.vehicledynamicsservice_producer_instance_specifier = None;
+        self.pending_messages.clear();
+        self.receive_cursor = 0;
         self.runtime = None;
         Ok(())
     }
@@ -218,21 +740,12 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
     async fn find_service(&self, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
         Self::validate_binding(binding)?;
         match binding.service_name {
-            "VehicleDynamicsService" => {
+            "BodyControlModuleService" => {
                 let discovery = self
                     .runtime()?
-                    .find_service::<VehicleDynamicsServiceInterfaceAlias>(
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
                         FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
                     );
-                let instances = discovery
-                    .get_available_instances()
-                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?;
-                Ok(instances.into_iter().next().is_some())
-            }
-            "/vehicle_high_beam_rx" => {
-                let discovery = self.runtime()?.find_service::<VehicleHighBeamRxInterfaceAlias>(
-                    FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
-                );
                 let instances = discovery
                     .get_available_instances()
                     .map_err(|error| Self::score_error("SCORE service discovery failed", error))?;
@@ -246,14 +759,23 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
 
     async fn subscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
         Self::validate_binding(binding)?;
+        let queue_capacity = Self::subscription_queue_capacity();
+        let instance_specifier = binding.instance_specifier.to_string();
+        if self.receive_subscriptions.iter().any(|subscription| {
+            subscription.matches(
+                binding.service_name,
+                &instance_specifier,
+                binding.member_name,
+            )
+        }) {
+            return Ok(());
+        }
+
         match (binding.service_name, binding.member_name) {
-            ("VehicleDynamicsService", "speed") => {
-                if self.vehicledynamicsservice_speed_subscription.is_some() {
-                    return Ok(());
-                }
+            ("BodyControlModuleService", "front_washer_fluid_level") => {
                 let discovery = self
                     .runtime()?
-                    .find_service::<VehicleDynamicsServiceInterfaceAlias>(
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
                         FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
                     );
                 let consumer_builder = discovery
@@ -270,51 +792,27 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let consumer = consumer_builder
                     .build()
                     .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
-                self.vehicledynamicsservice_speed_subscription =
-                    Some(consumer.speed.subscribe(3).map_err(|error| {
-                        Self::score_error("SCORE speed subscribe failed", error)
-                    })?);
-                Ok(())
-            }
-            ("VehicleDynamicsService", "target_speed") => {
-                if self
-                    .vehicledynamicsservice_target_speed_subscription
-                    .is_some()
-                {
-                    return Ok(());
-                }
-                let discovery = self
-                    .runtime()?
-                    .find_service::<VehicleDynamicsServiceInterfaceAlias>(
-                        FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
-                    );
-                let consumer_builder = discovery
-                    .get_available_instances()
-                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| {
-                        MwComProviderError::Transport(format!(
-                            "SCORE service {} at {} is not available",
-                            binding.service_name, binding.instance_specifier
-                        ))
+                let subscription = consumer
+                    .front_washer_fluid_level
+                    .subscribe(queue_capacity)
+                    .map_err(|error| {
+                        Self::score_error("SCORE front_washer_fluid_level subscribe failed", error)
                     })?;
-                let consumer = consumer_builder
-                    .build()
-                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
-                self.vehicledynamicsservice_target_speed_subscription =
-                    Some(consumer.target_speed.subscribe(3).map_err(|error| {
-                        Self::score_error("SCORE target_speed subscribe failed", error)
-                    })?);
-                Ok(())
-            }
-            ("/vehicle_high_beam_rx", "high_beam_state") => {
-                if self.vehiclehighbeamrx_high_beam_state_subscription.is_some() {
-                    return Ok(());
-                }
-                let discovery = self.runtime()?.find_service::<VehicleHighBeamRxInterfaceAlias>(
-                    FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                self.receive_subscriptions.push(
+                    GeneratedReceiveSubscription::BodyControlModuleServiceFrontWasherFluidLevel {
+                        instance_name: binding.instance_name.to_string(),
+                        instance_specifier,
+                        subscription,
+                    },
                 );
+                Ok(())
+            }
+            ("BodyControlModuleService", "front_washer_fluid_is_low") => {
+                let discovery = self
+                    .runtime()?
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
+                        FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                    );
                 let consumer_builder = discovery
                     .get_available_instances()
                     .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
@@ -329,11 +827,128 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let consumer = consumer_builder
                     .build()
                     .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
-                self.vehiclehighbeamrx_high_beam_state_subscription = Some(
+                let subscription = consumer
+                    .front_washer_fluid_is_low
+                    .subscribe(queue_capacity)
+                    .map_err(|error| {
+                        Self::score_error("SCORE front_washer_fluid_is_low subscribe failed", error)
+                    })?;
+                self.receive_subscriptions.push(
+                    GeneratedReceiveSubscription::BodyControlModuleServiceFrontWasherFluidIsLow {
+                        instance_name: binding.instance_name.to_string(),
+                        instance_specifier,
+                        subscription,
+                    },
+                );
+                Ok(())
+            }
+            ("BodyControlModuleService", "rain_intensity") => {
+                let discovery = self
+                    .runtime()?
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
+                        FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                    );
+                let consumer_builder = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        MwComProviderError::Transport(format!(
+                            "SCORE service {} at {} is not available",
+                            binding.service_name, binding.instance_specifier
+                        ))
+                    })?;
+                let consumer = consumer_builder
+                    .build()
+                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
+                let subscription =
                     consumer
-                        .high_beam_state
-                        .subscribe(3)
-                        .map_err(|error| Self::score_error("SCORE high_beam_state subscribe failed", error))?,
+                        .rain_intensity
+                        .subscribe(queue_capacity)
+                        .map_err(|error| {
+                            Self::score_error("SCORE rain_intensity subscribe failed", error)
+                        })?;
+                self.receive_subscriptions.push(
+                    GeneratedReceiveSubscription::BodyControlModuleServiceRainIntensity {
+                        instance_name: binding.instance_name.to_string(),
+                        instance_specifier,
+                        subscription,
+                    },
+                );
+                Ok(())
+            }
+            ("BodyControlModuleService", "driver_door_child_lock_is_active") => {
+                let discovery = self
+                    .runtime()?
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
+                        FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                    );
+                let consumer_builder = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        MwComProviderError::Transport(format!(
+                            "SCORE service {} at {} is not available",
+                            binding.service_name, binding.instance_specifier
+                        ))
+                    })?;
+                let consumer = consumer_builder
+                    .build()
+                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
+                let subscription = consumer
+                    .driver_door_child_lock_is_active
+                    .subscribe(queue_capacity)
+                    .map_err(|error| {
+                        Self::score_error(
+                            "SCORE driver_door_child_lock_is_active subscribe failed",
+                            error,
+                        )
+                    })?;
+                self.receive_subscriptions.push(
+                    GeneratedReceiveSubscription::BodyControlModuleServiceDriverDoorChildLockIsActive {
+                        instance_name: binding.instance_name.to_string(),
+                        instance_specifier,
+                        subscription,
+                    },
+                );
+                Ok(())
+            }
+            ("BodyControlModuleService", "vehicle_speed") => {
+                let discovery = self
+                    .runtime()?
+                    .find_service::<BodyControlModuleServiceInterfaceAlias>(
+                        FindServiceSpecifier::Specific(Self::instance_specifier(binding)?),
+                    );
+                let consumer_builder = discovery
+                    .get_available_instances()
+                    .map_err(|error| Self::score_error("SCORE service discovery failed", error))?
+                    .into_iter()
+                    .next()
+                    .ok_or_else(|| {
+                        MwComProviderError::Transport(format!(
+                            "SCORE service {} at {} is not available",
+                            binding.service_name, binding.instance_specifier
+                        ))
+                    })?;
+                let consumer = consumer_builder
+                    .build()
+                    .map_err(|error| Self::score_error("SCORE consumer build failed", error))?;
+                let subscription =
+                    consumer
+                        .vehicle_speed
+                        .subscribe(queue_capacity)
+                        .map_err(|error| {
+                            Self::score_error("SCORE vehicle_speed subscribe failed", error)
+                        })?;
+                self.receive_subscriptions.push(
+                    GeneratedReceiveSubscription::BodyControlModuleServiceVehicleSpeed {
+                        instance_name: binding.instance_name.to_string(),
+                        instance_specifier,
+                        subscription,
+                    },
                 );
                 Ok(())
             }
@@ -343,96 +958,44 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
 
     async fn unsubscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
         Self::validate_binding(binding)?;
-        match (binding.service_name, binding.member_name) {
-            ("VehicleDynamicsService", "speed") => {
-                if let Some(subscription) = self.vehicledynamicsservice_speed_subscription.take() {
-                    let _ = subscription.unsubscribe();
-                }
-                Ok(())
-            }
-            ("VehicleDynamicsService", "target_speed") => {
-                if let Some(subscription) =
-                    self.vehicledynamicsservice_target_speed_subscription.take()
-                {
-                    let _ = subscription.unsubscribe();
-                }
-                Ok(())
-            }
-            ("/vehicle_high_beam_rx", "high_beam_state") => {
-                if let Some(subscription) = self.vehiclehighbeamrx_high_beam_state_subscription.take() {
-                    let _ = subscription.unsubscribe();
-                }
-                Ok(())
-            }
-            _ => Ok(()),
+        if let Some(index) = self.receive_subscriptions.iter().position(|subscription| {
+            subscription.matches(
+                binding.service_name,
+                binding.instance_specifier,
+                binding.member_name,
+            )
+        }) {
+            self.receive_subscriptions.remove(index).unsubscribe();
         }
+        if !self.receive_subscriptions.is_empty() {
+            self.receive_cursor %= self.receive_subscriptions.len();
+        } else {
+            self.receive_cursor = 0;
+        }
+        Ok(())
     }
 
     async fn recv(&mut self) -> Result<Option<MwComMessage>, MwComProviderError> {
-        if let Some(subscription) = self.vehicledynamicsservice_speed_subscription.as_ref() {
-            let mut samples = SampleContainer::new(3);
-            let count = subscription
-                .try_receive(&mut samples, 1)
-                .map_err(|error| Self::score_error("SCORE speed receive failed", error))?;
-            if count > 0 {
-                let sample = samples.pop_front().ok_or_else(|| {
-                    MwComProviderError::Transport("SCORE speed receive returned no sample".into())
-                })?;
-                return Ok(Some(MwComMessage {
-                    service: "VehicleDynamicsService".into(),
-                    instance: "front_vehicle".into(),
-                    member: "speed".into(),
-                    value: MwComValue::F64(sample.value),
-                    source_timestamp: Some(SystemTime::now()),
-                    quality: score_quality(sample.quality)?,
-                }));
+        if let Some(message) = self.pending_messages.pop_front() {
+            return Ok(Some(message));
+        }
+
+        let subscription_count = self.receive_subscriptions.len();
+        if subscription_count == 0 {
+            return Ok(None);
+        }
+        let receive_batch_size = Self::receive_batch_size();
+
+        for _ in 0..subscription_count {
+            let index = self.receive_cursor % subscription_count;
+            self.receive_subscriptions[index]
+                .try_receive(&mut self.pending_messages, receive_batch_size)?;
+            self.receive_cursor = (self.receive_cursor + 1) % subscription_count;
+            if let Some(message) = self.pending_messages.pop_front() {
+                return Ok(Some(message));
             }
         }
-        if let Some(subscription) = self
-            .vehicledynamicsservice_target_speed_subscription
-            .as_ref()
-        {
-            let mut samples = SampleContainer::new(3);
-            let count = subscription
-                .try_receive(&mut samples, 1)
-                .map_err(|error| Self::score_error("SCORE target_speed receive failed", error))?;
-            if count > 0 {
-                let sample = samples.pop_front().ok_or_else(|| {
-                    MwComProviderError::Transport(
-                        "SCORE target_speed receive returned no sample".into(),
-                    )
-                })?;
-                return Ok(Some(MwComMessage {
-                    service: "VehicleDynamicsService".into(),
-                    instance: "front_vehicle".into(),
-                    member: "target_speed".into(),
-                    value: MwComValue::F64(sample.value),
-                    source_timestamp: Some(SystemTime::now()),
-                    quality: SignalQuality::Valid,
-                }));
-            }
-        }
-        if let Some(subscription) = self.vehiclehighbeamrx_high_beam_state_subscription.as_ref() {
-            let mut samples = SampleContainer::new(3);
-            let count = subscription
-                .try_receive(&mut samples, 1)
-                .map_err(|error| Self::score_error("SCORE high_beam_state receive failed", error))?;
-            if count > 0 {
-                let sample = samples.pop_front().ok_or_else(|| {
-                    MwComProviderError::Transport(
-                        "SCORE high_beam_state receive returned no sample".into(),
-                    )
-                })?;
-                return Ok(Some(MwComMessage {
-                    service: "/vehicle_high_beam_rx".into(),
-                    instance: "network_rx".into(),
-                    member: "high_beam_state".into(),
-                    value: MwComValue::Bool(sample.value),
-                    source_timestamp: Some(SystemTime::now()),
-                    quality: SignalQuality::Valid,
-                }));
-            }
-        }
+
         Ok(None)
     }
 
@@ -442,33 +1005,556 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
         match (binding.service_name, binding.member_name) {
-            ("/vehicle_high_beam_tx", "high_beam_state") => {
+            ("BodyControlModuleService", "horn_is_active") => {
                 let value = bool_value(&message.value, binding)?;
-                let producer = self.high_beam_tx.as_ref().ok_or_else(||
-                    MwComProviderError::Transport("high-beam Tx actuation is disabled".into()))?;
-                crate::high_beam_tx::send(producer, value)
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE horn_is_active actuation sample publishing");
+                let uninit_sample = producer.horn_is_active.allocate().map_err(|error| {
+                    Self::score_error("SCORE horn_is_active allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE horn_is_active publish failed", error)
+                })
             }
-            ("VehicleDynamicsService", "target_speed") => {
-                let value = numeric_value(&message.value, binding).map(|value| value as f64)?;
-                let producer = self.ensure_vehicledynamicsservice_offered_producer(binding)?;
-                producer
-                    .target_speed
-                    .send(crate::mw_com_provider_types::vehicle::TargetSpeed { value: value })
-                    .map_err(|error| Self::score_error("SCORE target_speed publish failed", error))
-            }
-            ("VehicleDynamicsService", "cruise_control_enabled") => {
+            ("BodyControlModuleService", "low_beam_is_on") => {
                 let value = bool_value(&message.value, binding)?;
-                let producer = self.ensure_vehicledynamicsservice_offered_producer(binding)?;
-                producer
-                    .cruise_control_enabled
-                    .send(
-                        crate::mw_com_provider_types::vehicle::CruiseControlEnabled {
-                            value: value,
-                        },
-                    )
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE low_beam_is_on actuation sample publishing");
+                let uninit_sample = producer.low_beam_is_on.allocate().map_err(|error| {
+                    Self::score_error("SCORE low_beam_is_on allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE low_beam_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "high_beam_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE high_beam_is_on actuation sample publishing");
+                let uninit_sample = producer.high_beam_is_on.allocate().map_err(|error| {
+                    Self::score_error("SCORE high_beam_is_on allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE high_beam_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "high_beam_switch_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE high_beam_switch_is_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .high_beam_switch_is_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error("SCORE high_beam_switch_is_on allocate failed", error)
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE high_beam_switch_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "parking_lights_are_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE parking_lights_are_on actuation sample publishing");
+                let uninit_sample = producer.parking_lights_are_on.allocate().map_err(|error| {
+                    Self::score_error("SCORE parking_lights_are_on allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE parking_lights_are_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "running_lights_are_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE running_lights_are_on actuation sample publishing");
+                let uninit_sample = producer.running_lights_are_on.allocate().map_err(|error| {
+                    Self::score_error("SCORE running_lights_are_on allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE running_lights_are_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_fog_lights_are_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_fog_lights_are_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .front_fog_lights_are_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE front_fog_lights_are_on allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_fog_lights_are_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_fog_lights_are_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_fog_lights_are_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_fog_lights_are_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error("SCORE rear_fog_lights_are_on allocate failed", error)
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_fog_lights_are_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "hazard_lights_are_signaling") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE hazard_lights_are_signaling actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .hazard_lights_are_signaling
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE hazard_lights_are_signaling allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE hazard_lights_are_signaling publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "left_indicator_is_signaling") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE left_indicator_is_signaling actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .left_indicator_is_signaling
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE left_indicator_is_signaling allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE left_indicator_is_signaling publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "right_indicator_is_signaling") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE right_indicator_is_signaling actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .right_indicator_is_signaling
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE right_indicator_is_signaling allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE right_indicator_is_signaling publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "brake_lights_are_active") => {
+                let value = string16_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE brake_lights_are_active actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .brake_lights_are_active
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE brake_lights_are_active allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE brake_lights_are_active publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "hood_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE hood_is_open actuation sample publishing");
+                let uninit_sample = producer.hood_is_open.allocate().map_err(|error| {
+                    Self::score_error("SCORE hood_is_open allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample
+                    .send()
+                    .map_err(|error| Self::score_error("SCORE hood_is_open publish failed", error))
+            }
+            ("BodyControlModuleService", "rear_trunk_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_trunk_is_open actuation sample publishing");
+                let uninit_sample = producer.rear_trunk_is_open.allocate().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_is_open allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_is_open publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_trunk_is_locked") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_trunk_is_locked actuation sample publishing");
+                let uninit_sample = producer.rear_trunk_is_locked.allocate().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_is_locked allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_is_locked publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_trunk_position") => {
+                let value = numeric_value(&message.value, binding).map(|value| value as u8)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_trunk_position actuation sample publishing");
+                let uninit_sample = producer.rear_trunk_position.allocate().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_position allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_trunk_position publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "driver_mirror_is_folded") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE driver_mirror_is_folded actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .driver_mirror_is_folded
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE driver_mirror_is_folded allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE driver_mirror_is_folded publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "passenger_mirror_is_folded") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE passenger_mirror_is_folded actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .passenger_mirror_is_folded
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE passenger_mirror_is_folded allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE passenger_mirror_is_folded publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "driver_mirror_heating_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE driver_mirror_heating_is_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .driver_mirror_heating_is_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE driver_mirror_heating_is_on allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE driver_mirror_heating_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "passenger_mirror_heating_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE passenger_mirror_heating_is_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .passenger_mirror_heating_is_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE passenger_mirror_heating_is_on allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE passenger_mirror_heating_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_wiper_mode") => {
+                let value = string16_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_wiper_mode actuation sample publishing");
+                let uninit_sample = producer.front_wiper_mode.allocate().map_err(|error| {
+                    Self::score_error("SCORE front_wiper_mode allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_wiper_mode publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_wiper_intensity") => {
+                let value = numeric_value(&message.value, binding).map(|value| value as u8)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_wiper_intensity actuation sample publishing");
+                let uninit_sample = producer.front_wiper_intensity.allocate().map_err(|error| {
+                    Self::score_error("SCORE front_wiper_intensity allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_wiper_intensity publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_windshield_heating_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_windshield_heating_is_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .front_windshield_heating_is_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE front_windshield_heating_is_on allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_windshield_heating_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_windshield_heating_is_on") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_windshield_heating_is_on actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_windshield_heating_is_on
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE rear_windshield_heating_is_on allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_windshield_heating_is_on publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "driver_door_is_locked") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE driver_door_is_locked actuation sample publishing");
+                let uninit_sample = producer.driver_door_is_locked.allocate().map_err(|error| {
+                    Self::score_error("SCORE driver_door_is_locked allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE driver_door_is_locked publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "driver_door_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE driver_door_is_open actuation sample publishing");
+                let uninit_sample = producer.driver_door_is_open.allocate().map_err(|error| {
+                    Self::score_error("SCORE driver_door_is_open allocate failed", error)
+                })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE driver_door_is_open publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "driver_door_window_position") => {
+                let value = numeric_value(&message.value, binding).map(|value| value as u8)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE driver_door_window_position actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .driver_door_window_position
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE driver_door_window_position allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE driver_door_window_position publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_passenger_door_is_locked") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_passenger_door_is_locked actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .front_passenger_door_is_locked
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE front_passenger_door_is_locked allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_passenger_door_is_locked publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_passenger_door_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_passenger_door_is_open actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .front_passenger_door_is_open
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE front_passenger_door_is_open allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE front_passenger_door_is_open publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "front_passenger_door_window_position") => {
+                let value = numeric_value(&message.value, binding).map(|value| value as u8)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE front_passenger_door_window_position actuation sample publishing");
+                let uninit_sample = producer
+                    .front_passenger_door_window_position
+                    .allocate()
                     .map_err(|error| {
-                        Self::score_error("SCORE cruise_control_enabled publish failed", error)
-                    })
+                        Self::score_error(
+                            "SCORE front_passenger_door_window_position allocate failed",
+                            error,
+                        )
+                    })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error(
+                        "SCORE front_passenger_door_window_position publish failed",
+                        error,
+                    )
+                })
+            }
+            ("BodyControlModuleService", "rear_driver_door_is_locked") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_driver_door_is_locked actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_driver_door_is_locked
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE rear_driver_door_is_locked allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_driver_door_is_locked publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_driver_door_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_driver_door_is_open actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_driver_door_is_open
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE rear_driver_door_is_open allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_driver_door_is_open publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_passenger_door_is_locked") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_passenger_door_is_locked actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_passenger_door_is_locked
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE rear_passenger_door_is_locked allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_passenger_door_is_locked publish failed", error)
+                })
+            }
+            ("BodyControlModuleService", "rear_passenger_door_is_open") => {
+                let value = bool_value(&message.value, binding)?;
+                let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
+                tracing::debug!(value = ?value, "SCORE rear_passenger_door_is_open actuation sample publishing");
+                let uninit_sample =
+                    producer
+                        .rear_passenger_door_is_open
+                        .allocate()
+                        .map_err(|error| {
+                            Self::score_error(
+                                "SCORE rear_passenger_door_is_open allocate failed",
+                                error,
+                            )
+                        })?;
+                let sample = uninit_sample.write(value.into());
+                sample.send().map_err(|error| {
+                    Self::score_error("SCORE rear_passenger_door_is_open publish failed", error)
+                })
             }
             (_, other) => Err(MwComProviderError::Transport(format!(
                 "SCORE actuation is not generated for {}:{}",
@@ -490,6 +1576,7 @@ fn score_quality(value: u8) -> Result<SignalQuality, MwComProviderError> {
     }
 }
 
+#[allow(dead_code)]
 fn numeric_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<f64, MwComProviderError> {
     match value {
         MwComValue::F64(value) => Ok(*value),
@@ -497,6 +1584,21 @@ fn numeric_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<f64, M
         MwComValue::U64(value) => Ok(*value as f64),
         other => Err(MwComProviderError::Transport(format!(
             "{}:{} requires numeric actuation, got {other:?}",
+            binding.service_name, binding.member_name
+        ))),
+    }
+}
+
+#[allow(dead_code)]
+fn string16_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<[u8; 16], MwComProviderError> {
+    match value {
+        MwComValue::String(value) if value.len() <= 16 => {
+            let mut bytes = [0; 16];
+            bytes[..value.len()].copy_from_slice(value.as_bytes());
+            Ok(bytes)
+        }
+        other => Err(MwComProviderError::Transport(format!(
+            "{}:{} requires a string of at most 16 UTF-8 bytes, got {other:?}",
             binding.service_name, binding.member_name
         ))),
     }

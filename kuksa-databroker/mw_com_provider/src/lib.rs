@@ -16,55 +16,46 @@ pub mod config;
 pub mod error;
 pub mod lifecycle;
 pub mod mapper;
-#[cfg(feature = "score-lola")]
-pub mod high_beam_tx;
-#[cfg(feature = "mw-com-native")]
-pub mod native_bridge;
 pub mod provider;
 pub mod quality;
 pub mod score_bindings;
 #[cfg(feature = "score-lola")]
 pub mod score_lola_adapter {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/generated/mw_com_provider_lola_adapter.rs"
-    ));
+    include!("../generated/mw_com_provider_lola_adapter.rs");
 }
 pub mod transport;
 
 #[cfg(feature = "score-lola")]
 pub mod mw_com_provider_types {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/generated/mw_com_provider_types.rs"
-    ));
+    include!("../generated/mw_com_provider_types.rs");
 }
 
 #[cfg(feature = "score-lola")]
 pub mod mw_com_provider_interfaces {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/generated/mw_com_provider_interfaces.rs"
-    ));
+    include!("../generated/mw_com_provider_interfaces.rs");
 }
 
 #[cfg(feature = "score-lola")]
 pub mod mw_com_provider_instances {
-    include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/generated/mw_com_provider_instances.rs"
-    ));
+    include!("../generated/mw_com_provider_instances.rs");
 }
 
 pub mod generated {
     include!("../generated/mw_com_provider_metadata.rs");
 }
 
+pub mod gateway_samples;
+
+#[cfg(feature = "score-lola")]
+pub mod gateway_adapter;
+
+pub mod gateway_bindings {
+    include!("../generated/gateway_bindings.rs");
+}
+
 pub use config::{Direction, ProviderConfig, SignalMapping, VssDataType};
 pub use error::MwComProviderError;
 pub use mapper::MwComMapper;
-#[cfg(feature = "mw-com-native")]
-pub use native_bridge::GenericMwComNativeTransport;
 pub use provider::{MwComProvider, MwComProviderWorker};
 pub use quality::SignalQuality;
 #[cfg(feature = "score-lola")]

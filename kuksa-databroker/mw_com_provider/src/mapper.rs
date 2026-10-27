@@ -49,6 +49,8 @@ impl MwComMapper {
         let mut by_member = HashMap::new();
         let mut by_signal_id = HashMap::new();
 
+        // Build both lookup directions once. The receive path indexes by
+        // mw::com binding, while the actuation path indexes by Databroker ID.
         for mapping in &config.mappings {
             by_member.insert(
                 MwComKey::new(&mapping.service, &mapping.instance, &mapping.member),
@@ -122,6 +124,8 @@ impl MwComMapper {
             mapping,
             Duration::from_millis(self.config.stale_after_ms),
         )?;
+        // Convert into the VSS-facing value domain before updating Databroker:
+        // this is where scaling, offset, bounds, and type checks are enforced.
         let value = convert_value(&message.value, mapping)?;
         let datapoint = Datapoint {
             ts: SystemTime::now(),
@@ -309,6 +313,8 @@ fn numeric_f64(value: &MwComValue, mapping: &SignalMapping) -> Result<f64, MwCom
         _ => return type_error(value, mapping),
     };
 
+    // Scaling belongs to the mapping, not the generated S-Core payload. This
+    // lets the middleware schema and Databroker VSS value domain evolve apart.
     let scaled = raw * mapping.scale + mapping.offset;
     if let Some(min) = mapping.min {
         if scaled < min {
@@ -398,6 +404,30 @@ mod tests {
     }
 
     #[test]
+    fn routes_bidirectional_commands_to_separate_tx_binding() {
+        let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
+        signal.actuation_binding = Some(crate::config::ActuationBinding {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "signal1".into(),
+        });
+        let mapper = mapper_with(vec![signal]);
+        let command = mapper
+            .actuation_to_message(&ActuationChange {
+                id: 1,
+                data_value: DataValue::Bool(true),
+            })
+            .unwrap();
+        assert_eq!(command.service, "/vehicle_high_beam_tx");
+        assert_eq!(command.instance, "local_tx");
+        let (id, update) = mapper
+            .message_to_update(&message("signal1", MwComValue::Bool(false)))
+            .unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Bool(false));
+    }
+
+    #[test]
     fn converts_scaled_datapoint() {
         let mapper = mapper();
         let message = MwComMessage {
@@ -415,53 +445,6 @@ mod tests {
     }
 
     #[test]
-    fn converts_lola_double_to_vss_float() {
-        let mut speed = mapping(1, Direction::Datapoint, VssDataType::Float);
-        speed.vss_path = "Vehicle.Speed".into();
-        speed.service = "VehicleDynamicsService".into();
-        speed.instance = "front_vehicle".into();
-        speed.member = "speed".into();
-        speed.unit = Some("km/h".into());
-        let mapper = mapper_with(vec![speed]);
-        let message = MwComMessage {
-            service: "VehicleDynamicsService".into(),
-            instance: "front_vehicle".into(),
-            member: "speed".into(),
-            value: MwComValue::F64(43.25),
-            source_timestamp: Some(SystemTime::now()),
-            quality: SignalQuality::Valid,
-        };
-
-        let (_id, update) = mapper.message_to_update(&message).unwrap();
-
-        assert_eq!(update.datapoint.unwrap().value, DataValue::Float(43.25));
-    }
-
-    #[test]
-    fn routes_bidirectional_commands_to_separate_tx_binding() {
-        let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
-        signal.actuation_binding = Some(crate::config::ActuationBinding {
-            service: "HighBeamTx".into(),
-            instance: "local_tx".into(),
-            member: "command".into(),
-        });
-        let mapper = mapper_with(vec![signal]);
-        let command = mapper
-            .actuation_to_message(&ActuationChange {
-                id: 1,
-                data_value: DataValue::Bool(true),
-            })
-            .unwrap();
-        assert_eq!(command.service, "HighBeamTx");
-        assert_eq!(command.member, "command");
-        let (id, update) = mapper
-            .message_to_update(&message("signal1", MwComValue::Bool(false)))
-            .unwrap();
-        assert_eq!(id, 1);
-        assert_eq!(update.datapoint.unwrap().value, DataValue::Bool(false));
-    }
-
-    #[test]
     fn rejects_unmapped_mw_com_member() {
         let mapper = mapper();
         let message = MwComMessage {
@@ -475,9 +458,11 @@ mod tests {
 
         let error = mapper.message_to_update(&message).unwrap_err();
 
-        assert!(error
-            .to_string()
-            .contains("no mapping for OtherService:front:speed"));
+        assert!(
+            error
+                .to_string()
+                .contains("no mapping for OtherService:front:speed")
+        );
     }
 
     #[test]

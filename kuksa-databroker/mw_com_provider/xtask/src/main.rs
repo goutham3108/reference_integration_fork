@@ -27,6 +27,8 @@ const DEFAULT_SCORE_OUT: &str = "generated/score-com-api";
 const DEFAULT_OUT: &str = "generated";
 const DEFAULT_PREFIX: &str = "mw_com";
 const DEFAULT_CODEGEN_RELATIVE: &str = "../../../info/codegen/vsps_sdk_score_config_codegen-main";
+const INTEGRATED_CODEGEN_RELATIVE: &str =
+    "../../../../info/codegen/vsps_sdk_score_config_codegen-main";
 const DEFAULT_CODEGEN_CACHE: &str = "target/xtask/vsps_sdk_score_config_codegen-main";
 
 fn main() -> Result<()> {
@@ -132,6 +134,12 @@ impl CodegenArgs {
         parsed.codegen_root = absolutize(&parsed.codegen_root)?;
 
         if !codegen_root_overridden && !parsed.codegen_root.exists() {
+            let integrated_codegen_root = provider_root.join(INTEGRATED_CODEGEN_RELATIVE);
+            if integrated_codegen_root.exists() {
+                parsed.codegen_root = integrated_codegen_root;
+                return Ok(parsed);
+            }
+
             let cache_root = provider_root.join(DEFAULT_CODEGEN_CACHE);
             if cache_root.exists() || parsed.codegen_git_url.is_some() {
                 parsed.codegen_root = cache_root;

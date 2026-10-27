@@ -12,22 +12,49 @@
  ********************************************************************************/
 
 pub mod vehicle {
+    use crate::mw_com_provider_types::vehicle::{BoolSample, F32Sample, String16Sample, U8Sample};
     use score_com::{ProviderInfo, Publisher, Subscriber};
 
-    score_com::interface!(interface VehicleDynamicsService {
-        Id = "VehicleDynamicsService",
-        speed: Event<crate::mw_com_provider_types::vehicle::SpeedSample>,
-        target_speed: Event<crate::mw_com_provider_types::vehicle::TargetSpeed>,
-        cruise_control_enabled: Event<crate::mw_com_provider_types::vehicle::CruiseControlEnabled>,
-    });
-}
-
-pub mod high_beam {
-    use score_com::{ProviderInfo, Publisher, Subscriber};
-
-    score_com::interface!(interface VehicleHighBeamRx {
-        Id = "VehicleHighBeamRx",
-        high_beam_state: Event<crate::mw_com_provider_types::high_beam::HighBeamState>,
-        low_beam_state: Event<crate::mw_com_provider_types::high_beam::HighBeamState>,
+    score_com::interface!(interface BodyControlModuleService {
+        Id = "BodyControlModuleService",
+        horn_is_active: Event<BoolSample>,
+        low_beam_is_on: Event<BoolSample>,
+        high_beam_is_on: Event<BoolSample>,
+        high_beam_switch_is_on: Event<BoolSample>,
+        parking_lights_are_on: Event<BoolSample>,
+        running_lights_are_on: Event<BoolSample>,
+        front_fog_lights_are_on: Event<BoolSample>,
+        rear_fog_lights_are_on: Event<BoolSample>,
+        hazard_lights_are_signaling: Event<BoolSample>,
+        left_indicator_is_signaling: Event<BoolSample>,
+        right_indicator_is_signaling: Event<BoolSample>,
+        brake_lights_are_active: Event<String16Sample>,
+        hood_is_open: Event<BoolSample>,
+        rear_trunk_is_open: Event<BoolSample>,
+        rear_trunk_is_locked: Event<BoolSample>,
+        rear_trunk_position: Event<U8Sample>,
+        driver_mirror_is_folded: Event<BoolSample>,
+        passenger_mirror_is_folded: Event<BoolSample>,
+        driver_mirror_heating_is_on: Event<BoolSample>,
+        passenger_mirror_heating_is_on: Event<BoolSample>,
+        front_wiper_mode: Event<String16Sample>,
+        front_wiper_intensity: Event<U8Sample>,
+        front_washer_fluid_level: Event<U8Sample>,
+        front_washer_fluid_is_low: Event<BoolSample>,
+        rain_intensity: Event<U8Sample>,
+        front_windshield_heating_is_on: Event<BoolSample>,
+        rear_windshield_heating_is_on: Event<BoolSample>,
+        driver_door_is_locked: Event<BoolSample>,
+        driver_door_is_open: Event<BoolSample>,
+        driver_door_window_position: Event<U8Sample>,
+        driver_door_child_lock_is_active: Event<BoolSample>,
+        front_passenger_door_is_locked: Event<BoolSample>,
+        front_passenger_door_is_open: Event<BoolSample>,
+        front_passenger_door_window_position: Event<U8Sample>,
+        rear_driver_door_is_locked: Event<BoolSample>,
+        rear_driver_door_is_open: Event<BoolSample>,
+        rear_passenger_door_is_locked: Event<BoolSample>,
+        rear_passenger_door_is_open: Event<BoolSample>,
+        vehicle_speed: Event<F32Sample>,
     });
 }

@@ -49,6 +49,17 @@ static_assert(sizeof(HighBeamCommand) == 32U);
 static_assert(alignof(HighBeamCommand) == 16U);
 static_assert(offsetof(HighBeamCommand, data) == 16U);
 
+struct BodySignalText
+{
+    std::size_t size{};
+    alignas(std::max_align_t) std::uint8_t data[32]{};
+};
+
+static_assert(sizeof(BodySignalText) == 48U);
+static_assert(alignof(BodySignalText) == 16U);
+static_assert(offsetof(BodySignalText, data) == 16U);
+static_assert(sizeof(HighBeamState) == sizeof(bool));
+
 template <typename Trait>
 class VehicleDynamicsService : public Trait::Base
 {
@@ -69,7 +80,10 @@ class VehicleHighBeamRx : public Trait::Base
     public:
         using Trait::Base::Base;
 
-        typename Trait::template Event<HighBeamState> high_beam_state{*this, "high_beam_state"};
+    #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+        typename Trait::template Event<rx_type> event_name{*this, #event_name};
+    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+    #undef SCORE_BODY_SIGNAL_EVENT
 };
 
 using VehicleHighBeamRxProxy = AsProxy<VehicleHighBeamRx>;
@@ -80,7 +94,10 @@ class HighBeamTx : public Trait::Base
 {
     public:
         using Trait::Base::Base;
-        typename Trait::template Event<HighBeamCommand> high_beam_state{*this, "high_beam_state"};
+    #define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+        typename Trait::template Event<tx_type> event_name{*this, #event_name};
+    #include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+    #undef SCORE_BODY_SIGNAL_EVENT
 };
 
 using HighBeamTxProxy = AsProxy<HighBeamTx>;

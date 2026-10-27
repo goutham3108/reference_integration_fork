@@ -264,13 +264,8 @@ const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config
                         return nullptr;
                     }
                     if (event->serialization_config_as_BooleanSerializerConfig() != nullptr) {
-                        if ((service_type_name == "/vehicle_high_beam_rx" ||
-                             service_type_name == "vehicle_high_beam_rx") &&
-                            (element_name == "high_beam_state" || element_name == "low_beam_state")) {
-                            return reinterpret_cast<const score::mw_someip_config::NullSerializerConfig*>(
-                                &kBooleanSerializer);
-                        }
-                        return nullptr;
+                        return reinterpret_cast<const score::mw_someip_config::NullSerializerConfig*>(
+                            &kBooleanSerializer);
                     }
                     return event->serialization_config_as_NullSerializerConfig();
                 }

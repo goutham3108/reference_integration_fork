@@ -3060,7 +3060,6 @@ name = "mw_com_provider"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "cc",
  "databroker",
  "databroker-proto",
  "score_com",
@@ -3068,7 +3067,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
- "tonic",
+ "tokio-stream",
  "tracing",
 ]
 

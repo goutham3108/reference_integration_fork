@@ -19,7 +19,7 @@ members = [
     "databroker",
     "databroker-proto",
     "databroker-cli",
-    "databroker-mw-com-demo",
+    "databroker-mw-com",
     "mw_com_provider",
 ]
 

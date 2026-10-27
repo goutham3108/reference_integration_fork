@@ -28,6 +28,11 @@ struct Frame {
     std::array<std::uint8_t, kMaxPayloadSize> payload{};
 };
 
+inline Frame BooleanUpdate(std::uint16_t service, std::uint16_t instance,
+                           std::uint16_t event, bool value) {
+    return Frame{service, instance, event, 1U, {static_cast<std::uint8_t>(value)}};
+}
+
 inline std::array<std::uint8_t, kFrameSize> Encode(const Frame& frame) {
     std::array<std::uint8_t, kFrameSize> bytes{};
     bytes[0] = static_cast<std::uint8_t>(kMagic >> 24U);

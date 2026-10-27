@@ -47,11 +47,16 @@ copy_target "${vehicle_dir}" \
 copy_target "${vehicle_dir}" \
     "${demo_bazel_bin}/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com" \
     "${demo_bazel_bin}/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com.runfiles"
+copy_target "${vehicle_dir}" \
+    "${demo_bazel_bin}/sdv-hack-demo/vehicle_app/body_signal_test_app" \
+    "${demo_bazel_bin}/sdv-hack-demo/vehicle_app/body_signal_test_app.runfiles"
 cp -a "${kuksa_release_dir}/databroker-mw-com-demo" "${vehicle_dir}/"
 cp -a "${kuksa_release_dir}/databroker-cli" "${vehicle_dir}/"
 cp -a "${repo_root}/kuksa-databroker/mw_com_provider/generated/mw_com_provider_config.json" \
     "${vehicle_dir}/mw_com_provider/generated/"
-cp -a "${repo_root}/kuksa-databroker/mw_com_provider/generated/vehicle_dynamics_lola_config.json" \
+cp -a "${repo_root}/sdv-hack-demo/config/gateway_provider_config.json" \
+    "${vehicle_dir}/mw_com_provider/generated/"
+cp -a "${repo_root}/kuksa-databroker/mw_com_provider/generated/bcm_config_lola_config.json" \
     "${vehicle_dir}/mw_com_provider/generated/"
 copy_target "${remote_dir}" \
     "${demo_bazel_bin}/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app" \

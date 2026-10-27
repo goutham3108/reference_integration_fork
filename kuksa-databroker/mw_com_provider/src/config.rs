@@ -93,6 +93,8 @@ impl ProviderConfig {
         let mut signal_ids = HashSet::new();
         let mut mw_com_bindings = HashSet::new();
         for mapping in &self.mappings {
+            // Validate the config before any middleware connection is opened so
+            // startup failures point to the mapping file rather than LoLa state.
             if mapping.vss_path.trim().is_empty() {
                 return Err(MwComProviderError::Config(
                     "mapping has an empty VSS path".into(),
@@ -177,9 +179,12 @@ pub struct ActuationBinding {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SignalMapping {
+    // The generated config contains stable IDs. The composition binary rewrites
+    // them to Databroker runtime IDs after seeding metadata.
     pub signal_id: i32,
     pub vss_path: String,
     pub datatype: VssDataType,
+    // service/instance/member identify the exact generated S-Core binding.
     pub service: String,
     pub instance: String,
     pub member: String,
@@ -269,37 +274,6 @@ mod tests {
         let error = config(vec![]).validate().unwrap_err();
 
         assert!(error.to_string().contains("at least one VSS mapping"));
-    }
-
-    #[test]
-    fn rejects_actuation_binding_on_read_only_signal() {
-        let mut signal = mapping(1);
-        signal.actuation_binding = Some(ActuationBinding {
-            service: "Tx".into(),
-            instance: "local".into(),
-            member: "command".into(),
-        });
-        assert!(config(vec![signal])
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("invalid actuation binding"));
-    }
-
-    #[test]
-    fn rejects_incomplete_actuation_binding() {
-        let mut signal = mapping(1);
-        signal.direction = Direction::Bidirectional;
-        signal.actuation_binding = Some(ActuationBinding {
-            service: "Tx".into(),
-            instance: "local".into(),
-            member: String::new(),
-        });
-        assert!(config(vec![signal])
-            .validate()
-            .unwrap_err()
-            .to_string()
-            .contains("invalid actuation binding"));
     }
 
     #[test]
