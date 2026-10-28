@@ -138,7 +138,7 @@ bool PublishAllBodySignals(const int socket_fd, const std::vector<Route>& routes
             std::this_thread::sleep_for(kBodySignalTestDelay);
         }
     }
-    score::mw::log::LogWarn() << "Remote published " << published << " samples across 42 body signals";
+    score::mw::log::LogWarn() << "Remote published " << published << " samples across 43 body signals";
     return true;
 }
 
@@ -193,7 +193,7 @@ void PrintRemoteMenu() {
         "1  High-beam (true/false)\n"
         "2  Vehicle.speed (number)\n"
         "3  Vehicle.Body.Lights.Parking.IsOn (true/false)\n"
-        "4  Publish test values for all 42 body signals\n"
+        "4  Publish test values for all 43 body signals\n"
         "q  Quit remote app\n"
         "Select: ");
 }

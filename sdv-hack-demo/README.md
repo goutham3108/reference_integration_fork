@@ -30,11 +30,11 @@ payloads, so `speed` returns as `speedAck`. New route entries can be added to
 
 ## Body and Door Signals
 
-The 42 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
+The 43 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
 are registered in `someipd`, `gatewayd`, and the bridge. The last requested
 `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpenx` is normalized to `IsOpen`.
 High-beam event IDs are unchanged; the remaining signals use event pairs
-`0x8434/0x8435` through `0x8484/0x8485` on service `0x4300`.
+`0x8434/0x8435` through `0x8486/0x8487` on service `0x4300`.
 
 From the workspace root, synchronize and check the configuration snapshots:
 
@@ -47,7 +47,7 @@ python3 sdv-hack-demo/configure_signals_test.py
 Each route records its VSS `apiName`, MW::COM `eventName`, datatype, and wire IDs.
 The same synchronizer updates the SCORE vehicle-dynamics example's MW::COM
 config and C++ event declarations under `communication/score/mw/com/example/vehicle-dynamics-example`.
-Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 42 body, door, and powertrain events.
+Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 43 body, door, and powertrain events.
 All Tx events use `PreSerializedData<N>` as in the existing high-beam publisher.
 Rx booleans use native `bool` with `BooleanSerializerConfig`. Rx numeric and
 string events use `PreSerializedData<N>` with `NullSerializerConfig`:
@@ -63,11 +63,11 @@ string events use `PreSerializedData<N>` with `NullSerializerConfig`:
 
 The bridge forwards payload bytes unchanged in either direction. `float_array`
 is bounded to eight values by the 32-byte UDP payload. The separate
-`body_signal_test_app` exercises all 42 signals as described below. The legacy
+`body_signal_test_app` exercises all 43 signals as described below. The legacy
 vehicle menus and KUKSA mappings are unchanged. Rebuild and repackage before
 deploying so the binary gateway config and both device route files agree.
 
-### Test All 42 Signals
+### Test All 43 Signals
 
 Use an isolated test rig only. This test sends horn, lighting, lock, window,
 and wiper values. It does not restore the previous state if interrupted.
@@ -113,7 +113,7 @@ Example output:
 TX Vehicle.Body.Horn.IsActive=true
 RX Vehicle.Body.Horn.IsActive=true
 PASS Vehicle.Body.Horn.IsActive
-Summary: 42/42 signals passed; 0 failed.
+Summary: 43/43 signals passed; 0 failed.
 ```
 
 Each signal passes only if every test value is received. A timeout, missing
@@ -144,8 +144,8 @@ bazel run --config=sdv-demo //sdv-hack-demo/vehicle_app:body_signal_test_app -- 
 ### KUKSA Gateway Compatibility
 
 The demo launcher uses [config/gateway_provider_config.json](config/gateway_provider_config.json),
-generated from the same 42-signal manifest as the gateway. Existing body controls
-remain bidirectional; the five added VSS sensors receive current values from
+generated from the same 43-signal manifest as the gateway. Existing body controls
+remain bidirectional; the six added VSS sensors receive current values from
 `/vehicle_high_beam/network_rx` and do not expose actuation targets. `Vehicle.Speed`
 receives the existing double-plus-quality sample from `/Vehicle/Service2/Instance`.
 The launcher no longer filters the broker down to speed and high beam.
@@ -458,7 +458,7 @@ Remote menu
 1  High-beam (true/false)
 2  Vehicle.speed (number)
 3  Vehicle.Body.Lights.Parking.IsOn (true/false)
-4  Publish test values for all 42 body signals
+4  Publish test values for all 43 body signals
 q  Quit remote app
 ```
 

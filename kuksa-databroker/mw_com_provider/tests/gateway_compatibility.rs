@@ -20,7 +20,7 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
     let config = config();
     config.validate().unwrap();
     validate_score_bindings(&config).unwrap();
-    assert_eq!(config.mappings.len(), 43);
+    assert_eq!(config.mappings.len(), 44);
     for mapping in &config.mappings {
         assert_ne!(mapping.vss_path, "Vehicle.Body.Lights.Beam.Low.IsOn");
         let binding =

@@ -677,6 +677,17 @@
         },
         {
             "signal_id": 43,
+            "vss_path": "Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled",
+            "datatype": "bool",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "engine_stop_start_enabled_state",
+            "direction": "datapoint",
+            "cycle_time_ms": 100,
+            "required_quality": "valid"
+        },
+        {
+            "signal_id": 44,
             "vss_path": "Vehicle.Speed",
             "datatype": "double",
             "service": "VehicleDynamicsService",

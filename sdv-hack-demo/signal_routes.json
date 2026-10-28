@@ -556,6 +556,19 @@
       "remoteInstance": 4097,
       "vehicleEvent": 33924,
       "remoteEvent": 33925
+    },
+    {
+      "name": "engine_stop_start_enabled",
+      "apiName": "Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled",
+      "ackApiName": "Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled",
+      "datatype": "boolean",
+      "eventName": "engine_stop_start_enabled_state",
+      "maxPayloadSize": 1,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33926,
+      "remoteEvent": 33927
     }
   ]
 }

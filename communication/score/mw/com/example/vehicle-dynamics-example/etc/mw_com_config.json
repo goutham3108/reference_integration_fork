@@ -201,6 +201,10 @@
             {
               "eventName": "brake_pedal_position_state",
               "eventId": 2199
+            },
+            {
+              "eventName": "engine_stop_start_enabled_state",
+              "eventId": 2201
             }
           ]
         }
@@ -384,6 +388,10 @@
             {
               "eventName": "brake_pedal_position_state",
               "eventId": 2200
+            },
+            {
+              "eventName": "engine_stop_start_enabled_state",
+              "eventId": 2202
             }
           ]
         }
@@ -733,6 +741,11 @@
               "eventName": "brake_pedal_position_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
+            },
+            {
+              "eventName": "engine_stop_start_enabled_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
             }
           ]
         }
@@ -958,6 +971,11 @@
             },
             {
               "eventName": "brake_pedal_position_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "engine_stop_start_enabled_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }

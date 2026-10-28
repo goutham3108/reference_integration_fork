@@ -467,6 +467,17 @@
                     "eventgroup_ids": [
                         33924
                     ]
+                },
+                {
+                    "event_name": "engine_stop_start_enabled_state",
+                    "event_id": 33926,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33926
+                    ]
                 }
             ],
             "local_service_instances": [
@@ -880,6 +891,15 @@
                     },
                     "eventgroup_ids": [
                         33925
+                    ]
+                },
+                {
+                    "event_name": "engine_stop_start_enabled_state",
+                    "event_id": 33927,
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [
+                        33927
                     ]
                 }
             ],
