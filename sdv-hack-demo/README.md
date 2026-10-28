@@ -30,11 +30,11 @@ payloads, so `speed` returns as `speedAck`. New route entries can be added to
 
 ## Body and Door Signals
 
-The 37 body and door signals in [config/body_signals.json](config/body_signals.json)
+The 42 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
 are registered in `someipd`, `gatewayd`, and the bridge. The last requested
 `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpenx` is normalized to `IsOpen`.
 High-beam event IDs are unchanged; the remaining signals use event pairs
-`0x8434/0x8435` through `0x847a/0x847b` on service `0x4300`.
+`0x8434/0x8435` through `0x8484/0x8485` on service `0x4300`.
 
 From the workspace root, synchronize and check the configuration snapshots:
 
@@ -47,7 +47,7 @@ python3 sdv-hack-demo/configure_signals_test.py
 Each route records its VSS `apiName`, MW::COM `eventName`, datatype, and wire IDs.
 The same synchronizer updates the SCORE vehicle-dynamics example's MW::COM
 config and C++ event declarations under `communication/score/mw/com/example/vehicle-dynamics-example`.
-Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 37 body/door events.
+Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 42 body, door, and powertrain events.
 All Tx events use `PreSerializedData<N>` as in the existing high-beam publisher.
 Rx booleans use native `bool` with `BooleanSerializerConfig`. Rx numeric and
 string events use `PreSerializedData<N>` with `NullSerializerConfig`:
@@ -56,14 +56,18 @@ string events use `PreSerializedData<N>` with `NullSerializerConfig`:
 | --- | --- | --- |
 | `boolean` | One byte, `0` or `1` | 1 |
 | `uint8` | One unsigned byte (positions/intensities/level are percentages) | 1 |
+| `int16` | Two-byte signed integer, big-endian | 2 |
+| `float` | IEEE-754 float32, big-endian | 4 |
+| `float_array` | Packed IEEE-754 float32 values, big-endian; payload length is a multiple of 4, up to 8 values | 32 |
 | `string` | UTF-8 wiper-mode text, without a terminating NUL | 32 |
 
-The bridge forwards payload bytes unchanged in either direction. The separate
-`body_signal_test_app` exercises all 37 signals as described below. The legacy
+The bridge forwards payload bytes unchanged in either direction. `float_array`
+is bounded to eight values by the 32-byte UDP payload. The separate
+`body_signal_test_app` exercises all 42 signals as described below. The legacy
 vehicle menus and KUKSA mappings are unchanged. Rebuild and repackage before
 deploying so the binary gateway config and both device route files agree.
 
-### Test All 37 Signals
+### Test All 42 Signals
 
 Use an isolated test rig only. This test sends horn, lighting, lock, window,
 and wiper values. It does not restore the previous state if interrupted.
@@ -91,6 +95,8 @@ The test loads the body routes from `signal_routes.json` and sends:
 - Boolean values: `false`, `true`, `false`.
 - Percentage values: `0`, `50`, `100`, `0`.
 - Wiper modes: `OFF`, `FAST`, `OFF`.
+- Oil-temperature values: `20`, `85`, `110`, `20` Celsius.
+- Float and float-array samples for acceleration and cell voltage.
 
 For each value it waits for a matching Rx value, retrying transmission every
 500 ms for up to 3 seconds. Gateway discovery/subscription allows 20 seconds.
@@ -107,7 +113,7 @@ Example output:
 TX Vehicle.Body.Horn.IsActive=true
 RX Vehicle.Body.Horn.IsActive=true
 PASS Vehicle.Body.Horn.IsActive
-Summary: 37/37 signals passed; 0 failed.
+Summary: 42/42 signals passed; 0 failed.
 ```
 
 Each signal passes only if every test value is received. A timeout, missing
@@ -138,9 +144,9 @@ bazel run --config=sdv-demo //sdv-hack-demo/vehicle_app:body_signal_test_app -- 
 ### KUKSA Gateway Compatibility
 
 The demo launcher uses [config/gateway_provider_config.json](config/gateway_provider_config.json),
-generated from the same 37-signal manifest as the gateway. Every body signal
-receives current values from `/vehicle_high_beam/network_rx` and sends
-actuator targets through `/vehicle_high_beam/local_tx`. `Vehicle.Speed`
+generated from the same 42-signal manifest as the gateway. Existing body controls
+remain bidirectional; the five added VSS sensors receive current values from
+`/vehicle_high_beam/network_rx` and do not expose actuation targets. `Vehicle.Speed`
 receives the existing double-plus-quality sample from `/Vehicle/Service2/Instance`.
 The launcher no longer filters the broker down to speed and high beam.
 
@@ -443,15 +449,16 @@ off a Pi), the error is logged and the menu and vehicle commands keep working.
 
 The remote menu is shown immediately; GPIO monitoring and LED command reception
 continue in background workers while the menu accepts input. Option 1 sets
-high-beam, option 2 sends speed, and option 3 sets parking lights, then returns
-to the menu. `q` exits the
-remote app and stops its GPIO workers.
+high-beam, option 2 sends speed, option 3 sets parking lights, and option 4
+publishes sample values on all body signal routes. `q` exits the remote app and
+stops its GPIO workers.
 
 ```text
 Remote menu
 1  High-beam (true/false)
 2  Vehicle.speed (number)
 3  Vehicle.Body.Lights.Parking.IsOn (true/false)
+4  Publish test values for all 42 body signals
 q  Quit remote app
 ```
 
@@ -465,10 +472,10 @@ value back. This is software state only; no parking-light GPIO is assigned.
 Until a menu value or vehicle command is received, the app does not publish
 an initial parking-light value.
 
-Start the vehicle with KUKSA enabled (not `VEHICLE_APP_MODE=signals`):
+Start the vehicle in its default combined mode (KUKSA plus vehicle app):
 
 ```bash
-VEHICLE_APP_MODE=kuksa ~/sdv-demo/run/start-vehicle.sh
+~/sdv-demo/run/start-vehicle.sh
 ```
 
 In a second vehicle-Pi terminal, read the current value:
@@ -480,6 +487,11 @@ cd ~/sdv-demo
 
 The returned boolean should follow option `3` on the remote. Preserve the
 correct IP addresses in both devices' `network.env` files when redeploying.
+Option `4` publishes false/true/false for booleans, 0/50/100/0 for uint8
+percentages, and OFF/FAST/OFF for strings, with five seconds between published
+values. Run the vehicle in its normal
+combined mode so the in-process databroker is listening. This is a publish
+sweep; it does not wait for or verify databroker acknowledgments.
 
 The remote app configures BCM GPIO 27 (physical pin 13) as an active-high LED
 output for commands received from the vehicle side. Wire
@@ -519,12 +531,15 @@ This launcher:
 5. Starts KUKSA and waits for its gRPC port in combined command mode.
 6. Starts the vehicle application in the foreground.
 
-Default `HIGH_BEAM_COMMAND_MODE=kuksa` routes vehicle high-beam menu commands
-to the local KUKSA broker (`VDB_ADDRESS=127.0.0.1:55555`). The provider publishes
-them on `/vehicle_high_beam/local_tx`; the vehicle app does not offer a competing
-high-beam Tx instance. `HIGH_BEAM_COMMAND_MODE=direct` restores the legacy
-vehicle publisher and disables KUKSA high-beam actuation. Never mix the two Tx
-owners. `VEHICLE_APP_MODE=kuksa` runs just KUKSA after the gateway/bridge startup.
+The normal `VEHICLE_APP_MODE=combined` (also the default) starts KUKSA and the
+vehicle application together. Default `HIGH_BEAM_COMMAND_MODE=kuksa` routes
+vehicle high-beam menu commands to the local KUKSA broker
+(`VDB_ADDRESS=127.0.0.1:55555`). The provider publishes them on
+`/vehicle_high_beam/local_tx`; the vehicle app does not offer a competing
+high-beam Tx instance. `HIGH_BEAM_COMMAND_MODE=direct` makes the vehicle app
+own that Tx instance and disables KUKSA high-beam actuation. Never mix the two
+Tx owners. `VEHICLE_APP_MODE=signals` is the separate all-signal test mode and
+does not start KUKSA or the regular vehicle application.
 
 KUKSA clients must use VAL v2 `Actuate` or Velocitas VDB `SetDatapoints` for
 commands. Writing a VAL v1 current value is not an actuator command. The broker

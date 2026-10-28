@@ -254,6 +254,26 @@
             {
               "eventName": "row2_passenger_door_open_state",
               "eventId": 2189
+            },
+            {
+              "eventName": "engine_running_state",
+              "eventId": 2191
+            },
+            {
+              "eventName": "oil_temperature_state",
+              "eventId": 2193
+            },
+            {
+              "eventName": "cell_voltages_state",
+              "eventId": 2195
+            },
+            {
+              "eventName": "vertical_acceleration_state",
+              "eventId": 2197
+            },
+            {
+              "eventName": "brake_pedal_position_state",
+              "eventId": 2199
             }
           ]
         }
@@ -417,6 +437,26 @@
             {
               "eventName": "row2_passenger_door_open_state",
               "eventId": 2190
+            },
+            {
+              "eventName": "engine_running_state",
+              "eventId": 2192
+            },
+            {
+              "eventName": "oil_temperature_state",
+              "eventId": 2194
+            },
+            {
+              "eventName": "cell_voltages_state",
+              "eventId": 2196
+            },
+            {
+              "eventName": "vertical_acceleration_state",
+              "eventId": 2198
+            },
+            {
+              "eventName": "brake_pedal_position_state",
+              "eventId": 2200
             }
           ]
         }
@@ -755,6 +795,31 @@
               "eventName": "row2_passenger_door_open_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
+            },
+            {
+              "eventName": "engine_running_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "oil_temperature_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "cell_voltages_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "vertical_acceleration_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "brake_pedal_position_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
             }
           ]
         }
@@ -955,6 +1020,31 @@
             },
             {
               "eventName": "row2_passenger_door_open_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "engine_running_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "oil_temperature_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "cell_voltages_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "vertical_acceleration_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "brake_pedal_position_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }

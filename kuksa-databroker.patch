@@ -101,7 +101,7 @@ index e52da05..6793f83 100644
  ]
  
 +[[package]]
-+name = "databroker-mw-com-demo"
++name = "databroker-mw-com"
 +version = "0.1.0"
 +dependencies = [
 + "databroker",
@@ -235,7 +235,7 @@ index ae6ca95..fe647f4 100644
      "databroker",
      "databroker-proto",
      "databroker-cli",
-+    "databroker-mw-com-demo",
++    "databroker-mw-com",
 +    "mw_com_provider",
  ]
  
@@ -277,7 +277,7 @@ index e7aaeaa..cfc42b4 100644
 +
 +set -gx SCORE_COM_BAZEL_BIN "/mnt/c/Shares/ToRutuja/ToPrashanth/communication/New folder_generatedFilesAfterBuild/bazel-bin"
 +set -gx LD_LIBRARY_PATH "$SCORE_COM_BAZEL_BIN/score/mw/com/impl/bindings/lola:$SCORE_COM_BAZEL_BIN/score/mw/com/impl/rust/com-api/com-api-ffi-lola:$SCORE_COM_BAZEL_BIN/score/mw/com/example/vehicle-dynamics-example/com-api-gen:$LD_LIBRARY_PATH"
-+cargo run -p databroker-mw-com-demo
++cargo run -p databroker-mw-com
 +```
 +
 +Then subscribe from the Databroker CLI:
@@ -295,11 +295,11 @@ index e7aaeaa..cfc42b4 100644
  ### Reading and writing VSS data using the CLI (interactive)
  
  1. Start the CLI in a container attached to the _kuksa_ bridge network and connect to the Databroker container:
-diff --git a/databroker-mw-com-demo/Cargo.toml b/databroker-mw-com-demo/Cargo.toml
+diff --git a/databroker-mw-com/Cargo.toml b/databroker-mw-com/Cargo.toml
 new file mode 100644
 index 0000000..3292a89
 --- /dev/null
-+++ b/databroker-mw-com-demo/Cargo.toml
++++ b/databroker-mw-com/Cargo.toml
 @@ -0,0 +1,25 @@
 +# /********************************************************************************
 +# * Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -315,7 +315,7 @@ index 0000000..3292a89
 +# ********************************************************************************/
 +
 +[package]
-+name = "databroker-mw-com-demo"
++name = "databroker-mw-com"
 +version = "0.1.0"
 +edition = "2021"
 +license = "Apache-2.0"
@@ -326,11 +326,11 @@ index 0000000..3292a89
 +mw_com_provider = { path = "../mw_com_provider", default-features = false, features = ["score-lola"] }
 +tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time"] }
 +tracing = "0.1.34"
-diff --git a/databroker-mw-com-demo/build.rs b/databroker-mw-com-demo/build.rs
+diff --git a/databroker-mw-com/build.rs b/databroker-mw-com/build.rs
 new file mode 100644
 index 0000000..8409420
 --- /dev/null
-+++ b/databroker-mw-com-demo/build.rs
++++ b/databroker-mw-com/build.rs
 @@ -0,0 +1,163 @@
 +/********************************************************************************
 + * Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -495,11 +495,11 @@ index 0000000..8409420
 +        .map(|extension| dir.join(format!("lib{library}.{extension}")))
 +        .find(|path| path.exists())
 +}
-diff --git a/databroker-mw-com-demo/src/main.rs b/databroker-mw-com-demo/src/main.rs
+diff --git a/databroker-mw-com/src/main.rs b/databroker-mw-com/src/main.rs
 new file mode 100644
 index 0000000..a6d1391
 --- /dev/null
-+++ b/databroker-mw-com-demo/src/main.rs
++++ b/databroker-mw-com/src/main.rs
 @@ -0,0 +1,322 @@
 +/********************************************************************************
 + * Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -538,7 +538,7 @@ index 0000000..a6d1391
 +        .retain(|mapping| args.includes_path(&mapping.vss_path));
 +    validate_score_bindings(&config)?;
 +
-+    let broker = DataBroker::new("databroker-mw-com-demo", "databroker-mw-com-demo");
++    let broker = DataBroker::new("databroker-mw-com", "databroker-mw-com");
 +    seed_databroker_metadata(&broker, &mut config).await?;
 +
 +    let ProviderWorkerHandle {
@@ -751,7 +751,7 @@ index 0000000..a6d1391
 +
 +fn print_usage() {
 +    eprintln!(
-+        "Usage: databroker-mw-com-demo [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/vehicle_dynamics_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: Vehicle.Speed]\n  -h, --help                        Print help"
++        "Usage: databroker-mw-com [OPTIONS]\n\nOptions:\n  --address <ADDR>                  Databroker gRPC bind address [default: 127.0.0.1:55555]\n  --provider-config <FILE>          Provider mapping config [default: mw_com_provider/generated/mw_com_provider_config.json]\n  --score-config <FILE>             SCORE LoLa config [default: mw_com_provider/generated/vehicle_dynamics_lola_config.json]\n  --include-vss-path <PATH>         Include only this VSS mapping; repeatable [default: Vehicle.Speed]\n  -h, --help                        Print help"
 +    );
 +}
 +
@@ -17736,13 +17736,13 @@ index 0000000..2f93ec7
 +cargo +stable build --release --target "$target" \
 +    -p mw_com_provider --bin mw_com_provider
 +
-+printf '\n[5/6] Building databroker-mw-com-demo...\n'
-+SCORE_COM_LINK_OWNER=databroker-mw-com-demo \
++printf '\n[5/6] Building databroker-mw-com...\n'
++SCORE_COM_LINK_OWNER=databroker-mw-com \
 +    cargo +stable build --release --target "$target" \
-+        -p databroker-mw-com-demo
++        -p databroker-mw-com
 +
 +printf '\n[6/6] Verifying ARM64 executable outputs...\n'
-+for binary in databroker databroker-cli mw_com_provider databroker-mw-com-demo; do
++for binary in databroker databroker-cli mw_com_provider databroker-mw-com; do
 +    path="${kuksa_root}/target/${target}/release/${binary}"
 +    [[ -x "$path" ]] || fail "Expected executable was not built: ${path}"
 +    description="$(file -b "$path")"

@@ -664,12 +664,14 @@ fn datatype_matches(mapping_type: VssDataType, broker_type: &DataType) -> bool {
         (VssDataType::Bool, DataType::Bool)
             | (VssDataType::String, DataType::String)
             | (VssDataType::Int8, DataType::Int8)
+            | (VssDataType::Int16, DataType::Int16)
             | (VssDataType::Int32, DataType::Int32)
             | (VssDataType::Int64, DataType::Int64)
             | (VssDataType::Uint8, DataType::Uint8)
             | (VssDataType::Uint32, DataType::Uint32)
             | (VssDataType::Uint64, DataType::Uint64)
             | (VssDataType::Float, DataType::Float)
+            | (VssDataType::FloatArray, DataType::FloatArray)
             | (VssDataType::Double, DataType::Double)
     )
 }
@@ -820,6 +822,7 @@ mod tests {
             offset: 0.0,
             min: Some(0.0),
             max: Some(300.0),
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction,
             cycle_time_ms: 100,
@@ -949,12 +952,14 @@ mod tests {
             (VssDataType::Bool, DataType::Bool),
             (VssDataType::String, DataType::String),
             (VssDataType::Int8, DataType::Int8),
+            (VssDataType::Int16, DataType::Int16),
             (VssDataType::Int32, DataType::Int32),
             (VssDataType::Int64, DataType::Int64),
             (VssDataType::Uint8, DataType::Uint8),
             (VssDataType::Uint32, DataType::Uint32),
             (VssDataType::Uint64, DataType::Uint64),
             (VssDataType::Float, DataType::Float),
+            (VssDataType::FloatArray, DataType::FloatArray),
             (VssDataType::Double, DataType::Double),
         ];
 

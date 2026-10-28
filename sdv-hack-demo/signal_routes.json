@@ -490,6 +490,72 @@
       "remoteInstance": 4097,
       "vehicleEvent": 33914,
       "remoteEvent": 33915
+    },
+    {
+      "name": "engine_running",
+      "apiName": "Vehicle.Powertrain.CombustionEngine.IsRunning",
+      "ackApiName": "Vehicle.Powertrain.CombustionEngine.IsRunning",
+      "datatype": "boolean",
+      "eventName": "engine_running_state",
+      "maxPayloadSize": 1,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33916,
+      "remoteEvent": 33917
+    },
+    {
+      "name": "oil_temperature",
+      "apiName": "Vehicle.OBD.OilTemperature",
+      "ackApiName": "Vehicle.OBD.OilTemperature",
+      "datatype": "int16",
+      "eventName": "oil_temperature_state",
+      "maxPayloadSize": 2,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33918,
+      "remoteEvent": 33919
+    },
+    {
+      "name": "cell_voltages",
+      "apiName": "Vehicle.Powertrain.TractionBattery.CellVoltage.CellVoltages",
+      "ackApiName": "Vehicle.Powertrain.TractionBattery.CellVoltage.CellVoltages",
+      "datatype": "float_array",
+      "eventName": "cell_voltages_state",
+      "maxPayloadSize": 32,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33920,
+      "remoteEvent": 33921,
+      "maxElements": 8
+    },
+    {
+      "name": "vertical_acceleration",
+      "apiName": "Vehicle.Acceleration.Vertical",
+      "ackApiName": "Vehicle.Acceleration.Vertical",
+      "datatype": "float",
+      "eventName": "vertical_acceleration_state",
+      "maxPayloadSize": 4,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33922,
+      "remoteEvent": 33923
+    },
+    {
+      "name": "brake_pedal_position",
+      "apiName": "Vehicle.Chassis.Brake.PedalPosition",
+      "ackApiName": "Vehicle.Chassis.Brake.PedalPosition",
+      "datatype": "uint8",
+      "eventName": "brake_pedal_position_state",
+      "maxPayloadSize": 1,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33924,
+      "remoteEvent": 33925
     }
   ]
 }

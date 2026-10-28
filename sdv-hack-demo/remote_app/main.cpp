@@ -64,6 +64,7 @@ bool ReadInputLine(std::istream& stream, int fd, std::string& line) {
 }
 
 constexpr auto kPublishPeriod = std::chrono::seconds{2};
+constexpr auto kBodySignalTestDelay = std::chrono::seconds{5};
 constexpr auto kGpioSamplePeriod = std::chrono::milliseconds{5};
 constexpr auto kGpioDebouncePeriod = std::chrono::milliseconds{30};
 constexpr char kSensorStateKey[] = "high_beam_state";
@@ -72,6 +73,8 @@ constexpr std::uint16_t kDefaultRemotePort = 35001U;
 
 struct Route {
     std::string name;
+    std::string api_name;
+    std::string datatype;
     std::uint16_t service;
     std::uint16_t vehicle_instance;
     std::uint16_t remote_instance;
@@ -91,6 +94,51 @@ bool PublishBooleanUpdate(const int socket_fd, const Route& route,
                                   << ": " << std::string{std::strerror(errno)};
         return false;
     }
+    return true;
+}
+
+bool PublishAllBodySignals(const int socket_fd, const std::vector<Route>& routes,
+                           const sockaddr_in& destination) {
+    std::size_t published = 0;
+    for (const auto& route : routes) {
+        if (route.service != 17152U) {
+            continue;
+        }
+        const auto values = high_beam_udp::TestPayloads(route.datatype);
+        if (values.empty()) {
+            score::mw::log::LogError() << "Unsupported test datatype for " << route.api_name;
+            return false;
+        }
+        for (const auto& value : values) {
+            high_beam_udp::Frame frame{route.service, route.remote_instance, route.remote_event,
+                                       static_cast<std::uint8_t>(value.size()), {}};
+            std::copy(value.begin(), value.end(), frame.payload.begin());
+            const auto encoded = high_beam_udp::Encode(frame);
+            const auto sent = sendto(socket_fd, encoded.data(), encoded.size(), 0,
+                                     reinterpret_cast<const sockaddr*>(&destination), sizeof(destination));
+            if (sent != static_cast<ssize_t>(encoded.size())) {
+                score::mw::log::LogError() << "Failed to publish test value for " << route.api_name
+                                          << ": " << std::string{std::strerror(errno)};
+                return false;
+            }
+            if (route.datatype == "boolean") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << "=" << (value[0] == 0U ? "false" : "true");
+            } else if (route.datatype == "uint8") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << "=" << static_cast<unsigned int>(value[0]);
+            } else if (route.datatype == "string") {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name << "="
+                                          << std::string{value.begin(), value.end()};
+            } else {
+                score::mw::log::LogWarn() << "Remote published test " << route.api_name
+                                          << " payload_bytes=" << value.size();
+            }
+            ++published;
+            std::this_thread::sleep_for(kBodySignalTestDelay);
+        }
+    }
+    score::mw::log::LogWarn() << "Remote published " << published << " samples across 42 body signals";
     return true;
 }
 
@@ -145,6 +193,7 @@ void PrintRemoteMenu() {
         "1  High-beam (true/false)\n"
         "2  Vehicle.speed (number)\n"
         "3  Vehicle.Body.Lights.Parking.IsOn (true/false)\n"
+        "4  Publish test values for all 42 body signals\n"
         "q  Quit remote app\n"
         "Select: ");
 }
@@ -391,7 +440,9 @@ std::optional<std::vector<Route>> LoadRoutes() {
         const auto document = nlohmann::json::parse(input);
         std::vector<Route> routes;
         for (const auto& item : document.at("routes")) {
-            routes.push_back(Route{item.at("name").get<std::string>(), item.at("service").get<std::uint16_t>(),
+            const auto name = item.at("name").get<std::string>();
+            routes.push_back(Route{name, item.value("apiName", name), item.value("datatype", std::string{}),
+                                   item.at("service").get<std::uint16_t>(),
                                    item.at("vehicleInstance").get<std::uint16_t>(),
                                    item.at("remoteInstance").get<std::uint16_t>(),
                                    item.at("vehicleEvent").get<std::uint16_t>(),
@@ -594,7 +645,13 @@ int main() {
                     PrintRemoteMenu();
                     continue;
                 }
-                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, 3, or q.";
+                if (input == "4") {
+                    Say("Publishing test values for all configured body signals...\n");
+                    (void)PublishAllBodySignals(udp_socket, *routes, bridge_address);
+                    PrintRemoteMenu();
+                    continue;
+                }
+                score::mw::log::LogWarn() << "Invalid menu option. Select 1, 2, 3, 4, or q.";
             }
             if (terminal_fd >= 0) {
                 close(terminal_fd);

@@ -15,7 +15,7 @@ fi
 
 export HIGH_BEAM_BIND_IP=0.0.0.0
 export SIGNAL_ROUTE_CONFIG="${root}/signal_routes.json"
-vehicle_app_mode="${VEHICLE_APP_MODE:-legacy}"
+vehicle_app_mode="${VEHICLE_APP_MODE:-combined}"
 export HIGH_BEAM_COMMAND_MODE="${HIGH_BEAM_COMMAND_MODE:-kuksa}"
 case "$HIGH_BEAM_COMMAND_MODE" in
     kuksa) export KUKSA_HIGH_BEAM_ACTUATION=1 ;;
@@ -166,7 +166,7 @@ case "${vehicle_app_mode}" in
             --configuration "${root}/mw_com_config.json" \
             --routes "${root}/signal_routes.json" "$@"
         ;;
-    legacy)
+    combined)
         export -f start_kuksa
         export root
         setsid nohup bash -c start_kuksa >"${root}/kuksa.log" 2>&1 < /dev/null 9>&- &
@@ -195,11 +195,8 @@ case "${vehicle_app_mode}" in
         fi
         exec "${root}/vehicle_high_beam_mw_com" --configuration "${root}/mw_com_config.json"
         ;;
-    kuksa)
-        start_kuksa
-        ;;
     *)
-        echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'legacy', 'kuksa', or 'signals'." >&2
+        echo "Unknown VEHICLE_APP_MODE '${vehicle_app_mode}'; choose 'combined' or 'signals'." >&2
         exit 2
         ;;
 esac

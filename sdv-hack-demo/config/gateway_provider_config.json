@@ -11,13 +11,13 @@
             "instance": "network_rx",
             "member": "high_beam_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "high_beam_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 2,
@@ -27,13 +27,13 @@
             "instance": "network_rx",
             "member": "horn_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "horn_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 3,
@@ -43,13 +43,13 @@
             "instance": "network_rx",
             "member": "high_beam_switch_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "high_beam_switch_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 4,
@@ -59,13 +59,13 @@
             "instance": "network_rx",
             "member": "parking_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "parking_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 5,
@@ -75,13 +75,13 @@
             "instance": "network_rx",
             "member": "running_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "running_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 6,
@@ -91,13 +91,13 @@
             "instance": "network_rx",
             "member": "front_fog_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "front_fog_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 7,
@@ -107,13 +107,13 @@
             "instance": "network_rx",
             "member": "rear_fog_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "rear_fog_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 8,
@@ -123,13 +123,13 @@
             "instance": "network_rx",
             "member": "hazard_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "hazard_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 9,
@@ -139,13 +139,13 @@
             "instance": "network_rx",
             "member": "left_indicator_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "left_indicator_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 10,
@@ -155,13 +155,13 @@
             "instance": "network_rx",
             "member": "right_indicator_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "right_indicator_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 11,
@@ -171,13 +171,13 @@
             "instance": "network_rx",
             "member": "brake_lights_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "brake_lights_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 12,
@@ -187,13 +187,13 @@
             "instance": "network_rx",
             "member": "hood_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "hood_open_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 13,
@@ -203,13 +203,13 @@
             "instance": "network_rx",
             "member": "rear_trunk_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "rear_trunk_open_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 14,
@@ -219,13 +219,13 @@
             "instance": "network_rx",
             "member": "rear_trunk_locked_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "rear_trunk_locked_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 15,
@@ -235,16 +235,16 @@
             "instance": "network_rx",
             "member": "rear_trunk_position_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "rear_trunk_position_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "rear_trunk_position_state"
+            }
         },
         {
             "signal_id": 16,
@@ -254,13 +254,13 @@
             "instance": "network_rx",
             "member": "driver_mirror_folded_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "driver_mirror_folded_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 17,
@@ -270,13 +270,13 @@
             "instance": "network_rx",
             "member": "passenger_mirror_folded_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "passenger_mirror_folded_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 18,
@@ -286,13 +286,13 @@
             "instance": "network_rx",
             "member": "driver_mirror_heating_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "driver_mirror_heating_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 19,
@@ -302,13 +302,13 @@
             "instance": "network_rx",
             "member": "passenger_mirror_heating_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "passenger_mirror_heating_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 20,
@@ -318,13 +318,13 @@
             "instance": "network_rx",
             "member": "front_wiping_mode_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "front_wiping_mode_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 21,
@@ -334,16 +334,16 @@
             "instance": "network_rx",
             "member": "front_wiping_intensity_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "front_wiping_intensity_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "front_wiping_intensity_state"
+            }
         },
         {
             "signal_id": 22,
@@ -353,16 +353,16 @@
             "instance": "network_rx",
             "member": "front_washer_fluid_level_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "front_washer_fluid_level_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "front_washer_fluid_level_state"
+            }
         },
         {
             "signal_id": 23,
@@ -372,13 +372,13 @@
             "instance": "network_rx",
             "member": "front_washer_fluid_low_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "front_washer_fluid_low_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 24,
@@ -388,16 +388,16 @@
             "instance": "network_rx",
             "member": "rain_intensity_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "rain_intensity_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "rain_intensity_state"
+            }
         },
         {
             "signal_id": 25,
@@ -407,13 +407,13 @@
             "instance": "network_rx",
             "member": "front_windshield_heating_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "front_windshield_heating_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 26,
@@ -423,13 +423,13 @@
             "instance": "network_rx",
             "member": "rear_windshield_heating_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "rear_windshield_heating_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 27,
@@ -439,13 +439,13 @@
             "instance": "network_rx",
             "member": "row1_driver_door_locked_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row1_driver_door_locked_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 28,
@@ -455,13 +455,13 @@
             "instance": "network_rx",
             "member": "row1_driver_door_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row1_driver_door_open_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 29,
@@ -471,16 +471,16 @@
             "instance": "network_rx",
             "member": "row1_driver_window_position_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "row1_driver_window_position_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "row1_driver_window_position_state"
+            }
         },
         {
             "signal_id": 30,
@@ -490,13 +490,13 @@
             "instance": "network_rx",
             "member": "row1_driver_child_lock_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row1_driver_child_lock_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 31,
@@ -506,13 +506,13 @@
             "instance": "network_rx",
             "member": "row1_passenger_door_locked_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row1_passenger_door_locked_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 32,
@@ -522,13 +522,13 @@
             "instance": "network_rx",
             "member": "row1_passenger_door_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row1_passenger_door_open_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 33,
@@ -538,16 +538,16 @@
             "instance": "network_rx",
             "member": "row1_passenger_window_position_state",
             "direction": "bidirectional",
-            "actuation_binding": {
-                "service": "/vehicle_high_beam_tx",
-                "instance": "local_tx",
-                "member": "row1_passenger_window_position_state"
-            },
             "cycle_time_ms": 100,
             "required_quality": "valid",
             "min": 0,
             "max": 100,
-            "unit": "percent"
+            "unit": "percent",
+            "actuation_binding": {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": "row1_passenger_window_position_state"
+            }
         },
         {
             "signal_id": 34,
@@ -557,13 +557,13 @@
             "instance": "network_rx",
             "member": "row2_driver_door_locked_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row2_driver_door_locked_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 35,
@@ -573,13 +573,13 @@
             "instance": "network_rx",
             "member": "row2_driver_door_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row2_driver_door_open_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 36,
@@ -589,13 +589,13 @@
             "instance": "network_rx",
             "member": "row2_passenger_door_locked_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row2_passenger_door_locked_state"
-            },
-            "cycle_time_ms": 100,
-            "required_quality": "valid"
+            }
         },
         {
             "signal_id": 37,
@@ -605,16 +605,78 @@
             "instance": "network_rx",
             "member": "row2_passenger_door_open_state",
             "direction": "bidirectional",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
             "actuation_binding": {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",
                 "member": "row2_passenger_door_open_state"
-            },
+            }
+        },
+        {
+            "signal_id": 38,
+            "vss_path": "Vehicle.Powertrain.CombustionEngine.IsRunning",
+            "datatype": "bool",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "engine_running_state",
+            "direction": "datapoint",
             "cycle_time_ms": 100,
             "required_quality": "valid"
         },
         {
-            "signal_id": 38,
+            "signal_id": 39,
+            "vss_path": "Vehicle.OBD.OilTemperature",
+            "datatype": "int16",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "oil_temperature_state",
+            "direction": "datapoint",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
+            "unit": "celsius"
+        },
+        {
+            "signal_id": 40,
+            "vss_path": "Vehicle.Powertrain.TractionBattery.CellVoltage.CellVoltages",
+            "datatype": "float_array",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "cell_voltages_state",
+            "direction": "datapoint",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
+            "unit": "V",
+            "max_elements": 8
+        },
+        {
+            "signal_id": 41,
+            "vss_path": "Vehicle.Acceleration.Vertical",
+            "datatype": "float",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "vertical_acceleration_state",
+            "direction": "datapoint",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
+            "unit": "m/s^2"
+        },
+        {
+            "signal_id": 42,
+            "vss_path": "Vehicle.Chassis.Brake.PedalPosition",
+            "datatype": "uint8",
+            "service": "/vehicle_high_beam_rx",
+            "instance": "network_rx",
+            "member": "brake_pedal_position_state",
+            "direction": "datapoint",
+            "cycle_time_ms": 100,
+            "required_quality": "valid",
+            "min": 0,
+            "max": 100,
+            "unit": "percent"
+        },
+        {
+            "signal_id": 43,
             "vss_path": "Vehicle.Speed",
             "datatype": "double",
             "service": "VehicleDynamicsService",

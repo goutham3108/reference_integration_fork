@@ -43,12 +43,14 @@ pub enum VssDataType {
     Bool,
     String,
     Int8,
+    Int16,
     Int32,
     Int64,
     Uint8,
     Uint32,
     Uint64,
     Float,
+    FloatArray,
     Double,
 }
 
@@ -143,6 +145,14 @@ impl ProviderConfig {
                     mapping.vss_path
                 )));
             }
+            if mapping.datatype == VssDataType::FloatArray
+                && !mapping.max_elements.is_some_and(|count| (1..=8).contains(&count))
+            {
+                return Err(MwComProviderError::Config(format!(
+                    "mapping for {} must set max_elements between 1 and 8",
+                    mapping.vss_path
+                )));
+            }
             if !mapping.scale.is_finite() || !mapping.offset.is_finite() {
                 return Err(MwComProviderError::Config(format!(
                     "mapping for {} has a non-finite scale or offset",
@@ -203,6 +213,8 @@ pub struct SignalMapping {
     #[serde(default)]
     pub max: Option<f64>,
     #[serde(default)]
+    pub max_elements: Option<usize>,
+    #[serde(default)]
     pub required_quality: SignalQuality,
     #[serde(default = "default_direction")]
     pub direction: Direction,
@@ -253,6 +265,7 @@ mod tests {
             offset: 0.0,
             min: Some(0.0),
             max: Some(300.0),
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction: Direction::Datapoint,
             cycle_time_ms: 100,
@@ -323,6 +336,15 @@ mod tests {
         let error = config(vec![mapping]).validate().unwrap_err();
 
         assert!(error.to_string().contains("non-zero cycle_time_ms"));
+    }
+
+    #[test]
+    fn requires_bounded_float_array_mapping() {
+        let mut array = mapping(1);
+        array.datatype = VssDataType::FloatArray;
+        assert!(config(vec![array.clone()]).validate().is_err());
+        array.max_elements = Some(8);
+        assert!(config(vec![array]).validate().is_ok());
     }
 
     #[test]

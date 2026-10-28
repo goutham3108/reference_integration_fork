@@ -35,3 +35,8 @@ SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, row2_driver_door_locked_
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, row2_driver_door_open_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, row2_passenger_door_locked_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, row2_passenger_door_open_state)
+SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, engine_running_state)
+SCORE_BODY_SIGNAL_EVENT(BodySignalPayload, BodySignalPayload, oil_temperature_state)
+SCORE_BODY_SIGNAL_EVENT(BodySignalPayload, BodySignalPayload, cell_voltages_state)
+SCORE_BODY_SIGNAL_EVENT(BodySignalPayload, BodySignalPayload, vertical_acceleration_state)
+SCORE_BODY_SIGNAL_EVENT(HighBeamCommand, HighBeamCommand, brake_pedal_position_state)

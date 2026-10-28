@@ -8,7 +8,7 @@ int main() {
     try {
         std::ifstream input{"sdv-hack-demo/signal_routes.json"};
         const auto signals = LoadSignals(nlohmann::json::parse(input));
-        if (signals.size() != 37U) {
+        if (signals.size() != 42U) {
             return 1;
         }
         for (const auto& signal : signals) {
@@ -34,9 +34,10 @@ int main() {
             return 1;
         }
         const nlohmann::json route{{"service", 17152}, {"apiName", "Vehicle.Test"},
-                                   {"eventName", "test"}, {"datatype", "boolean"}};
+                                   {"eventName", "test"}, {"datatype", "boolean"},
+                                   {"maxPayloadSize", 1}};
         auto invalid = route;
-        invalid["datatype"] = "float";
+        invalid["datatype"] = "unsupported";
         for (const auto& routes : {nlohmann::json::array(), nlohmann::json{route, route},
                                    nlohmann::json{invalid}}) {
             bool rejected = false;

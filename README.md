@@ -137,7 +137,7 @@ the launcher disables KUKSA high-beam actuation in that mode.
 The build command compiles these ARM64 outputs:
 
 - KUKSA `databroker`, `databroker-cli`, `mw_com_provider`, and
-  `databroker-mw-com-demo`.
+  `databroker-mw-com`.
 - The existing `gatewayd`, `someipd`, serializer, UDP bridge, remote
   application, and legacy `vehicle_high_beam_mw_com` app.
 - Communication vehicle-dynamics Bazel artifacts used while building the
@@ -201,7 +201,7 @@ and `bash sdv-hack-demo/package-aarch64.sh`) and redeploy **both** archives. Two
 things changed for KUKSA in the last update and are worth knowing if it breaks
 again: `score_com_concept` needs `pastey` (it replaced `paste`;
 `kuksa-databroker/.../score_com_concept/Cargo.toml`), and
-`databroker-mw-com-demo/build.rs` now links archives whose file name occurs in
+`databroker-mw-com/build.rs` now links archives whose file name occurs in
 more than one Bazel package (for example baselibs' two
 `libstring_comparison_adaptor.a`) by full path, because a bare `-l` finds only
 the first.
@@ -221,7 +221,7 @@ bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-cli
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/mw_com_provider
-kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com
 communication/bazel-bin/score/mw/com/example/vehicle-dynamics-example/
 ```
 
@@ -229,11 +229,11 @@ The Communication output is a build-time dependency, not an additional demo
 process to copy to a Pi. If Communication is outside this workspace, its
 Bazel outputs are under the configured `COMMUNICATION_ROOT` instead. The
 KUKSA helper itself runs `file` checks on `databroker`, `databroker-cli`,
-`mw_com_provider`, and `databroker-mw-com-demo`. You can also check the main
+`mw_com_provider`, and `databroker-mw-com`. You can also check the main
 demo and remote executables manually:
 
 ```sh
-file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com
 file bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
 ```
 
@@ -250,7 +250,7 @@ bash sdv-hack-demo/package-aarch64.sh
 
 The package step creates `vehicle-aarch64.tar.gz` and `remote-aarch64.tar.gz`.
 The vehicle archive includes the gateway daemons, bridge, KUKSA
-`databroker-mw-com-demo`, `databroker-cli`, both provider JSON configs, and the
+`databroker-mw-com`, `databroker-cli`, both provider JSON configs, and the
 legacy `vehicle_high_beam_mw_com` app with its runfiles. It excludes
 `kuksa_high_beam_udp_provider`, which is a separate adapter and is not needed
 for the KUKSA-to-mw::com bridge path. The remote archive and app are unchanged.

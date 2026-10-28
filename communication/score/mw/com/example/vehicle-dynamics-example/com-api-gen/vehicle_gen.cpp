@@ -42,6 +42,7 @@ END_EXPORT_MW_COM_INTERFACE()
 
 EXPORT_MW_COM_TYPE(HighBeamState, ::score::mw::com::HighBeamState)
 EXPORT_MW_COM_TYPE(BodySignalText, ::score::mw::com::BodySignalText)
+EXPORT_MW_COM_TYPE(BodySignalPayload, ::score::mw::com::BodySignalPayload)
 
 BEGIN_EXPORT_MW_COM_INTERFACE(
     HighBeamTx,

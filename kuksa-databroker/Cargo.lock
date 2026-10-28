@@ -830,7 +830,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "databroker-mw-com-demo"
+name = "databroker-mw-com"
 version = "0.1.0"
 dependencies = [
  "databroker",

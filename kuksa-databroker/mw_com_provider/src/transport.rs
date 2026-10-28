@@ -23,6 +23,7 @@ pub enum MwComValue {
     I64(i64),
     U64(u64),
     F64(f64),
+    FloatArray(Vec<f32>),
     Bytes(Vec<u8>),
 }
 

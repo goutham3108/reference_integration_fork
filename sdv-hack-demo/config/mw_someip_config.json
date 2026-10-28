@@ -412,6 +412,61 @@
                     "eventgroup_ids": [
                         33914
                     ]
+                },
+                {
+                    "event_name": "engine_running_state",
+                    "event_id": 33916,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33916
+                    ]
+                },
+                {
+                    "event_name": "oil_temperature_state",
+                    "event_id": 33918,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 2
+                    },
+                    "eventgroup_ids": [
+                        33918
+                    ]
+                },
+                {
+                    "event_name": "cell_voltages_state",
+                    "event_id": 33920,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    },
+                    "eventgroup_ids": [
+                        33920
+                    ]
+                },
+                {
+                    "event_name": "vertical_acceleration_state",
+                    "event_id": 33922,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 4
+                    },
+                    "eventgroup_ids": [
+                        33922
+                    ]
+                },
+                {
+                    "event_name": "brake_pedal_position_state",
+                    "event_id": 33924,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33924
+                    ]
                 }
             ],
             "local_service_instances": [
@@ -772,6 +827,59 @@
                     "serialization_config": {},
                     "eventgroup_ids": [
                         33915
+                    ]
+                },
+                {
+                    "event_name": "engine_running_state",
+                    "event_id": 33917,
+                    "serialization_config_type": "BooleanSerializerConfig",
+                    "serialization_config": {},
+                    "eventgroup_ids": [
+                        33917
+                    ]
+                },
+                {
+                    "event_name": "oil_temperature_state",
+                    "event_id": 33919,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 2
+                    },
+                    "eventgroup_ids": [
+                        33919
+                    ]
+                },
+                {
+                    "event_name": "cell_voltages_state",
+                    "event_id": 33921,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    },
+                    "eventgroup_ids": [
+                        33921
+                    ]
+                },
+                {
+                    "event_name": "vertical_acceleration_state",
+                    "event_id": 33923,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 4
+                    },
+                    "eventgroup_ids": [
+                        33923
+                    ]
+                },
+                {
+                    "event_name": "brake_pedal_position_state",
+                    "event_id": 33925,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 1
+                    },
+                    "eventgroup_ids": [
+                        33925
                     ]
                 }
             ],

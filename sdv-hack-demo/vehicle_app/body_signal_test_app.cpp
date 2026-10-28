@@ -113,7 +113,7 @@ class SignalTestApplication {
     bool OfferSender() {
         std::vector<score::mw::com::EventInfo> events;
         for (const auto& signal : signals_) {
-            const std::size_t capacity = signal.datatype == "string" ? 32U : 1U;
+            const std::size_t capacity = signal.max_payload_size;
             const score::mw::com::DataTypeMetaInfo metadata{
                 score::someip_gateway::serializer::get_size_of_pre_serialized_data(capacity),
                 alignof(RawSample)};
@@ -174,7 +174,7 @@ class SignalTestApplication {
                         actual.push_back(*static_cast<const bool*>(sample.Get()) ? 1U : 0U);
                     } else {
                         const auto* raw = static_cast<const RawSample*>(sample.Get());
-                        const std::size_t capacity = signal.datatype == "string" ? 32U : 1U;
+                        const std::size_t capacity = signal.max_payload_size;
                         if (raw->size > capacity) {
                             return;
                         }

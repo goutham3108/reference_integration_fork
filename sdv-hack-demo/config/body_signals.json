@@ -36,6 +36,11 @@
     {"apiName": "Vehicle.Cabin.Door.Row2.DriverSide.IsLocked", "name": "row2_driver_door_locked", "datatype": "boolean", "vehicleEvent": 33908},
     {"apiName": "Vehicle.Cabin.Door.Row2.DriverSide.IsOpen", "name": "row2_driver_door_open", "datatype": "boolean", "vehicleEvent": 33910},
     {"apiName": "Vehicle.Cabin.Door.Row2.PassengerSide.IsLocked", "name": "row2_passenger_door_locked", "datatype": "boolean", "vehicleEvent": 33912},
-    {"apiName": "Vehicle.Cabin.Door.Row2.PassengerSide.IsOpen", "name": "row2_passenger_door_open", "datatype": "boolean", "vehicleEvent": 33914}
+    {"apiName": "Vehicle.Cabin.Door.Row2.PassengerSide.IsOpen", "name": "row2_passenger_door_open", "datatype": "boolean", "vehicleEvent": 33914},
+    {"apiName": "Vehicle.Powertrain.CombustionEngine.IsRunning", "name": "engine_running", "datatype": "boolean", "type": "sensor", "vehicleEvent": 33916},
+    {"apiName": "Vehicle.OBD.OilTemperature", "name": "oil_temperature", "datatype": "int16", "type": "sensor", "unit": "celsius", "vehicleEvent": 33918},
+    {"apiName": "Vehicle.Powertrain.TractionBattery.CellVoltage.CellVoltages", "name": "cell_voltages", "datatype": "float_array", "type": "sensor", "unit": "V", "maxElements": 8, "vehicleEvent": 33920},
+    {"apiName": "Vehicle.Acceleration.Vertical", "name": "vertical_acceleration", "datatype": "float", "type": "sensor", "unit": "m/s^2", "vehicleEvent": 33922},
+    {"apiName": "Vehicle.Chassis.Brake.PedalPosition", "name": "brake_pedal_position", "datatype": "uint8", "type": "sensor", "unit": "percent", "vehicleEvent": 33924}
   ]
 }

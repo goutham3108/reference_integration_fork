@@ -77,13 +77,13 @@ printf '\n[4/6] Building mw_com_provider executable...\n'
 cargo +stable build --release --target "$target" \
     -p mw_com_provider --bin mw_com_provider
 
-printf '\n[5/6] Building databroker-mw-com-demo...\n'
-SCORE_COM_LINK_OWNER=databroker-mw-com-demo \
+printf '\n[5/6] Building databroker-mw-com...\n'
+SCORE_COM_LINK_OWNER=databroker-mw-com \
     cargo +stable build --release --target "$target" \
-        -p databroker-mw-com-demo
+        -p databroker-mw-com
 
 printf '\n[6/6] Verifying ARM64 executable outputs...\n'
-for binary in databroker databroker-cli mw_com_provider databroker-mw-com-demo; do
+for binary in databroker databroker-cli mw_com_provider databroker-mw-com; do
     path="${kuksa_root}/target/${target}/release/${binary}"
     [[ -x "$path" ]] || fail "Expected executable was not built: ${path}"
     description="$(file -b "$path")"

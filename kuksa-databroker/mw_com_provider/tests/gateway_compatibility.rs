@@ -20,7 +20,7 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
     let config = config();
     config.validate().unwrap();
     validate_score_bindings(&config).unwrap();
-    assert_eq!(config.mappings.len(), 38);
+    assert_eq!(config.mappings.len(), 43);
     for mapping in &config.mappings {
         assert_ne!(mapping.vss_path, "Vehicle.Body.Lights.Beam.Low.IsOn");
         let binding =
@@ -31,8 +31,22 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             assert_eq!(binding.sample_size, 16);
             continue;
         }
-        assert_eq!(mapping.direction, Direction::Bidirectional);
         assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
+        if mapping.direction == Direction::Datapoint {
+            assert!(mapping.actuation_binding.is_none());
+            assert_eq!(
+                binding.sample_size,
+                match mapping.datatype {
+                    VssDataType::Bool => 1,
+                    VssDataType::Uint8 => 32,
+                    VssDataType::String | VssDataType::Int16 | VssDataType::Float
+                    | VssDataType::FloatArray => 48,
+                    _ => panic!("unsupported sensor datatype"),
+                }
+            );
+            continue;
+        }
+        assert_eq!(mapping.direction, Direction::Bidirectional);
         let target = mapping.actuation_binding.as_ref().unwrap();
         let tx = find_score_binding(&target.service, &target.instance, &target.member).unwrap();
         assert_eq!(tx.instance_specifier, "/vehicle_high_beam/local_tx");
@@ -59,12 +73,15 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
 }
 
 #[test]
-fn all_body_targets_and_current_values_use_distinct_directions() {
+fn existing_body_targets_and_current_values_use_distinct_directions() {
     let config = config();
     let mapper = MwComMapper::new(config.clone()).unwrap();
     let mut checked = 0;
     for mapping in &config.mappings {
         if mapping.vss_path == "Vehicle.Speed" {
+            continue;
+        }
+        if mapping.direction == Direction::Datapoint {
             continue;
         }
         let value = match mapping.datatype {

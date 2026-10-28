@@ -225,6 +225,14 @@ fn convert_value(
                 MwComProviderError::Mapping(format!("{} is out of Int32 range", mapping.vss_path))
             })
         }),
+        VssDataType::Int16 => numeric_i64(value, mapping).and_then(|value| {
+            i16::try_from(value)
+                .map(i32::from)
+                .map(DataValue::Int32)
+                .map_err(|_| {
+                MwComProviderError::Mapping(format!("{} is out of Int16 range", mapping.vss_path))
+                })
+        }),
         VssDataType::Int32 => numeric_i64(value, mapping).and_then(|value| {
             i32::try_from(value).map(DataValue::Int32).map_err(|_| {
                 MwComProviderError::Mapping(format!("{} is out of Int32 range", mapping.vss_path))
@@ -249,6 +257,14 @@ fn convert_value(
         VssDataType::Float => {
             numeric_f64(value, mapping).map(|value| DataValue::Float(value as f32))
         }
+        VssDataType::FloatArray => match value {
+            MwComValue::FloatArray(values)
+                if mapping.max_elements.is_some_and(|max| values.len() <= max) =>
+            {
+                Ok(DataValue::FloatArray(values.clone()))
+            }
+            _ => type_error(value, mapping),
+        },
         VssDataType::Double => numeric_f64(value, mapping).map(DataValue::Double),
     }
 }
@@ -266,6 +282,7 @@ fn data_value_to_mw_com(
         (VssDataType::Int8 | VssDataType::Int32 | VssDataType::Int64, DataValue::Int64(value)) => {
             Ok(MwComValue::I64(*value))
         }
+        (VssDataType::Int16, DataValue::Int32(value)) => Ok(MwComValue::I64(*value as i64)),
         (
             VssDataType::Uint8 | VssDataType::Uint32 | VssDataType::Uint64,
             DataValue::Uint32(value),
@@ -279,6 +296,9 @@ fn data_value_to_mw_com(
         }
         (VssDataType::Float | VssDataType::Double, DataValue::Double(value)) => {
             Ok(MwComValue::F64(*value))
+        }
+        (VssDataType::FloatArray, DataValue::FloatArray(values)) => {
+            Ok(MwComValue::FloatArray(values.clone()))
         }
         _ => Err(MwComProviderError::Mapping(format!(
             "actuation value for {} does not match {:?}",
@@ -363,6 +383,7 @@ mod tests {
             offset: 0.0,
             min: None,
             max: None,
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction,
             cycle_time_ms: 100,
@@ -519,6 +540,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(update.datapoint.unwrap().value, DataValue::Uint32(255));
+    }
+
+    #[test]
+    fn converts_int16_datapoint_to_databroker_int32() {
+        let mapper = mapper_with(vec![mapping(1, Direction::Datapoint, VssDataType::Int16)]);
+        let (_id, update) = mapper
+            .message_to_update(&message("signal1", MwComValue::I64(-12)))
+            .unwrap();
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Int32(-12));
+    }
+
+    #[test]
+    fn converts_bounded_float_array_and_rejects_oversized_values() {
+        let mut signal = mapping(1, Direction::Datapoint, VssDataType::FloatArray);
+        signal.max_elements = Some(8);
+        let mapper = mapper_with(vec![signal]);
+        let values = vec![3.6, 3.7, 3.8];
+        let (_id, update) = mapper
+            .message_to_update(&message(
+                "signal1",
+                MwComValue::FloatArray(values.clone()),
+            ))
+            .unwrap();
+        assert_eq!(update.datapoint.unwrap().value, DataValue::FloatArray(values));
+        assert!(mapper
+            .message_to_update(&message(
+                "signal1",
+                MwComValue::FloatArray(vec![0.0; 9]),
+            ))
+            .is_err());
     }
 
     #[test]

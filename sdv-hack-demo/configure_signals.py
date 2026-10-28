@@ -54,7 +54,14 @@ def configure(root):
     for signal in signals:
         event_name = signal.get("eventName", signal["name"] + "_state")
         event_id = signal["vehicleEvent"]
-        payload_size = 32 if signal["datatype"] == "string" else 1
+        payload_size = {
+            "boolean": 1,
+            "uint8": 1,
+            "int16": 2,
+            "float": 4,
+            "float_array": 32,
+            "string": 32,
+        }[signal["datatype"]]
         route = {
             "name": signal["name"],
             "apiName": signal["apiName"],
@@ -68,6 +75,8 @@ def configure(root):
             "vehicleEvent": event_id,
             "remoteEvent": event_id + 1,
         }
+        if signal["datatype"] == "float_array":
+            route["maxElements"] = signal["maxElements"]
         routes["routes"].append(route)
         for direction, offset, instance_id in (("tx", 0, 4096), ("rx", 1, 4097)):
             type_name = "vehicle_high_beam_" + direction
@@ -135,7 +144,12 @@ def body_signal_declarations(root):
     declarations = []
     for signal in signals:
         event_name = signal.get("eventName", signal["name"] + "_state")
-        tx_type = "BodySignalText" if signal["datatype"] == "string" else "HighBeamCommand"
+        tx_type = {
+            "string": "BodySignalText",
+            "int16": "BodySignalPayload",
+            "float": "BodySignalPayload",
+            "float_array": "BodySignalPayload",
+        }.get(signal["datatype"], "HighBeamCommand")
         rx_type = "HighBeamState" if signal["datatype"] == "boolean" else tx_type
         declarations.append(f"SCORE_BODY_SIGNAL_EVENT({rx_type}, {tx_type}, {event_name})")
     return "\n".join(declarations) + "\n"

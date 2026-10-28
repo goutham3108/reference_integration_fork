@@ -11,17 +11,33 @@ def gateway_provider_documents(root):
         mapping = {
             "signal_id": index,
             "vss_path": signal["apiName"],
-            "datatype": {"boolean": "bool", "uint8": "uint8", "string": "string"}[signal["datatype"]],
+            "datatype": {
+                "boolean": "bool",
+                "uint8": "uint8",
+                "int16": "int16",
+                "float": "float",
+                "float_array": "float_array",
+                "string": "string",
+            }[signal["datatype"]],
             "service": "/vehicle_high_beam_rx",
             "instance": "network_rx",
             "member": event,
-            "direction": "bidirectional",
-            "actuation_binding": {"service": "/vehicle_high_beam_tx", "instance": "local_tx", "member": event},
+            "direction": "datapoint" if signal.get("type") == "sensor" else "bidirectional",
             "cycle_time_ms": 100,
             "required_quality": "valid",
         }
         if signal["datatype"] == "uint8":
             mapping.update({"min": 0, "max": 100, "unit": "percent"})
+        if signal.get("type") != "sensor":
+            mapping["actuation_binding"] = {
+                "service": "/vehicle_high_beam_tx",
+                "instance": "local_tx",
+                "member": event,
+            }
+        if signal.get("unit"):
+            mapping["unit"] = signal["unit"]
+        if signal.get("maxElements"):
+            mapping["max_elements"] = signal["maxElements"]
         mappings.append(mapping)
     mappings.append(
         {
@@ -58,11 +74,21 @@ def gateway_provider_sources(root):
         for signal in signals:
             event = signal.get("eventName", signal["name"] + "_state")
             kind = signal["datatype"]
-            sample = "BodySignalText" if kind == "string" else "HighBeamCommand"
+            sample = {
+                "string": "BodySignalText",
+                "int16": "BodySignalPayload",
+                "float": "BodySignalPayload",
+                "float_array": "BodySignalPayload",
+            }.get(kind, "HighBeamCommand")
             if direction == "rx" and kind == "boolean":
                 sample = "HighBeamState"
             runtime.append(f"    {event}: Event<{sample}>,")
-            size, alignment = {"HighBeamState": (1, 1), "HighBeamCommand": (32, 16), "BodySignalText": (48, 16)}[sample]
+            size, alignment = {
+                "HighBeamState": (1, 1),
+                "HighBeamCommand": (32, 16),
+                "BodySignalText": (48, 16),
+                "BodySignalPayload": (48, 16),
+            }[sample]
             metadata.append(
                 f'GenericMwComElement {{ service_name: "/vehicle_high_beam_{direction}", '
                 f'instance_name: "{instance}", instance_specifier: "{specifier}", '
@@ -92,10 +118,18 @@ def gateway_provider_sources(root):
     )
     for signal in signals:
         event = signal.get("eventName", signal["name"] + "_state")
-        variant = {"boolean": "Bool", "uint8": "Byte", "string": "Text"}[signal["datatype"]]
+        variant = {
+            "boolean": "Bool",
+            "uint8": "Byte",
+            "int16": "Payload",
+            "float": "Payload",
+            "float_array": "Payload",
+            "string": "Text",
+        }[signal["datatype"]]
+        datatype_arg = f', "{signal["datatype"]}"' if variant == "Payload" else ""
         runtime.append(
             f'"{event}" => GatewaySubscription::{variant}(consumer.{event}.subscribe(4)'
-            '.map_err(|error| Self::error("body subscribe", error))?),'
+            f'.map_err(|error| Self::error("body subscribe", error))?{datatype_arg}),'
         )
     runtime.extend(
         [
@@ -111,7 +145,12 @@ def gateway_provider_sources(root):
     )
     for signal in signals:
         event = signal.get("eventName", signal["name"] + "_state")
-        sample = "BodySignalText" if signal["datatype"] == "string" else "HighBeamCommand"
+        sample = {
+            "string": "BodySignalText",
+            "int16": "BodySignalPayload",
+            "float": "BodySignalPayload",
+            "float_array": "BodySignalPayload",
+        }.get(signal["datatype"], "HighBeamCommand")
         runtime.append(
             f'"{event}" => producer.{event}.send({sample}::encode(value, "{signal["datatype"]}")?)'
             '.map_err(|error| Self::error("gateway publish", error)),'

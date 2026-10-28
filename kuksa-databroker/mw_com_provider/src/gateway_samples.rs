@@ -31,6 +31,16 @@ pub struct BodySignalText {
     pub data: [u8; 32],
 }
 
+#[repr(C, align(16))]
+#[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "score-lola", derive(score_com::Reloc, score_com::CommData))]
+#[cfg_attr(feature = "score-lola", comm_data(id = "BodySignalPayload"))]
+pub struct BodySignalPayload {
+    pub size: usize,
+    pub padding: [u8; 8],
+    pub data: [u8; 32],
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "score-lola", derive(score_com::Reloc, score_com::CommData))]
@@ -109,6 +119,52 @@ impl BodySignalText {
     }
 }
 
+impl BodySignalPayload {
+    pub fn encode(value: &MwComValue, datatype: &str) -> Result<Self, MwComProviderError> {
+        let bytes = match (datatype, value) {
+            ("int16", MwComValue::I64(value)) => i16::try_from(*value)
+                .map_err(|_| invalid("gateway int16 target is out of range"))?
+                .to_be_bytes()
+                .to_vec(),
+            ("float", MwComValue::F64(value)) => (*value as f32).to_be_bytes().to_vec(),
+            ("float_array", MwComValue::FloatArray(values)) if values.len() <= 8 => values
+                .iter()
+                .flat_map(|value| value.to_be_bytes())
+                .collect(),
+            _ => return Err(invalid("gateway payload datatype does not match the event")),
+        };
+        let mut sample = Self {
+            size: bytes.len(),
+            ..Self::default()
+        };
+        sample.data[..bytes.len()].copy_from_slice(&bytes);
+        Ok(sample)
+    }
+
+    pub fn decode(&self, datatype: &str) -> Result<MwComValue, MwComProviderError> {
+        let bytes = self
+            .data
+            .get(..self.size)
+            .ok_or_else(|| invalid("gateway payload sample exceeds its buffer"))?;
+        match datatype {
+            "int16" if bytes.len() == 2 => Ok(MwComValue::I64(i64::from(i16::from_be_bytes([
+                bytes[0], bytes[1],
+            ])))),
+            "float" if bytes.len() == 4 => Ok(MwComValue::F64(f64::from(f32::from_be_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3],
+            ])))),
+            "float_array" if bytes.len() <= 32 && bytes.len() % 4 == 0 => {
+                let values = bytes
+                    .chunks_exact(4)
+                    .map(|chunk| f32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+                    .collect();
+                Ok(MwComValue::FloatArray(values))
+            }
+            _ => Err(invalid("gateway payload has an invalid size or datatype")),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +186,11 @@ mod tests {
             (48, 16)
         );
         assert_eq!(offset_of!(BodySignalText, data), 16);
+        assert_eq!(
+            (size_of::<BodySignalPayload>(), align_of::<BodySignalPayload>()),
+            (48, 16)
+        );
+        assert_eq!(offset_of!(BodySignalPayload, data), 16);
         assert_eq!(
             (size_of::<SpeedSample>(), offset_of!(SpeedSample, quality)),
             (16, 8)
@@ -179,5 +240,18 @@ mod tests {
             .decode()
             .is_err()
         );
+    }
+
+    #[test]
+    fn numeric_payloads_round_trip_and_enforce_bounds() {
+        let oil = BodySignalPayload::encode(&MwComValue::I64(-12), "int16").unwrap();
+        assert_eq!(oil.decode("int16").unwrap(), MwComValue::I64(-12));
+        let acceleration = BodySignalPayload::encode(&MwComValue::F64(-9.81), "float").unwrap();
+        assert_eq!(acceleration.decode("float").unwrap(), MwComValue::F64(f64::from(-9.81_f32)));
+        let values = MwComValue::FloatArray(vec![3.6, 3.7, 3.8, 3.9]);
+        let cells = BodySignalPayload::encode(&values, "float_array").unwrap();
+        assert_eq!(cells.decode("float_array").unwrap(), values);
+        assert!(BodySignalPayload::encode(&MwComValue::FloatArray(vec![0.0; 9]), "float_array").is_err());
+        assert!(BodySignalPayload { size: 3, ..Default::default() }.decode("float_array").is_err());
     }
 }

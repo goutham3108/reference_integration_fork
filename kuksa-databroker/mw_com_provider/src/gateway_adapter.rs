@@ -1,7 +1,7 @@
 use crate::config::ProviderConfig;
 use crate::error::MwComProviderError;
 use crate::gateway_samples::{
-    BodySignalText, HighBeamCommand, HighBeamState, SpeedAck, SpeedSample,
+    BodySignalPayload, BodySignalText, HighBeamCommand, HighBeamState, SpeedAck, SpeedSample,
 };
 use crate::quality::SignalQuality;
 use crate::score_bindings::{ScoreBinding, ScoreRuntimeAdapter};
@@ -31,6 +31,10 @@ type TextSubscription = <<LolaRuntime as Runtime>::Subscriber<BodySignalText> as
     BodySignalText,
     LolaRuntime,
 >>::Subscription;
+type PayloadSubscription = <<LolaRuntime as Runtime>::Subscriber<BodySignalPayload> as Subscriber<
+    BodySignalPayload,
+    LolaRuntime,
+>>::Subscription;
 type SpeedSubscription = <<LolaRuntime as Runtime>::Subscriber<SpeedSample> as Subscriber<
     SpeedSample,
     LolaRuntime,
@@ -40,6 +44,7 @@ enum GatewaySubscription {
     Bool(BoolSubscription),
     Byte(ByteSubscription),
     Text(TextSubscription),
+    Payload(PayloadSubscription, &'static str),
     Speed(SpeedSubscription),
 }
 
@@ -77,6 +82,9 @@ impl SubscriptionEntry {
             GatewaySubscription::Text(sub) => {
                 let _ = sub.unsubscribe();
             }
+            GatewaySubscription::Payload(sub, _) => {
+                let _ = sub.unsubscribe();
+            }
             GatewaySubscription::Speed(sub) => {
                 let _ = sub.unsubscribe();
             }
@@ -94,6 +102,11 @@ impl SubscriptionEntry {
             GatewaySubscription::Text(sub) => receive(sub, |sample: &BodySignalText| {
                 Ok((sample.decode()?, SignalQuality::Valid))
             }),
+            GatewaySubscription::Payload(sub, datatype) => {
+                receive(sub, |sample: &BodySignalPayload| {
+                Ok((sample.decode(datatype)?, SignalQuality::Valid))
+                })
+            }
             GatewaySubscription::Speed(sub) => receive(sub, |sample: &SpeedSample| {
                 let quality = match sample.quality {
                     0 => SignalQuality::Invalid,

@@ -55,6 +55,16 @@ struct BodySignalText
     alignas(std::max_align_t) std::uint8_t data[32]{};
 };
 
+struct BodySignalPayload
+{
+    std::size_t size{};
+    alignas(std::max_align_t) std::uint8_t data[32]{};
+};
+
+static_assert(sizeof(BodySignalPayload) == 48U);
+static_assert(alignof(BodySignalPayload) == 16U);
+static_assert(offsetof(BodySignalPayload, data) == 16U);
+
 static_assert(sizeof(BodySignalText) == 48U);
 static_assert(alignof(BodySignalText) == 16U);
 static_assert(offsetof(BodySignalText, data) == 16U);

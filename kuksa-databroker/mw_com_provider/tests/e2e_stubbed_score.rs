@@ -109,6 +109,7 @@ fn mapping(
         offset: 0.0,
         min: None,
         max: None,
+        max_elements: None,
         required_quality: SignalQuality::Valid,
         direction,
         cycle_time_ms: 100,

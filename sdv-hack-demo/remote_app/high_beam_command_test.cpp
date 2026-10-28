@@ -40,5 +40,17 @@ int main() {
             return 7;
         }
     }
+    if (high_beam_udp::TestPayloads("boolean") != std::vector<std::vector<std::uint8_t>>{{0}, {1}, {0}} ||
+        high_beam_udp::TestPayloads("uint8") != std::vector<std::vector<std::uint8_t>>{{0}, {50}, {100}, {0}} ||
+        high_beam_udp::TestPayloads("string") !=
+            std::vector<std::vector<std::uint8_t>>{{'O', 'F', 'F'}, {'F', 'A', 'S', 'T'}, {'O', 'F', 'F'}} ||
+        high_beam_udp::TestPayloads("float").size() != 4U ||
+        high_beam_udp::TestPayloads("float")[1] !=
+            std::vector<std::uint8_t>{0xC1U, 0x1CU, 0xF5U, 0xC3U} ||
+        high_beam_udp::TestPayloads("int16").front() != std::vector<std::uint8_t>{0U, 20U} ||
+        high_beam_udp::TestPayloads("float_array")[1].size() != 32U ||
+        !high_beam_udp::TestPayloads("unknown").empty()) {
+        return 8;
+    }
     return 0;
 }

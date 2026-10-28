@@ -167,6 +167,26 @@
                 {
                     "event": "0x847a",
                     "is_field": "false"
+                },
+                {
+                    "event": "0x847c",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x847e",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8480",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8482",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8484",
+                    "is_field": "false"
                 }
             ],
             "eventgroups": [
@@ -391,6 +411,36 @@
                     "events": [
                         "0x847a"
                     ]
+                },
+                {
+                    "eventgroup": "0x847c",
+                    "events": [
+                        "0x847c"
+                    ]
+                },
+                {
+                    "eventgroup": "0x847e",
+                    "events": [
+                        "0x847e"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8480",
+                    "events": [
+                        "0x8480"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8482",
+                    "events": [
+                        "0x8482"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8484",
+                    "events": [
+                        "0x8484"
+                    ]
                 }
             ]
         },
@@ -545,6 +595,26 @@
                 },
                 {
                     "event": "0x847b",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x847d",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x847f",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8481",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8483",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8485",
                     "is_field": "false"
                 }
             ],
@@ -769,6 +839,36 @@
                     "eventgroup": "0x847b",
                     "events": [
                         "0x847b"
+                    ]
+                },
+                {
+                    "eventgroup": "0x847d",
+                    "events": [
+                        "0x847d"
+                    ]
+                },
+                {
+                    "eventgroup": "0x847f",
+                    "events": [
+                        "0x847f"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8481",
+                    "events": [
+                        "0x8481"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8483",
+                    "events": [
+                        "0x8483"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8485",
+                    "events": [
+                        "0x8485"
                     ]
                 }
             ]
