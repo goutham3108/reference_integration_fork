@@ -278,6 +278,10 @@
             {
               "eventName": "engine_stop_start_enabled_state",
               "eventId": 2201
+            },
+            {
+              "eventName": "transmission_performance_mode_state",
+              "eventId": 2203
             }
           ]
         }
@@ -465,6 +469,10 @@
             {
               "eventName": "engine_stop_start_enabled_state",
               "eventId": 2202
+            },
+            {
+              "eventName": "transmission_performance_mode_state",
+              "eventId": 2204
             }
           ]
         }
@@ -833,6 +841,11 @@
               "eventName": "engine_stop_start_enabled_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
+            },
+            {
+              "eventName": "transmission_performance_mode_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
             }
           ]
         }
@@ -1063,6 +1076,11 @@
             },
             {
               "eventName": "engine_stop_start_enabled_state",
+              "numberOfSampleSlots": 10,
+              "maxSubscribers": 3
+            },
+            {
+              "eventName": "transmission_performance_mode_state",
               "numberOfSampleSlots": 10,
               "maxSubscribers": 3
             }

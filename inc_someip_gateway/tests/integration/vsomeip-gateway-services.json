@@ -191,6 +191,10 @@
                 {
                     "event": "0x8486",
                     "is_field": "false"
+                },
+                {
+                    "event": "0x8488",
+                    "is_field": "false"
                 }
             ],
             "eventgroups": [
@@ -451,6 +455,12 @@
                     "events": [
                         "0x8486"
                     ]
+                },
+                {
+                    "eventgroup": "0x8488",
+                    "events": [
+                        "0x8488"
+                    ]
                 }
             ]
         },
@@ -629,6 +639,10 @@
                 },
                 {
                     "event": "0x8487",
+                    "is_field": "false"
+                },
+                {
+                    "event": "0x8489",
                     "is_field": "false"
                 }
             ],
@@ -889,6 +903,12 @@
                     "eventgroup": "0x8487",
                     "events": [
                         "0x8487"
+                    ]
+                },
+                {
+                    "eventgroup": "0x8489",
+                    "events": [
+                        "0x8489"
                     ]
                 }
             ]

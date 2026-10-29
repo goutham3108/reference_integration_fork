@@ -51,6 +51,9 @@ inline std::vector<Signal> LoadSignals(const nlohmann::json& document) {
 }
 
 inline std::vector<Payload> TestValues(const Signal& signal) {
+    if (signal.api_name == "Vehicle.Powertrain.Transmission.PerformanceMode") {
+        return {{'N', 'O', 'R', 'M', 'A', 'L'}, {'S', 'P', 'O', 'R', 'T'}, {'N', 'O', 'R', 'M', 'A', 'L'}};
+    }
     if (signal.datatype == "boolean") {
         return {{0U}, {1U}, {0U}};
     }

@@ -8,6 +8,13 @@ def gateway_provider_documents(root):
     mappings = []
     for index, signal in enumerate(signals, start=1):
         event = signal.get("eventName", signal["name"] + "_state")
+        signal_type = signal.get("type")
+        service = "/vehicle_high_beam_tx" if signal_type == "actuator" else "/vehicle_high_beam_rx"
+        instance = "local_tx" if signal_type == "actuator" else "network_rx"
+        direction = {
+            "sensor": "datapoint",
+            "actuator": "actuator",
+        }.get(signal_type, "bidirectional")
         mapping = {
             "signal_id": index,
             "vss_path": signal["apiName"],
@@ -19,16 +26,16 @@ def gateway_provider_documents(root):
                 "float_array": "float_array",
                 "string": "string",
             }[signal["datatype"]],
-            "service": "/vehicle_high_beam_rx",
-            "instance": "network_rx",
+            "service": service,
+            "instance": instance,
             "member": event,
-            "direction": "datapoint" if signal.get("type") == "sensor" else "bidirectional",
+            "direction": direction,
             "cycle_time_ms": 100,
             "required_quality": "valid",
         }
         if signal["datatype"] == "uint8":
             mapping.update({"min": 0, "max": 100, "unit": "percent"})
-        if signal.get("type") != "sensor":
+        if signal_type not in {"sensor", "actuator"}:
             mapping["actuation_binding"] = {
                 "service": "/vehicle_high_beam_tx",
                 "instance": "local_tx",

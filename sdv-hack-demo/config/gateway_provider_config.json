@@ -688,6 +688,17 @@
         },
         {
             "signal_id": 44,
+            "vss_path": "Vehicle.Powertrain.Transmission.PerformanceMode",
+            "datatype": "string",
+            "service": "/vehicle_high_beam_tx",
+            "instance": "local_tx",
+            "member": "transmission_performance_mode_state",
+            "direction": "actuator",
+            "cycle_time_ms": 100,
+            "required_quality": "valid"
+        },
+        {
+            "signal_id": 45,
             "vss_path": "Vehicle.Speed",
             "datatype": "double",
             "service": "VehicleDynamicsService",

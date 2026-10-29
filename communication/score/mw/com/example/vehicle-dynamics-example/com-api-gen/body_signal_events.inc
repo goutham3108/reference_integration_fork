@@ -41,3 +41,4 @@ SCORE_BODY_SIGNAL_EVENT(BodySignalPayload, BodySignalPayload, cell_voltages_stat
 SCORE_BODY_SIGNAL_EVENT(BodySignalPayload, BodySignalPayload, vertical_acceleration_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamCommand, HighBeamCommand, brake_pedal_position_state)
 SCORE_BODY_SIGNAL_EVENT(HighBeamState, HighBeamCommand, engine_stop_start_enabled_state)
+SCORE_BODY_SIGNAL_EVENT(BodySignalText, BodySignalText, transmission_performance_mode_state)

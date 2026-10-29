@@ -53,7 +53,8 @@ struct Frame {
     std::array<std::uint8_t, kMaxPayloadSize> payload{};
 };
 
-inline std::vector<std::vector<std::uint8_t>> TestPayloads(const std::string_view datatype) {
+inline std::vector<std::vector<std::uint8_t>> TestPayloads(
+    const std::string_view datatype, const std::string_view api_name = {}) {
     if (datatype == "boolean") {
         return {{0U}, {1U}, {0U}};
     }
@@ -72,6 +73,11 @@ inline std::vector<std::vector<std::uint8_t>> TestPayloads(const std::string_vie
                 FloatArrayPayload({3.61F, 3.62F, 3.63F, 3.64F})};
     }
     if (datatype == "string") {
+        if (api_name == "Vehicle.Powertrain.Transmission.PerformanceMode") {
+            return {{'N', 'O', 'R', 'M', 'A', 'L'},
+                    {'S', 'P', 'O', 'R', 'T'},
+                    {'N', 'O', 'R', 'M', 'A', 'L'}};
+        }
         return {{'O', 'F', 'F'}, {'F', 'A', 'S', 'T'}, {'O', 'F', 'F'}};
     }
     return {};

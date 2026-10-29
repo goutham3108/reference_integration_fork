@@ -9,8 +9,14 @@ from gateway_provider_codegen import gateway_provider_documents, gateway_provide
 class SignalConfigurationTest(unittest.TestCase):
     def test_gateway_provider_uses_existing_transport_contract(self):
         document = next(iter(gateway_provider_documents(ROOT).values()))
-        assert len(document["mappings"]) == 44
+        assert len(document["mappings"]) == 45
         for mapping in document["mappings"][:-1]:
+            if mapping["vss_path"] == "Vehicle.Powertrain.Transmission.PerformanceMode":
+                assert mapping["service"] == "/vehicle_high_beam_tx"
+                assert mapping["instance"] == "local_tx"
+                assert mapping["direction"] == "actuator"
+                assert "actuation_binding" not in mapping
+                continue
             assert mapping["service"] == "/vehicle_high_beam_rx"
             if mapping["vss_path"] in {
                 "Vehicle.Powertrain.CombustionEngine.IsRunning",
@@ -37,9 +43,9 @@ class SignalConfigurationTest(unittest.TestCase):
         self.signals = read_json(self.demo / "config/body_signals.json")["signals"]
 
     def test_all_requested_signals_have_unique_routes(self):
-        assert len(self.signals) == 43
+        assert len(self.signals) == 44
         for key in ("apiName", "name", "vehicleEvent"):
-            assert len({signal[key] for signal in self.signals}) == 43
+            assert len({signal[key] for signal in self.signals}) == 44
         assert "Vehicle.Cabin.Door.Row2.PassengerSide.IsOpenx" not in {signal["apiName"] for signal in self.signals}
         routes = read_json(self.demo / "signal_routes.json")["routes"]
         wire_ids = set()
@@ -50,6 +56,7 @@ class SignalConfigurationTest(unittest.TestCase):
             "Vehicle.Acceleration.Vertical": "float",
             "Vehicle.Chassis.Brake.PedalPosition": "uint8",
             "Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled": "boolean",
+            "Vehicle.Powertrain.Transmission.PerformanceMode": "string",
         }
         for signal in self.signals:
             route = next(item for item in routes if item["name"] == signal["name"])
@@ -118,7 +125,7 @@ class SignalConfigurationTest(unittest.TestCase):
         example_root = ROOT / "communication/score/mw/com/example/vehicle-dynamics-example"
         declarations = example_root / "com-api-gen/body_signal_events.inc"
         assert declarations.read_text() == body_signal_declarations(ROOT)
-        assert len(declarations.read_text().splitlines()) == 43
+        assert len(declarations.read_text().splitlines()) == 44
         example = read_json(example_root / "etc/mw_com_config.json")
         gateway = read_json(self.gateway / "score/gatewayd/etc/mw_com_config.json")
         for key in ("serviceTypes", "serviceInstances"):
@@ -142,7 +149,7 @@ class SignalConfigurationTest(unittest.TestCase):
         for path, document in configure(ROOT).items():
             assert "low_beam" not in str(document), str(path)
         routes = configure(ROOT)[self.demo / "signal_routes.json"]["routes"]
-        assert len(routes) == 44
+        assert len(routes) == 45
         assert not any(route["service"] == 17152 and route["vehicleEvent"] == 33842 for route in routes)
 
 

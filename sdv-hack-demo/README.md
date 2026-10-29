@@ -30,11 +30,11 @@ payloads, so `speed` returns as `speedAck`. New route entries can be added to
 
 ## Body and Door Signals
 
-The 43 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
+The 44 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
 are registered in `someipd`, `gatewayd`, and the bridge. The last requested
 `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpenx` is normalized to `IsOpen`.
 High-beam event IDs are unchanged; the remaining signals use event pairs
-`0x8434/0x8435` through `0x8486/0x8487` on service `0x4300`.
+`0x8434/0x8435` through `0x8488/0x8489` on service `0x4300`.
 
 From the workspace root, synchronize and check the configuration snapshots:
 
@@ -47,7 +47,7 @@ python3 sdv-hack-demo/configure_signals_test.py
 Each route records its VSS `apiName`, MW::COM `eventName`, datatype, and wire IDs.
 The same synchronizer updates the SCORE vehicle-dynamics example's MW::COM
 config and C++ event declarations under `communication/score/mw/com/example/vehicle-dynamics-example`.
-Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 43 body, door, and powertrain events.
+Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 44 body, door, and powertrain events.
 All Tx events use `PreSerializedData<N>` as in the existing high-beam publisher.
 Rx booleans use native `bool` with `BooleanSerializerConfig`. Rx numeric and
 string events use `PreSerializedData<N>` with `NullSerializerConfig`:
@@ -59,15 +59,15 @@ string events use `PreSerializedData<N>` with `NullSerializerConfig`:
 | `int16` | Two-byte signed integer, big-endian | 2 |
 | `float` | IEEE-754 float32, big-endian | 4 |
 | `float_array` | Packed IEEE-754 float32 values, big-endian; payload length is a multiple of 4, up to 8 values | 32 |
-| `string` | UTF-8 wiper-mode text, without a terminating NUL | 32 |
+| `string` | UTF-8 text, without a terminating NUL | 32 |
 
 The bridge forwards payload bytes unchanged in either direction. `float_array`
 is bounded to eight values by the 32-byte UDP payload. The separate
-`body_signal_test_app` exercises all 43 signals as described below. The legacy
+`body_signal_test_app` exercises all 44 signals as described below. The legacy
 vehicle menus and KUKSA mappings are unchanged. Rebuild and repackage before
 deploying so the binary gateway config and both device route files agree.
 
-### Test All 43 Signals
+### Test All 44 Signals
 
 Use an isolated test rig only. This test sends horn, lighting, lock, window,
 and wiper values. It does not restore the previous state if interrupted.
@@ -95,6 +95,7 @@ The test loads the body routes from `signal_routes.json` and sends:
 - Boolean values: `false`, `true`, `false`.
 - Percentage values: `0`, `50`, `100`, `0`.
 - Wiper modes: `OFF`, `FAST`, `OFF`.
+- Transmission performance modes: `NORMAL`, `SPORT`, `NORMAL`.
 - Oil-temperature values: `20`, `85`, `110`, `20` Celsius.
 - Float and float-array samples for acceleration and cell voltage.
 
@@ -113,7 +114,7 @@ Example output:
 TX Vehicle.Body.Horn.IsActive=true
 RX Vehicle.Body.Horn.IsActive=true
 PASS Vehicle.Body.Horn.IsActive
-Summary: 43/43 signals passed; 0 failed.
+Summary: 44/44 signals passed; 0 failed.
 ```
 
 Each signal passes only if every test value is received. A timeout, missing
@@ -144,9 +145,10 @@ bazel run --config=sdv-demo //sdv-hack-demo/vehicle_app:body_signal_test_app -- 
 ### KUKSA Gateway Compatibility
 
 The demo launcher uses [config/gateway_provider_config.json](config/gateway_provider_config.json),
-generated from the same 43-signal manifest as the gateway. Existing body controls
-remain bidirectional; the six added VSS sensors receive current values from
-`/vehicle_high_beam/network_rx` and do not expose actuation targets. `Vehicle.Speed`
+generated from the same 44-signal manifest as the gateway. Existing body controls
+remain bidirectional; six added VSS sensors receive current values from
+`/vehicle_high_beam/network_rx`, while `Vehicle.Powertrain.Transmission.PerformanceMode`
+is an actuator mapped to `/vehicle_high_beam/local_tx`. `Vehicle.Speed`
 receives the existing double-plus-quality sample from `/Vehicle/Service2/Instance`.
 The launcher no longer filters the broker down to speed and high beam.
 
@@ -458,7 +460,7 @@ Remote menu
 1  High-beam (true/false)
 2  Vehicle.speed (number)
 3  Vehicle.Body.Lights.Parking.IsOn (true/false)
-4  Publish test values for all 43 body signals
+4  Publish test values for all 44 body signals
 q  Quit remote app
 ```
 

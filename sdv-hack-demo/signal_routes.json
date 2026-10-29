@@ -569,6 +569,19 @@
       "remoteInstance": 4097,
       "vehicleEvent": 33926,
       "remoteEvent": 33927
+    },
+    {
+      "name": "transmission_performance_mode",
+      "apiName": "Vehicle.Powertrain.Transmission.PerformanceMode",
+      "ackApiName": "Vehicle.Powertrain.Transmission.PerformanceMode",
+      "datatype": "string",
+      "eventName": "transmission_performance_mode_state",
+      "maxPayloadSize": 32,
+      "service": 17152,
+      "vehicleInstance": 4096,
+      "remoteInstance": 4097,
+      "vehicleEvent": 33928,
+      "remoteEvent": 33929
     }
   ]
 }

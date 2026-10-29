@@ -478,6 +478,17 @@
                     "eventgroup_ids": [
                         33926
                     ]
+                },
+                {
+                    "event_name": "transmission_performance_mode_state",
+                    "event_id": 33928,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    },
+                    "eventgroup_ids": [
+                        33928
+                    ]
                 }
             ],
             "local_service_instances": [
@@ -900,6 +911,17 @@
                     "serialization_config": {},
                     "eventgroup_ids": [
                         33927
+                    ]
+                },
+                {
+                    "event_name": "transmission_performance_mode_state",
+                    "event_id": 33929,
+                    "serialization_config_type": "NullSerializerConfig",
+                    "serialization_config": {
+                        "max_message_size": 32
+                    },
+                    "eventgroup_ids": [
+                        33929
                     ]
                 }
             ],

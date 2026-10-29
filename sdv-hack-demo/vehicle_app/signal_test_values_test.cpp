@@ -8,7 +8,7 @@ int main() {
     try {
         std::ifstream input{"sdv-hack-demo/signal_routes.json"};
         const auto signals = LoadSignals(nlohmann::json::parse(input));
-        if (signals.size() != 43U) {
+        if (signals.size() != 44U) {
             return 1;
         }
         for (const auto& signal : signals) {

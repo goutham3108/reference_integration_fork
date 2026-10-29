@@ -49,6 +49,10 @@ int main() {
             std::vector<std::uint8_t>{0xC1U, 0x1CU, 0xF5U, 0xC3U} ||
         high_beam_udp::TestPayloads("int16").front() != std::vector<std::uint8_t>{0U, 20U} ||
         high_beam_udp::TestPayloads("float_array")[1].size() != 32U ||
+        high_beam_udp::TestPayloads(
+            "string", "Vehicle.Powertrain.Transmission.PerformanceMode") !=
+            std::vector<std::vector<std::uint8_t>>{
+                {'N', 'O', 'R', 'M', 'A', 'L'}, {'S', 'P', 'O', 'R', 'T'}, {'N', 'O', 'R', 'M', 'A', 'L'}} ||
         !high_beam_udp::TestPayloads("unknown").empty()) {
         return 8;
     }

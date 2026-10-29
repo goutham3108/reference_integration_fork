@@ -20,7 +20,7 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
     let config = config();
     config.validate().unwrap();
     validate_score_bindings(&config).unwrap();
-    assert_eq!(config.mappings.len(), 44);
+    assert_eq!(config.mappings.len(), 45);
     for mapping in &config.mappings {
         assert_ne!(mapping.vss_path, "Vehicle.Body.Lights.Beam.Low.IsOn");
         let binding =
@@ -31,8 +31,8 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             assert_eq!(binding.sample_size, 16);
             continue;
         }
-        assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
         if mapping.direction == Direction::Datapoint {
+            assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
             assert!(mapping.actuation_binding.is_none());
             assert_eq!(
                 binding.sample_size,
@@ -46,7 +46,16 @@ fn every_mapping_has_matching_receive_and_target_metadata() {
             );
             continue;
         }
+        if mapping.direction == Direction::Actuator {
+            assert_eq!(mapping.service, "/vehicle_high_beam_tx");
+            assert_eq!(mapping.instance, "local_tx");
+            assert!(mapping.actuation_binding.is_none());
+            assert_eq!(binding.instance_specifier, "/vehicle_high_beam/local_tx");
+            assert_eq!(binding.payload_type, "BodySignalText");
+            continue;
+        }
         assert_eq!(mapping.direction, Direction::Bidirectional);
+        assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
         let target = mapping.actuation_binding.as_ref().unwrap();
         let tx = find_score_binding(&target.service, &target.instance, &target.member).unwrap();
         assert_eq!(tx.instance_specifier, "/vehicle_high_beam/local_tx");
@@ -98,6 +107,12 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
             .unwrap();
         assert_eq!(command.service, "/vehicle_high_beam_tx");
         assert_eq!(command.instance, "local_tx");
+        if mapping.direction == Direction::Actuator {
+            let encoded = BodySignalText::encode(&command.value, "string").unwrap();
+            assert_eq!(encoded.decode().unwrap(), MwComValue::String("FAST".into()));
+            checked += 1;
+            continue;
+        }
         let received = match mapping.datatype {
             VssDataType::Bool => {
                 let raw = HighBeamCommand::encode(&command.value, "boolean").unwrap();
@@ -128,5 +143,5 @@ fn existing_body_targets_and_current_values_use_distinct_directions() {
         assert_eq!(update.datapoint.unwrap().value, value);
         checked += 1;
     }
-    assert_eq!(checked, 37);
+    assert_eq!(checked, 38);
 }
