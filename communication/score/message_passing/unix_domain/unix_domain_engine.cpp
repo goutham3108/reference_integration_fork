@@ -103,11 +103,13 @@ void UnixDomainEngine::RegisterPosixEndpoint(PosixEndpointEntry& endpoint) noexc
     std::int16_t events = 0;
     if (!endpoint.input.empty())
     {
+        // NOLINTNEXTLINE(hicpp-signed-bitwise): POLL* are non-negative POSIX constants and pollfd::events is signed
         events |= POLLIN;
     }
     if (!endpoint.output.empty())
     {
         // TODO: not used/not supported yet
+        // NOLINTNEXTLINE(hicpp-signed-bitwise): POLL* are non-negative POSIX constants and pollfd::events is signed
         events |= POLLOUT;
     }
     const auto found = std::find_if(poll_fds_.begin(), poll_fds_.end(), [](pollfd& poll) noexcept {
@@ -116,7 +118,7 @@ void UnixDomainEngine::RegisterPosixEndpoint(PosixEndpointEntry& endpoint) noexc
     if (found != poll_fds_.end())
     {
         *found = {endpoint.fd, events, 0};
-        std::size_t i = static_cast<std::size_t>(std::distance(poll_fds_.begin(), found));
+        const auto i = static_cast<std::size_t>(std::distance(poll_fds_.begin(), found));
         poll_endpoints_[i] = &endpoint;
     }
     else
@@ -134,7 +136,7 @@ void UnixDomainEngine::UnregisterPosixEndpoint(PosixEndpointEntry& endpoint) noe
     const auto found = std::find(poll_endpoints_.begin(), poll_endpoints_.end(), &endpoint);
     if (found != poll_endpoints_.end())
     {
-        std::size_t i = static_cast<std::size_t>(std::distance(poll_endpoints_.begin(), found));
+        const auto i = static_cast<std::size_t>(std::distance(poll_endpoints_.begin(), found));
         UnpollEndpoint(i);
     }
 }
@@ -192,17 +194,18 @@ score::cpp::expected_blank<score::os::Error> UnixDomainEngine::SendProtocolMessa
     std::uint8_t code,
     const score::cpp::span<const std::uint8_t> message) noexcept
 {
-    struct msghdr msg;
-    std::ignore = std::memset(static_cast<void*>(&msg), 0, sizeof(msg));
+    struct msghdr msg{};
     constexpr auto kVectorCount = 3UL;
-    std::uint16_t size = static_cast<std::uint16_t>(message.size());
-    std::array<iovec, kVectorCount> io;
+    auto size = static_cast<std::uint16_t>(message.size());
+    std::array<iovec, kVectorCount> io{};
+    // Deviation of MISRA RULE-6-8-3: codeql::misra_deviation_next_line(unix-domain-iovec-stack-buffers)
     io[0].iov_base = &code;
     io[0].iov_len = sizeof(code);
+    // Deviation of MISRA RULE-6-8-3: codeql::misra_deviation_next_line(unix-domain-iovec-stack-buffers)
     io[1].iov_base = &size;
     io[1].iov_len = sizeof(size);
     io[2].iov_base = const_cast<std::uint8_t*>(message.data());
-    io[2].iov_len = static_cast<std::size_t>(message.size());
+    io[2].iov_len = message.size();
     msg.msg_iov = io.data();
     msg.msg_iovlen = kVectorCount;
 
@@ -220,13 +223,14 @@ score::cpp::expected<score::cpp::span<const std::uint8_t>, score::os::Error> Uni
     const std::int32_t fd,
     std::uint8_t& code) noexcept
 {
-    struct msghdr msg;
-    std::ignore = std::memset(static_cast<void*>(&msg), 0, sizeof(msg));
+    struct msghdr msg{};
     constexpr auto kVectorCount = 2UL;
     std::uint16_t size{};
-    std::array<iovec, kVectorCount> io;
+    std::array<iovec, kVectorCount> io{};
+    // Deviation of MISRA RULE-6-8-3: codeql::misra_deviation_next_line(unix-domain-iovec-stack-buffers)
     io[0].iov_base = &code;
     io[0].iov_len = sizeof(code);
+    // Deviation of MISRA RULE-6-8-3: codeql::misra_deviation_next_line(unix-domain-iovec-stack-buffers)
     io[1].iov_base = &size;
     io[1].iov_len = sizeof(size);
     msg.msg_iov = io.data();
@@ -243,17 +247,23 @@ score::cpp::expected<score::cpp::span<const std::uint8_t>, score::os::Error> Uni
         // other side disconnected
         return score::cpp::make_unexpected(score::os::Error::createFromErrno(EPIPE));
     }
-    if (size == 0)
+    // size itself must stay std::uint16_t: it is read directly into raw memory via the iovec above
+    // (io[1].iov_len = sizeof(size)), matching the exact 2-byte wire field written by SendProtocolMessage.
+    // Widening it (e.g. to std::size_t, whose width is even platform/bitness-dependent) would change the
+    // number of bytes read off the wire and break the protocol. Instead, widen only a local copy used for
+    // the comparisons below -- size's full range (0..65535) is always exactly representable in std::size_t.
+    const std::size_t message_size = size;
+    if (message_size == 0U)
     {
         return {};
     }
-    if (size > static_cast<std::uint16_t>(posix_receive_buffer_.size()))
+    if (message_size > posix_receive_buffer_.size())
     {
         return score::cpp::make_unexpected(score::os::Error::createFromErrno(EMSGSIZE));
     }
 
     io[0].iov_base = posix_receive_buffer_.data();
-    io[0].iov_len = static_cast<std::size_t>(size);
+    io[0].iov_len = message_size;
     msg.msg_iovlen = 1UL;
 
     using MessageFlag = ::score::os::Socket::MessageFlag;
@@ -262,7 +272,11 @@ score::cpp::expected<score::cpp::span<const std::uint8_t>, score::os::Error> Uni
     {
         return score::cpp::make_unexpected(size_expected.error());
     }
-    if (size_expected.value() != size)
+    // size_expected.value() is a recvmsg() byte count, which is guaranteed non-negative whenever has_value()
+    // is true (already checked above), so the signed-to-unsigned cast below never reinterprets a negative
+    // value.
+    // coverity[autosar_cpp14_a4_7_1_violation]
+    if (static_cast<std::size_t>(size_expected.value()) != message_size)
     {
         return score::cpp::make_unexpected(score::os::Error::createFromErrno(EIO));
     }
@@ -276,7 +290,7 @@ void UnixDomainEngine::SendPipeEvent(PipeEvent pipe_event) noexcept
 
 void UnixDomainEngine::ProcessPipeEvent() noexcept
 {
-    PipeEvent pipe_event;
+    PipeEvent pipe_event{PipeEvent::QUIT};
     std::ignore = os_resources_.unistd->read(pipe_fds_[0], &pipe_event, sizeof(pipe_event));
     if (pipe_event == PipeEvent::TIMER)
     {

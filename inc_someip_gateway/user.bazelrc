@@ -1,0 +1,10 @@
+# Build setting for the SDV demo workspace.
+#
+# gatewayd/someipd must be built against the same communication checkout that KUKSA links
+# (reference_integration_fork/communication), because every LoLa process on the vehicle Pi has to
+# agree on the shared-memory layout. This overrides the module's pinned communication commit
+# without editing MODULE.bazel. Bazel resolves this path relative to the gateway workspace root.
+common --override_module=score_communication=../communication
+
+# Resolving with the override would otherwise rewrite the tracked MODULE.bazel.lock.
+common --lockfile_mode=off

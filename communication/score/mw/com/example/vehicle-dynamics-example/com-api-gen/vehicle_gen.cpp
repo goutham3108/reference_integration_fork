@@ -33,8 +33,27 @@ BEGIN_EXPORT_MW_COM_INTERFACE(
     ::score::mw::com::VehicleHighBeamRxProxy,
     ::score::mw::com::VehicleHighBeamRxSkeleton)
 
-EXPORT_MW_COM_EVENT(::score::mw::com::HighBeamState, high_beam_state)
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+EXPORT_MW_COM_EVENT(::score::mw::com::rx_type, event_name)
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
 
 END_EXPORT_MW_COM_INTERFACE()
 
 EXPORT_MW_COM_TYPE(HighBeamState, ::score::mw::com::HighBeamState)
+EXPORT_MW_COM_TYPE(BodySignalText, ::score::mw::com::BodySignalText)
+EXPORT_MW_COM_TYPE(BodySignalPayload, ::score::mw::com::BodySignalPayload)
+
+BEGIN_EXPORT_MW_COM_INTERFACE(
+    HighBeamTx,
+    ::score::mw::com::HighBeamTxProxy,
+    ::score::mw::com::HighBeamTxSkeleton)
+
+#define SCORE_BODY_SIGNAL_EVENT(rx_type, tx_type, event_name) \
+EXPORT_MW_COM_EVENT(::score::mw::com::tx_type, event_name)
+#include "score/mw/com/example/vehicle-dynamics-example/com-api-gen/body_signal_events.inc"
+#undef SCORE_BODY_SIGNAL_EVENT
+
+END_EXPORT_MW_COM_INTERFACE()
+
+EXPORT_MW_COM_TYPE(HighBeamCommand, ::score::mw::com::HighBeamCommand)

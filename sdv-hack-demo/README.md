@@ -22,11 +22,159 @@ Vehicle.speedAck
 ```
 
 The vehicle application provides a menu for publishing high-beam booleans or
-speed values. The remote endpoint acknowledges configured non-high-beam
+speed values. By default its high-beam commands go through KUKSA VAL v2
+actuation; the KUKSA provider is the sole high-beam MW::COM Tx publisher.
+Speed continues to use the existing vehicle publisher. The remote endpoint acknowledges configured non-high-beam
 payloads, so `speed` returns as `speedAck`. New route entries can be added to
 `signal_routes.json` without changing the UDP frame implementation.
 
+## Body and Door Signals
+
+The 44 body, door, and powertrain signals in [config/body_signals.json](config/body_signals.json)
+are registered in `someipd`, `gatewayd`, and the bridge. The last requested
+`Vehicle.Cabin.Door.Row2.PassengerSide.IsOpenx` is normalized to `IsOpen`.
+High-beam event IDs are unchanged; the remaining signals use event pairs
+`0x8434/0x8435` through `0x8488/0x8489` on service `0x4300`.
+
+From the workspace root, synchronize and check the configuration snapshots:
+
+```bash
+python3 sdv-hack-demo/configure_signals.py --write
+python3 sdv-hack-demo/configure_signals.py
+python3 sdv-hack-demo/configure_signals_test.py
+```
+
+Each route records its VSS `apiName`, MW::COM `eventName`, datatype, and wire IDs.
+The same synchronizer updates the SCORE vehicle-dynamics example's MW::COM
+config and C++ event declarations under `communication/score/mw/com/example/vehicle-dynamics-example`.
+Its `HighBeamTx` and `VehicleHighBeamRx` interfaces expose all 44 body, door, and powertrain events.
+All Tx events use `PreSerializedData<N>` as in the existing high-beam publisher.
+Rx booleans use native `bool` with `BooleanSerializerConfig`. Rx numeric and
+string events use `PreSerializedData<N>` with `NullSerializerConfig`:
+
+| Datatype | Wire Payload | N |
+| --- | --- | --- |
+| `boolean` | One byte, `0` or `1` | 1 |
+| `uint8` | One unsigned byte (positions/intensities/level are percentages) | 1 |
+| `int16` | Two-byte signed integer, big-endian | 2 |
+| `float` | IEEE-754 float32, big-endian | 4 |
+| `float_array` | Packed IEEE-754 float32 values, big-endian; payload length is a multiple of 4, up to 8 values | 32 |
+| `string` | UTF-8 text, without a terminating NUL | 32 |
+
+The bridge forwards payload bytes unchanged in either direction. `float_array`
+is bounded to eight values by the 32-byte UDP payload. The separate
+`body_signal_test_app` exercises all 44 signals as described below. The legacy
+vehicle menus and KUKSA mappings are unchanged. Rebuild and repackage before
+deploying so the binary gateway config and both device route files agree.
+
+### Test All 44 Signals
+
+Use an isolated test rig only. This test sends horn, lighting, lock, window,
+and wiper values. It does not restore the previous state if interrupted.
+
+Rebuild and redeploy both archives using the build/package steps below. Start
+the existing remote app first on the remote Pi:
+
+```bash
+~/sdv-demo/run/start-remote.sh
+```
+
+On the vehicle Pi, start the dedicated test mode:
+
+```bash
+VEHICLE_APP_MODE=signals ~/sdv-demo/run/start-vehicle.sh
+```
+
+This starts `someipd`, `gatewayd`, and the bridge, then runs the test app in
+the foreground without KUKSA or the legacy vehicle publisher. Do not start
+another publisher for `/vehicle_high_beam/local_tx` at the same time. Avoid
+changing the remote switch or menu while the sweep is running.
+
+The test loads the body routes from `signal_routes.json` and sends:
+
+- Boolean values: `false`, `true`, `false`.
+- Percentage values: `0`, `50`, `100`, `0`.
+- Wiper modes: `OFF`, `FAST`, `OFF`.
+- Transmission performance modes: `NORMAL`, `SPORT`, `NORMAL`.
+- Oil-temperature values: `20`, `85`, `110`, `20` Celsius.
+- Float and float-array samples for acceleration and cell voltage.
+
+For each value it waits for a matching Rx value, retrying transmission every
+500 ms for up to 3 seconds. Gateway discovery/subscription allows 20 seconds.
+To increase those limits:
+
+```bash
+VEHICLE_APP_MODE=signals ~/sdv-demo/run/start-vehicle.sh \
+  --timeout-ms 5000 --startup-timeout-ms 30000
+```
+
+Example output:
+
+```text
+TX Vehicle.Body.Horn.IsActive=true
+RX Vehicle.Body.Horn.IsActive=true
+PASS Vehicle.Body.Horn.IsActive
+Summary: 44/44 signals passed; 0 failed.
+```
+
+Each signal passes only if every test value is received. A timeout, missing
+event, or transport error produces `FAIL` and a nonzero exit code. Without
+the remote app, subscriptions alone are not enough to pass. Non-high-beam
+routes are echoed by the existing remote app; high beam uses its existing
+state-reporting path. PASS verifies matching application-level payloads, not
+physical actuator operation or uniquely correlated acknowledgements. Periodic
+or delayed packets can carry the same value.
+
+To list the routes without publishing anything on a deployed vehicle Pi:
+
+```bash
+cd ~/sdv-demo
+./body_signal_test_app --routes signal_routes.json --list
+```
+
+On the build host, run the unit tests and non-publishing app check:
+
+```bash
+bazel test --config=sdv-demo //sdv-hack-demo/vehicle_app:signal_test_values_test
+bazel run --config=sdv-demo //sdv-hack-demo/vehicle_app:body_signal_test_app -- \
+  --routes "$PWD/sdv-hack-demo/signal_routes.json" --list
+```
+
 ## Architecture
+
+### KUKSA Gateway Compatibility
+
+The demo launcher uses [config/gateway_provider_config.json](config/gateway_provider_config.json),
+generated from the same 44-signal manifest as the gateway. Existing body controls
+remain bidirectional; six added VSS sensors receive current values from
+`/vehicle_high_beam/network_rx`, while `Vehicle.Powertrain.Transmission.PerformanceMode`
+is an actuator mapped to `/vehicle_high_beam/local_tx`. `Vehicle.Speed`
+receives the existing double-plus-quality sample from `/Vehicle/Service2/Instance`.
+The launcher no longer filters the broker down to speed and high beam.
+
+The new KUKSA checkout's standalone `BodyControlModuleService` profile is
+retained, but is not used by this SOME/IP demo: its instance names, event
+names, and native sample layouts differ from the working gateway contract.
+The composition binary selects the gateway-compatible adapter when it loads
+the gateway mappings. It checks the required instance paths before opening
+the LoLa runtime.
+
+All three generated files below are refreshed by `configure_signals.py`:
+
+- `sdv-hack-demo/config/gateway_provider_config.json`
+- `kuksa-databroker/mw_com_provider/generated/gateway_bindings.rs`
+- `kuksa-databroker/mw_com_provider/generated/gateway_runtime.rs`
+
+The ARM64 build script runs the synchronizer before building. Packaging
+includes the separate gateway provider config, and the launcher supplies
+the gateway's `mw_com_config.json` as the matching SCORE manifest.
+Use the updated vehicle archive; do not substitute the standalone BCM config.
+
+Default combined mode keeps KUKSA as the sole body-signal Tx publisher.
+`HIGH_BEAM_COMMAND_MODE=direct` disables the gateway adapter's entire body Tx
+offer and exposes those KUKSA mappings as read-only, because all body events
+share one Tx instance with the legacy app. The standalone all-signal tester
+still runs in `VEHICLE_APP_MODE=signals` without KUKSA.
 
 ```text
 Vehicle RPi: 10.56.121.101
@@ -94,6 +242,15 @@ The build scripts cross-compile with Bazel's `aarch64-linux` configuration.
 The local `$HOME/aarch64_toolchain` is a build-host toolchain and is not copied
 to the RPIs.
 
+The demo also uses `--config=sdv-demo` to compile legacy host C dependencies
+as GNU C11. This avoids GLib's `bool` field conflicting with GCC 15's C23
+default without passing a C-only standard flag to C++ tools. For a native
+bridge build from the workspace root:
+
+```bash
+bazel build --config=sdv-demo //sdv-hack-demo/bridge:vehicle_high_beam_bridge
+```
+
 ### Raspberry Pis
 
 Both devices must run a 64-bit Linux distribution:
@@ -132,6 +289,46 @@ The scripts create these Git-ignored archives:
 dist/vehicle-aarch64.tar.gz
 dist/remote-aarch64.tar.gz
 ```
+
+The gateway configuration lives in this folder, not in `inc_someip_gateway`:
+`sdv-hack-demo/config/mw_someip_config.json`, built by
+`//sdv-hack-demo:gateway_config` and packaged as `mw_someip_config.bin`.
+The gateway's generic example config is not used (it only declares window-control
+and echo services). Packaging selects `bazel-out/aarch64-fastbuild/bin` in both
+Bazel workspaces rather than the most recent `bazel-bin` link.
+
+The gateway keys its SOCom connectors by service type name, so one type must
+not have both a local and a remote instance. The demo config therefore uses
+one type per direction: `vehicle_high_beam_tx`/`vehicle_high_beam_rx` and
+`vehicle::VehicleDynamicsService` (Tx, `/Vehicle/Service1/Instance`) /
+`vehicle::VehicleDynamicsService_rx` (Rx, `/Vehicle/Service2/Instance`). Both
+vehicle-dynamics types share SOME/IP service ID `6433`, so the wire format and
+`signal_routes.json` do not change.
+
+The gateway's serializer only knows the original type names. gatewayd therefore
+loads the demo plugin `score_com_serializer.so` (`sdv-hack-demo/serializer/`),
+which maps `..._rx` onto the original name and forwards every call to the
+gateway's own serializer, shipped next to it as `score_com_serializer_base.so`.
+Both libraries must be in the vehicle directory (the launcher puts it first on
+`LD_LIBRARY_PATH`).
+
+`start-vehicle.sh` waits for the gateway's receive shared memory before starting
+KUKSA, allows enough time (about two minutes) for the broker to listen, stops any
+earlier `start_kuksa` retry loop so it cannot respawn a broker and hold port
+`55555`, and aborts with the daemon's log tail if `gatewayd` or `someipd` is not
+running. Repeated subscription attempts reuse the existing LoLa runtime and
+high-beam Tx offer, avoiding a self-conflicting second skeleton.
+
+`inc_someip_gateway` is upstream `eclipse-score/inc_someip_gateway` `main` (commit `32624b21`) plus the
+local changes shown by `git -C inc_someip_gateway diff` (serializer/schema extensions for speed and
+boolean events, `eventgroup_ids` handling and trace logging in `someipd`, and in `gatewayd` the
+empty-handle guard, proxy-creation retry and `App->SOME/IP` trace line). Two upstream bumps are
+deliberately **not** taken because they change the LoLa runtime that KUKSA also links
+(`communication/`): `score_communication` stays `0.3.0` and `score_baselibs` stays `0.2.12` in
+`inc_someip_gateway/MODULE.bazel`. As a consequence upstream's mw::com IPC binding
+(`//score/gateway_ipc_binding:gateway_ipc_binding_mw_com`) and its aggregate test are disabled with
+`target_compatible_with`; re-enable them only when `communication/` and the gateway are upgraded
+together and the whole flow is re-validated.
 
 The vehicle archive includes the gateway executables and runfiles, bridge,
 `databroker-mw-com-demo`, `databroker-cli`, the KUKSA provider configuration
@@ -243,6 +440,82 @@ On `10.56.121.79`:
 The remote app listens on UDP port `35001` and sends sensor frames to
 `10.56.121.101:35000`.
 
+The remote app has no hardware/software mode. It always reads the GPIO 17
+switch (BCM GPIO 17; connect a momentary switch between physical pin 11 and a
+ground pin such as physical pin 6), shows the keyboard menu, and drives the
+GPIO 27 LED. The GPIO uses its internal pull-up, so pressing the switch means
+`High.IsOn=true` and releasing it means `false`. Do not connect 5 V to a GPIO
+pin. The input is debounced, and a changed state is sent to the vehicle
+immediately over the existing UDP route. If GPIO cannot be opened (for example
+off a Pi), the error is logged and the menu and vehicle commands keep working.
+
+The remote menu is shown immediately; GPIO monitoring and LED command reception
+continue in background workers while the menu accepts input. Option 1 sets
+high-beam, option 2 sends speed, option 3 sets parking lights, and option 4
+publishes sample values on all body signal routes. `q` exits the remote app and
+stops its GPIO workers.
+
+```text
+Remote menu
+1  High-beam (true/false)
+2  Vehicle.speed (number)
+3  Vehicle.Body.Lights.Parking.IsOn (true/false)
+4  Publish test values for all 44 body signals
+q  Quit remote app
+```
+
+#### Check Parking Lights in KUKSA
+
+After deploying the updated remote archive, select option `3` and enter
+`true` or `false`. The app publishes the existing `parking_lights` reverse
+route immediately and repeats its last known state every two seconds.
+It also accepts parking-light commands from the vehicle and reports their
+value back. This is software state only; no parking-light GPIO is assigned.
+Until a menu value or vehicle command is received, the app does not publish
+an initial parking-light value.
+
+Start the vehicle in its default combined mode (KUKSA plus vehicle app):
+
+```bash
+~/sdv-demo/run/start-vehicle.sh
+```
+
+In a second vehicle-Pi terminal, read the current value:
+
+```bash
+cd ~/sdv-demo
+./databroker-cli --server http://127.0.0.1:55555 get Vehicle.Body.Lights.Parking.IsOn
+```
+
+The returned boolean should follow option `3` on the remote. Preserve the
+correct IP addresses in both devices' `network.env` files when redeploying.
+Option `4` publishes false/true/false for booleans, 0/50/100/0 for uint8
+percentages, and OFF/FAST/OFF for strings, with five seconds between published
+values. Run the vehicle in its normal
+combined mode so the in-process databroker is listening. This is a publish
+sweep; it does not wait for or verify databroker acknowledgments.
+
+The remote app configures BCM GPIO 27 (physical pin 13) as an active-high LED
+output for commands received from the vehicle side. Wire
+GPIO 27 through a 330-1000 ohm resistor and LED to GND (LED cathode to GND).
+Do not connect a headlight, motor, or relay coil directly to GPIO. The app
+restores the last received vehicle command at startup and sets the output OFF
+on normal exit, Ctrl-C, or SIGTERM; SIGKILL cannot perform cleanup.
+`HIGH_BEAM_GPIO_OUTPUT_CHIP` and `HIGH_BEAM_GPIO_OUTPUT_LINE` override its
+controller/line. Input and output must not share a GPIO line.
+
+GPIO 17, the menu, and vehicle commands all set one shared `High.IsOn` state.
+A change from any source drives the GPIO 27 LED, is saved, and is reported to
+the vehicle immediately; a repeated value does nothing. The state is reported
+back so KUKSA's current value follows the LED. The idle switch at startup does
+not overwrite the restored state.
+
+The app detects Raspberry Pi pin-controller chips by name or label (including
+`pinctrl-rp1`). If startup reports a GPIO permission error, grant the runtime
+user access to that device. The GPIO chip and line can be changed with
+`HIGH_BEAM_GPIO_CHIP` and `HIGH_BEAM_GPIO_LINE` if the Pi exposes them
+differently.
+
 ### 2. Start the Vehicle Stack
 
 On `10.56.121.101`:
@@ -257,7 +530,24 @@ This launcher:
 2. Starts `someipd` in the background.
 3. Starts `gatewayd` in the background.
 4. Starts the UDP bridge in the background.
-5. Starts the vehicle application in the foreground.
+5. Starts KUKSA and waits for its gRPC port in combined command mode.
+6. Starts the vehicle application in the foreground.
+
+The normal `VEHICLE_APP_MODE=combined` (also the default) starts KUKSA and the
+vehicle application together. Default `HIGH_BEAM_COMMAND_MODE=kuksa` routes
+vehicle high-beam menu commands to the local KUKSA broker
+(`VDB_ADDRESS=127.0.0.1:55555`). The provider publishes them on
+`/vehicle_high_beam/local_tx`; the vehicle app does not offer a competing
+high-beam Tx instance. `HIGH_BEAM_COMMAND_MODE=direct` makes the vehicle app
+own that Tx instance and disables KUKSA high-beam actuation. Never mix the two
+Tx owners. `VEHICLE_APP_MODE=signals` is the separate all-signal test mode and
+does not start KUKSA or the regular vehicle application.
+
+KUKSA clients must use VAL v2 `Actuate` or Velocitas VDB `SetDatapoints` for
+commands. Writing a VAL v1 current value is not an actuator command. The broker
+contains one bidirectional High.IsOn entry: Rx updates its current value, and
+actuation uses a separate Tx binding. API acceptance means queued for dispatch,
+not confirmed physical output. UDP remains best-effort.
 
 The vehicle application accepts:
 
@@ -277,12 +567,13 @@ q   Quit
 The speed payload is the vehicle-dynamics example representation: an 8-byte
 `double` followed by a 1-byte quality value (currently `3`).
 
-The remote sensor also provides a menu:
+The remote app provides a keyboard menu:
 
 ```text
 1   Select high-beam and enter true or false
 2   Send Vehicle.speedAck to the vehicle (enter a numeric value)
-q   Quit the input menu
+3   Set Vehicle.Body.Lights.Parking.IsOn (true or false)
+q   Quit the remote app
 ```
 
 The remote endpoint acknowledges incoming `Vehicle.speed` payloads as
@@ -293,6 +584,22 @@ vehicle=12345` remotely and `Vehicle app received Vehicle.speedAck =
 update every two seconds.
 
 ## Expected Logs
+
+In default combined mode the forward-command logs are:
+
+```text
+Vehicle menu requested High.IsOn=1 through KUKSA
+KUKSA accepted vehicle command High.IsOn=1 (not remote output acknowledgement)
+Command transmitted through mw::com Tx service=/vehicle_high_beam_tx value=Bool(true)
+Remote received vehicle-side command High.IsOn=1
+Remote GPIO output applied High.IsOn=1 line=27
+```
+
+The remote UDP frame cannot distinguish a KUKSA client from the vehicle menu;
+both are logged as vehicle-side commands. In software mode the GPIO-apply line
+is absent. Independent input changes are logged as `Remote GPIO BCM 17 input
+set High.IsOn=...` or `Remote menu input set High.IsOn=...`, then received by the
+vehicle app and KUKSA. The legacy logs below apply to direct publisher mode.
 
 When `true` is entered in the vehicle application (menu option `1`), the
 following messages show the forward path:
@@ -400,6 +707,32 @@ pgrep -af 'someipd|gatewayd|vehicle_high_beam'
 ```
 
 ## Inspect and Troubleshoot
+
+### Signal Test Timeouts
+
+`Bridge converted UDP to SOME/IP` means the bridge called `notify()`, not that
+`someipd` or the test app received the event. The bridge registers all Rx
+events before offering each service once, avoiding partial service offers
+while event groups are still being registered.
+
+The bridge logs `Bridge subscription ACK` or `Bridge subscription NACK` for
+its forward subscriptions. For the return direction, `someipd` logs
+`Network received` when its SOME/IP handler runs and `Network->IPC` after
+the IPC update succeeds. Payload-allocation failures are logged explicitly.
+
+For a high-beam-switch timeout, inspect both directions on the vehicle Pi
+(replace the deployment folder as needed):
+
+```bash
+grep -E 'high_beam_switch|8436|8437' \
+  ~/sdv-demo/bridge.log ~/sdv-demo/someipd.log ~/sdv-demo/gatewayd.log | tail -n 80
+```
+
+The forward event is `0x8436`; the return event is `0x8437`. A bridge UDP
+return with no `Network received` for `0x8437` points to local SOME/IP
+delivery/subscription. `Network->IPC` without a test-app `RX` moves the
+investigation to gatewayd's deserialization and MW::COM delivery. Startup
+placeholder-event warnings alone do not prove a permanent subscription failure.
 
 If `someipd` or `gatewayd` crash immediately with:
 

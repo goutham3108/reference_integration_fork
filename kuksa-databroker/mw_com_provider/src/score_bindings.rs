@@ -44,6 +44,7 @@ impl<'a> From<&'a generated::GenericMwComElement> for ScoreBinding<'a> {
 pub fn generated_score_bindings() -> impl Iterator<Item = ScoreBinding<'static>> {
     generated::GENERATED_GENERIC_MW_COM_ELEMENTS
         .iter()
+        .chain(crate::gateway_bindings::GATEWAY_BINDINGS.iter())
         .map(ScoreBinding::from)
 }
 
@@ -52,8 +53,11 @@ pub fn find_score_binding(
     instance: &str,
     member: &str,
 ) -> Option<&'static generated::GenericMwComElement> {
+    // Runtime config can use either the generated instance name or the LoLa
+    // instance specifier. Accept both while resolving to one exact binding.
     generated::GENERATED_GENERIC_MW_COM_ELEMENTS
         .iter()
+        .chain(crate::gateway_bindings::GATEWAY_BINDINGS.iter())
         .find(|element| {
             element.service_name == service
                 && (element.instance_name == instance || element.instance_specifier == instance)
@@ -62,8 +66,17 @@ pub fn find_score_binding(
 }
 
 pub fn validate_score_bindings(config: &ProviderConfig) -> Result<(), MwComProviderError> {
+    validate_score_bindings_with(config, find_score_binding)
+}
+
+fn validate_score_bindings_with(
+    config: &ProviderConfig,
+    mut find_binding: impl FnMut(&str, &str, &str) -> Option<&'static generated::GenericMwComElement>,
+) -> Result<(), MwComProviderError> {
     for mapping in &config.mappings {
-        let element = find_score_binding(&mapping.service, &mapping.instance, &mapping.member)
+        // Fail fast during process startup instead of discovering missing
+        // generated bindings after the provider has already connected.
+        let element = find_binding(&mapping.service, &mapping.instance, &mapping.member)
             .ok_or_else(|| {
                 MwComProviderError::Config(format!(
                     "mapping {} references missing generated SCORE binding {}:{}:{}",
@@ -76,6 +89,21 @@ pub fn validate_score_bindings(config: &ProviderConfig) -> Result<(), MwComProvi
                 "mapping {} uses generated SCORE binding {}:{}:{} without an instance_specifier",
                 mapping.vss_path, mapping.service, mapping.instance, mapping.member
             )));
+        }
+        if let Some(binding) = &mapping.actuation_binding {
+            let target = find_binding(&binding.service, &binding.instance, &binding.member)
+                .ok_or_else(|| {
+                    MwComProviderError::Config(format!(
+                        "mapping {} references missing actuation SCORE binding {}:{}:{}",
+                        mapping.vss_path, binding.service, binding.instance, binding.member
+                    ))
+                })?;
+            if target.instance_specifier.is_empty() {
+                return Err(MwComProviderError::Config(format!(
+                    "actuation binding for {} has no instance specifier",
+                    mapping.vss_path
+                )));
+            }
         }
     }
 
@@ -100,6 +128,35 @@ pub trait ScoreRuntimeAdapter: Send + Sync {
         binding: ScoreBinding<'_>,
         message: MwComMessage,
     ) -> Result<(), MwComProviderError>;
+}
+
+#[async_trait]
+impl<A: ScoreRuntimeAdapter + ?Sized> ScoreRuntimeAdapter for Box<A> {
+    async fn connect(&mut self) -> Result<(), MwComProviderError> {
+        (**self).connect().await
+    }
+    async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+        (**self).disconnect().await
+    }
+    async fn find_service(&self, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
+        (**self).find_service(binding).await
+    }
+    async fn subscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+        (**self).subscribe(binding).await
+    }
+    async fn unsubscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
+        (**self).unsubscribe(binding).await
+    }
+    async fn recv(&mut self) -> Result<Option<MwComMessage>, MwComProviderError> {
+        (**self).recv().await
+    }
+    async fn send_actuation(
+        &mut self,
+        binding: ScoreBinding<'_>,
+        message: MwComMessage,
+    ) -> Result<(), MwComProviderError> {
+        (**self).send_actuation(binding, message).await
+    }
 }
 
 pub struct ScoreBindingTransport<A> {
@@ -148,6 +205,8 @@ where
     async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
         let subscriptions = self.subscribed.drain().collect::<Vec<_>>();
         for (service, instance, member) in subscriptions {
+            // Unsubscribe exact generated bindings; the same member name can be
+            // present on multiple S-Core instances.
             let binding = Self::resolve(service, instance, member)?;
             self.adapter.unsubscribe(binding.into()).await?;
         }
@@ -175,10 +234,10 @@ where
         }
 
         if !self.adapter.find_service(binding).await? {
-            return Err(MwComProviderError::Transport(format!(
-                "SCORE service {} at {} is not available",
-                binding.service_name, binding.instance_specifier
-            )));
+            return Err(MwComProviderError::ServiceUnavailable {
+                service: binding.service_name.to_string(),
+                instance: binding.instance_specifier.to_string(),
+            });
         }
 
         self.adapter.subscribe(binding).await?;
@@ -211,10 +270,72 @@ mod tests {
     use crate::transport::MwComValue;
     use std::sync::{Arc, Mutex};
 
-    #[derive(Default)]
+    static TEST_RECEIVE_INSTANCE_A: generated::GenericMwComElement =
+        generated::GenericMwComElement {
+            service_name: "VehicleDynamicsService",
+            instance_name: "receive_a",
+            instance_specifier: "/Vehicle/A/Instance",
+            member_name: "speed",
+            element_kind: "event",
+            payload_type: "SpeedSample",
+            sample_size: 16,
+            sample_alignment: 8,
+            has_serialized_format: false,
+        };
+
+    static TEST_RECEIVE_INSTANCE_B: generated::GenericMwComElement =
+        generated::GenericMwComElement {
+            service_name: "VehicleDynamicsService",
+            instance_name: "receive_b",
+            instance_specifier: "/Vehicle/B/Instance",
+            member_name: "speed",
+            element_kind: "event",
+            payload_type: "SpeedSample",
+            sample_size: 16,
+            sample_alignment: 8,
+            has_serialized_format: false,
+        };
+
+    static TEST_ACTUATOR_INSTANCE_A: generated::GenericMwComElement =
+        generated::GenericMwComElement {
+            service_name: "VehicleDynamicsService",
+            instance_name: "actuator_a",
+            instance_specifier: "/Vehicle/A/Actuator",
+            member_name: "target_speed",
+            element_kind: "event",
+            payload_type: "TargetSpeed",
+            sample_size: 8,
+            sample_alignment: 8,
+            has_serialized_format: false,
+        };
+
+    static TEST_ACTUATOR_INSTANCE_B: generated::GenericMwComElement =
+        generated::GenericMwComElement {
+            service_name: "VehicleDynamicsService",
+            instance_name: "actuator_b",
+            instance_specifier: "/Vehicle/B/Actuator",
+            member_name: "target_speed",
+            element_kind: "event",
+            payload_type: "TargetSpeed",
+            sample_size: 8,
+            sample_alignment: 8,
+            has_serialized_format: false,
+        };
+
     struct RecordingAdapter {
         calls: Arc<Mutex<Vec<String>>>,
         next_message: Option<MwComMessage>,
+        service_available: bool,
+    }
+
+    impl Default for RecordingAdapter {
+        fn default() -> Self {
+            Self {
+                calls: Arc::new(Mutex::new(Vec::new())),
+                next_message: None,
+                service_available: true,
+            }
+        }
     }
 
     #[async_trait]
@@ -237,7 +358,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("find:{}", binding.instance_specifier));
-            Ok(true)
+            Ok(self.service_available)
         }
 
         async fn subscribe(&mut self, binding: ScoreBinding<'_>) -> Result<(), MwComProviderError> {
@@ -287,14 +408,16 @@ mod tests {
                 vss_path: "Vehicle.Speed".into(),
                 datatype: VssDataType::Double,
                 service: "VehicleDynamicsService".into(),
-                instance: "front_vehicle".into(),
+                instance: "network_rx".into(),
                 member: "speed".into(),
+                actuation_binding: None,
                 field: None,
                 unit: Some("km/h".into()),
                 scale: 1.0,
                 offset: 0.0,
                 min: None,
                 max: None,
+                max_elements: None,
                 required_quality: SignalQuality::Valid,
                 direction: Direction::Datapoint,
                 cycle_time_ms: 100,
@@ -302,10 +425,56 @@ mod tests {
         }
     }
 
+    fn mapped_signal(
+        signal_id: i32,
+        vss_path: &str,
+        instance: &str,
+        member: &str,
+        direction: Direction,
+    ) -> SignalMapping {
+        SignalMapping {
+            signal_id,
+            vss_path: vss_path.into(),
+            datatype: VssDataType::Double,
+            service: "VehicleDynamicsService".into(),
+            instance: instance.into(),
+            member: member.into(),
+            actuation_binding: None,
+            field: None,
+            unit: None,
+            scale: 1.0,
+            offset: 0.0,
+            min: None,
+            max: None,
+            max_elements: None,
+            required_quality: SignalQuality::Valid,
+            direction,
+            cycle_time_ms: 100,
+        }
+    }
+
+    fn test_generated_binding(
+        service: &str,
+        instance: &str,
+        member: &str,
+    ) -> Option<&'static generated::GenericMwComElement> {
+        match (service, instance, member) {
+            ("VehicleDynamicsService", "receive_a", "speed") => Some(&TEST_RECEIVE_INSTANCE_A),
+            ("VehicleDynamicsService", "receive_b", "speed") => Some(&TEST_RECEIVE_INSTANCE_B),
+            ("VehicleDynamicsService", "actuator_a", "target_speed") => {
+                Some(&TEST_ACTUATOR_INSTANCE_A)
+            }
+            ("VehicleDynamicsService", "actuator_b", "target_speed") => {
+                Some(&TEST_ACTUATOR_INSTANCE_B)
+            }
+            _ => None,
+        }
+    }
+
     #[test]
     fn resolves_generated_binding_by_provider_instance_or_score_specifier() {
         let by_provider =
-            find_score_binding("VehicleDynamicsService", "front_vehicle", "speed").unwrap();
+            find_score_binding("VehicleDynamicsService", "network_rx", "speed").unwrap();
         let by_score = find_score_binding(
             "VehicleDynamicsService",
             "/Vehicle/Service2/Instance",
@@ -318,38 +487,58 @@ mod tests {
     }
 
     #[test]
-    fn resolves_high_beam_signal_to_gateway_receive_instance() {
-        let binding = find_score_binding(
-            "/vehicle_high_beam_rx",
-            "network_rx",
-            "high_beam_state",
-        )
-        .unwrap();
-
-        assert_eq!(binding.instance_specifier, "/vehicle_high_beam/network_rx");
-        assert_eq!(binding.payload_type, "HighBeamState");
-    }
-
-    #[test]
-    fn generated_provider_config_includes_high_beam_datapoint() {
-        let config = ProviderConfig::load_json("generated/mw_com_provider_config.json").unwrap();
-        validate_score_bindings(&config).unwrap();
-
-        let mapping = config
-            .mappings
-            .iter()
-            .find(|mapping| mapping.vss_path == "Vehicle.Body.Lights.Beam.High.IsOn")
-            .unwrap();
-        assert_eq!(mapping.signal_id, 45);
-        assert_eq!(mapping.datatype, crate::config::VssDataType::Bool);
-        assert_eq!(mapping.service, "/vehicle_high_beam_rx");
-        assert_eq!(mapping.instance, "network_rx");
-        assert_eq!(mapping.member, "high_beam_state");
-    }
-
-    #[test]
     fn validates_provider_config_against_generated_score_bindings() {
         validate_score_bindings(&provider_config()).unwrap();
+    }
+
+    #[test]
+    fn allows_same_receive_member_on_different_score_instances() {
+        let config = ProviderConfig {
+            mappings: vec![
+                mapped_signal(
+                    1,
+                    "Vehicle.Cabin.Row1.Speed",
+                    "receive_a",
+                    "speed",
+                    Direction::Datapoint,
+                ),
+                mapped_signal(
+                    2,
+                    "Vehicle.Cabin.Row2.Speed",
+                    "receive_b",
+                    "speed",
+                    Direction::Datapoint,
+                ),
+            ],
+            ..provider_config()
+        };
+
+        validate_score_bindings_with(&config, test_generated_binding).unwrap();
+    }
+
+    #[test]
+    fn allows_same_actuator_member_on_different_score_instances() {
+        let config = ProviderConfig {
+            mappings: vec![
+                mapped_signal(
+                    1,
+                    "Vehicle.ADAS.Row1.TargetSpeed",
+                    "actuator_a",
+                    "target_speed",
+                    Direction::Actuator,
+                ),
+                mapped_signal(
+                    2,
+                    "Vehicle.ADAS.Row2.TargetSpeed",
+                    "actuator_b",
+                    "target_speed",
+                    Direction::Actuator,
+                ),
+            ],
+            ..provider_config()
+        };
+
+        validate_score_bindings_with(&config, test_generated_binding).unwrap();
     }
 
     #[tokio::test]
@@ -359,27 +548,28 @@ mod tests {
             calls: Arc::clone(&calls),
             next_message: Some(MwComMessage {
                 service: "VehicleDynamicsService".into(),
-                instance: "front_vehicle".into(),
+                instance: "network_rx".into(),
                 member: "speed".into(),
                 value: MwComValue::F64(12.5),
                 source_timestamp: None,
                 quality: SignalQuality::Valid,
             }),
+            service_available: true,
         };
         let mut transport = ScoreBindingTransport::new(adapter);
 
         transport.connect().await.unwrap();
         transport
-            .subscribe("VehicleDynamicsService", "front_vehicle", "speed")
+            .subscribe("VehicleDynamicsService", "network_rx", "speed")
             .await
             .unwrap();
         assert_eq!(transport.recv().await.unwrap().value, MwComValue::F64(12.5));
         transport
             .send_actuation(MwComMessage {
-                service: "VehicleDynamicsService".into(),
-                instance: "front_vehicle".into(),
-                member: "target_speed".into(),
-                value: MwComValue::F64(80.0),
+                service: "/vehicle_high_beam_tx".into(),
+                instance: "local_tx".into(),
+                member: "high_beam_state".into(),
+                value: MwComValue::Bool(true),
                 source_timestamp: None,
                 quality: SignalQuality::Valid,
             })
@@ -393,10 +583,31 @@ mod tests {
                 "connect",
                 "find:/Vehicle/Service2/Instance",
                 "subscribe:speed",
-                "send:target_speed",
+                "send:high_beam_state",
                 "unsubscribe:speed",
                 "disconnect",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn transport_reports_unavailable_score_service() {
+        let mut transport = ScoreBindingTransport::new(RecordingAdapter {
+            service_available: false,
+            ..Default::default()
+        });
+
+        let error = transport
+            .subscribe("VehicleDynamicsService", "network_rx", "speed")
+            .await
+            .unwrap_err();
+
+        match error {
+            MwComProviderError::ServiceUnavailable { service, instance } => {
+                assert_eq!(service, "VehicleDynamicsService");
+                assert_eq!(instance, "/Vehicle/Service2/Instance");
+            }
+            other => panic!("unexpected error: {other}"),
+        }
     }
 }

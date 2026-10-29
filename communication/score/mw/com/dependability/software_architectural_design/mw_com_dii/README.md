@@ -155,8 +155,7 @@ At least the following interfaces (taken from `mw::core::Map` resp. `std::map`) 
 - `size()`
 - `empty()`
 
-where `mw::com:GenericProxyEvent` is very similar to strongly typed/generated events as specified in SWS_CM_00005 and
-chapter 8.1.3 API Reference in the AUTOSAR SWS Communication Management.
+where `mw::com:GenericProxyEvent` is very similar to strongly typed/generated events.
 These are the deviations:
 
 1. The underlying event data type is `void` (as its exact type is unknown)
@@ -164,8 +163,7 @@ These are the deviations:
 3. For this obviously a void specialization of `mw::com::SamplePtr` is needed. This specialization removes the
    following members:
     - `T& operator*() const noexcept`
-4. `GenericProxyEvent` gets a new member function: `std::size_t GetSampleSize()`, which returns the "static" size of the sample
-   type in bytes.
+4. `GenericProxyEvent` gets new member function: `memory::DataTypeSizeInfo GenericProxyEvent::GetDataTypeSizeInfo()` which returns the "static" size and alignment of the sample type in bytes.
 5. `GenericProxyEvent` gets a new member function: `bool HasSerializedFormat()`, which returns `true` in case the
    representation of the event provided by the implementation is some serialized format or `false` in case the
    representation is that of the expected C++ type. (see [here](#binary-representation-of-untyped-form))
@@ -176,8 +174,7 @@ The data type (see [here](#high-level-solution-proposal-for-mwcom)) for the fiel
 `mw::com::GenericProxy` shall be structurally the same as the [EventMap](#map-for-events). Only difference is, that the
 type is an `mw::com:GenericProxyField` instead of `mw::com:GenericProxyEvent`
 
-where `mw::com:GenericProxyField` is very similar to strongly typed/generated fields as specified in SWS_CM_00008 and
-chapter 8.1.3 API Reference in the AUTOSAR SWS Communication Management.
+where `mw::com:GenericProxyField` is very similar to strongly typed/generated fields.
 These are the deviations:
 
 1. The underlying field data type is `void` (as its exact type is unknown)

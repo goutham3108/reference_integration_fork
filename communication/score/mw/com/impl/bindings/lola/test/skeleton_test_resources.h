@@ -61,12 +61,12 @@ namespace score::mw::com::impl::lola
 
 LolaServiceInstanceDeployment CreateLolaServiceInstanceDeployment(
     LolaServiceInstanceId::InstanceId instance_id,
-    std::vector<std::pair<std::string, LolaEventInstanceDeployment>> lola_event_inst_depls,
-    std::vector<std::pair<std::string, LolaFieldInstanceDeployment>> lola_field_inst_depls,
-    std::vector<std::pair<std::string, LolaMethodInstanceDeployment>> lola_method_inst_depls,
-    std::vector<uid_t> allowed_consumers_qm,
-    std::vector<uid_t> allowed_consumers_asil_b,
-    std::optional<std::size_t> size = std::nullopt,
+    const std::vector<std::pair<std::string, LolaEventInstanceDeployment>>& lola_event_inst_depls,
+    const std::vector<std::pair<std::string, LolaFieldInstanceDeployment>>& lola_field_inst_depls,
+    const std::vector<std::pair<std::string, LolaMethodInstanceDeployment>>& lola_method_inst_depls,
+    const std::vector<uid_t>& allowed_consumers_qm,
+    const std::vector<uid_t>& allowed_consumers_asil_b,
+    std::optional<std::size_t> shm_size = std::nullopt,
     std::optional<std::size_t> control_asil_b_shm_size = std::nullopt,
     std::optional<std::size_t> control_qm_shm_size = std::nullopt);
 
@@ -130,6 +130,8 @@ namespace test
 
 using TestSampleType = std::uint8_t;
 
+constexpr memory::DataTypeSizeInfo kEventSampleTypeSizeInfo{sizeof(TestSampleType), alignof(TestSampleType)};
+
 constexpr std::uint64_t kControlQmMemoryResourceId{0x01234567};
 constexpr std::uint64_t kControlAsilBMemoryResourceId{0x12345678};
 constexpr std::uint64_t kDataMemoryResourceId{0x23456789};
@@ -140,6 +142,9 @@ static constexpr std::size_t kConfiguredDeploymentShmSize{1024U};
 static constexpr std::size_t kConfiguredDeploymentControlAsilBShmSize{1024U};
 static constexpr std::size_t kConfiguredDeploymentControlQmShmSize{1024U};
 static constexpr LolaServiceInstanceId::InstanceId kDefaultLolaInstanceId{16U};
+
+static constexpr memory::DataTypeSizeInfo kTestSampleTypeSizeInfo{sizeof(test::TestSampleType),
+                                                                  alignof(test::TestSampleType)};
 
 static const auto kFooEventName{"fooEvent"};
 static const auto kDumbEventName{"dumbEvent"};
@@ -380,17 +385,9 @@ class SkeletonMemoryManagerTestAttorney
         return nullptr;
     }
 
-    std::optional<EventMetaInfo> GetEventMetaInfo(const ElementFqId element_fq_id) const
+    const EventMetaInfo& GetEventMetaInfo(const ElementFqId element_fq_id) const
     {
-        auto search = skeleton_memory_manager_.storage_->events_metainfo_.find(element_fq_id);
-        if (search == skeleton_memory_manager_.storage_->events_metainfo_.cend())
-        {
-            return std::nullopt;
-        }
-        else
-        {
-            return search->second;
-        }
+        return skeleton_memory_manager_.storage_->GetEventMetaInfo(element_fq_id);
     }
 
   private:
@@ -407,7 +404,7 @@ class SkeletonAttorney
         return SkeletonMemoryManagerTestAttorney{skeleton_.memory_manager_}.GetServiceDataControl(quality_type);
     }
 
-    std::optional<EventMetaInfo> GetEventMetaInfo(const ElementFqId element_fq_id) const
+    const EventMetaInfo& GetEventMetaInfo(const ElementFqId element_fq_id) const
     {
         return SkeletonMemoryManagerTestAttorney{skeleton_.memory_manager_}.GetEventMetaInfo(element_fq_id);
     }
@@ -470,39 +467,18 @@ class SkeletonMockedMemoryFixture : public ::testing::Test
     template <typename SampleType>
     ServiceDataStorage CreateServiceDataStorageWithEvent(ElementFqId element_fq_id) noexcept
     {
+        memory::DataTypeSizeInfo sample_size_info{sizeof(SampleType), alignof(SampleType)};
         ServiceDataStorage service_data_storage{1U, *data_shared_memory_resource_mock_};
 
-        auto* event_data_storage = data_shared_memory_resource_mock_->construct<EventDataStorage<SampleType>>(
-            10U, *data_shared_memory_resource_mock_);
-
-        auto inserted_data_slots = service_data_storage.events_.emplace(
-            std::piecewise_construct, std::forward_as_tuple(element_fq_id), std::forward_as_tuple(event_data_storage));
-        EXPECT_TRUE(inserted_data_slots.second);
-
-        const score::memory::DataTypeSizeInfo sample_meta_info{16U, 16U};
-        auto* event_data_raw_array = event_data_storage->data();
-        auto inserted_meta_info = service_data_storage.events_metainfo_.emplace(
-            std::piecewise_construct,
-            std::forward_as_tuple(element_fq_id),
-            std::forward_as_tuple(sample_meta_info, event_data_raw_array));
-        EXPECT_TRUE(inserted_meta_info.second);
+        service_data_storage.AddEvent(element_fq_id, SlotIndexType{10U}, sample_size_info);
 
         return service_data_storage;
     }
 
-    template <typename SampleType>
-    EventDataStorage<SampleType>& GetEventStorageFromServiceDataStorage(
-        ElementFqId element_fq_id,
-        ServiceDataStorage& service_data_storage) noexcept
+    EventDataStorage& GetEventStorageFromServiceDataStorage(ElementFqId element_fq_id,
+                                                            ServiceDataStorage& service_data_storage) noexcept
     {
-        auto event_data_storage_it = service_data_storage.events_.find(element_fq_id);
-        EXPECT_NE(event_data_storage_it, service_data_storage.events_.cend());
-        auto event_data_storage_offset_ptr = event_data_storage_it->second;
-
-        auto* const typed_event_data_storage =
-            event_data_storage_offset_ptr.template get<EventDataStorage<SampleType>>();
-        EXPECT_NE(typed_event_data_storage, nullptr);
-        return *typed_event_data_storage;
+        return service_data_storage.GetEventDataStorage(element_fq_id);
     }
 
     void CleanUpSkeleton();

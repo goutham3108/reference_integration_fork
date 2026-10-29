@@ -74,6 +74,7 @@
 #include "score/mw/com/types.h"
 
 #include <score/assert.hpp>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -677,11 +678,6 @@ class GlobalRegistryMapping
     static void RegisterInterfaceOperation(const std::string_view interface_id,
                                            std::unique_ptr<InterfaceOperations> ops)
     {
-        std::fprintf(stderr,
-            "[registry] registering interface: %.*s\n",
-            static_cast<int>(interface_id.size()),
-            interface_id.data());
-
         GetInterfaceOperationMap()[interface_id] = std::move(ops);
     }
 
@@ -744,7 +740,10 @@ inline ::score::mw::com::impl::rust::TypeOperationImpl<T>& get_type_operations()
         using ProxyType = proxy_type;                                                                                  \
         using SkeletonType = skeleton_type;                                                                            \
                                                                                                                        \
-        /* Registration helper struct - constructor runs at startup */                                                 \
+        /* Registration helper struct - constructor runs at startup. Kept in an anonymous namespace so that the        \
+           struct and its instance have internal linkage (misc-use-internal-linkage). */                               \
+        namespace                                                                                                      \
+        {                                                                                                              \
         struct id##_InterfaceRegistrationHelper                                                                        \
         {                                                                                                              \
             id##_InterfaceRegistrationHelper()                                                                         \
@@ -759,7 +758,8 @@ inline ::score::mw::com::impl::rust::TypeOperationImpl<T>& get_type_operations()
         };                                                                                                             \
                                                                                                                        \
         /* Force instantiation at startup */                                                                           \
-        static id##_InterfaceRegistrationHelper id##_interface_reg_instance;
+        id##_InterfaceRegistrationHelper id##_interface_reg_instance;                                                  \
+        } /* namespace */
 
 /// \brief Macro to register event member operations
 /// \details Creates registry for event member operations for a specific interface and event name.
@@ -770,6 +770,8 @@ inline ::score::mw::com::impl::rust::TypeOperationImpl<T>& get_type_operations()
 /// \param event_member Event member name in Proxy and Skeleton classes (e.g., left_tire, right_tire)
 /// \note Example usage: EXPORT_MW_COM_EVENT(Tire, left_tire)
 #define EXPORT_MW_COM_EVENT(event_type, event_member)                                                             \
+    namespace                                                                                                     \
+    {                                                                                                             \
     struct event_member##_EventRegistrationHelper                                                                 \
     {                                                                                                             \
         event_member##_EventRegistrationHelper()                                                                  \
@@ -790,7 +792,8 @@ inline ::score::mw::com::impl::rust::TypeOperationImpl<T>& get_type_operations()
         }                                                                                                         \
     };                                                                                                            \
                                                                                                                   \
-    static event_member##_EventRegistrationHelper event_member##_event_reg_instance;
+    event_member##_EventRegistrationHelper event_member##_event_reg_instance;                                     \
+    } /* namespace */
 
 #define END_EXPORT_MW_COM_INTERFACE() }  // namespace id##_detail
 
@@ -800,21 +803,22 @@ inline ::score::mw::com::impl::rust::TypeOperationImpl<T>& get_type_operations()
 /// \param type_tag Type name tag is currently not used but we may need for method and field.
 /// \param type Actual C++ type for which operations are registered
 /// \note Example usage: EXPORT_MW_COM_TYPE(TireType, Tire)
-#define EXPORT_MW_COM_TYPE(type_tag, type)                                                                    \
-    template <>                                                                                               \
-    class score::mw::com::impl::rust::RustRefMutCallable<void, ::score::mw::com::impl::SamplePtr<type>>       \
-    {                                                                                                         \
-      public:                                                                                                 \
-        static void invoke(::score::mw::com::impl::rust::FatPtr ptr_,                                         \
-                           ::score::mw::com::impl::SamplePtr<type> sample) noexcept                           \
-        {                                                                                                     \
-            /* Wrap in placement-new and call the Rust FFI function for closure invocation */                 \
-            alignas(::score::mw::com::impl::SamplePtr<type>) char                                             \
-                storage[sizeof(::score::mw::com::impl::SamplePtr<type>)];                                     \
-            auto* placement_sample = new (storage)::score::mw::com::impl::SamplePtr<type>(std::move(sample)); \
-            ::score::mw::com::impl::rust::mw_com_impl_call_dyn_ref_fnmut_sample(&ptr_, placement_sample);     \
-        }                                                                                                     \
-        static void dispose(::score::mw::com::impl::rust::FatPtr) noexcept {}                                 \
+#define EXPORT_MW_COM_TYPE(type_tag, type)                                                                           \
+    template <>                                                                                                      \
+    class score::mw::com::impl::rust::RustRefMutCallable<void, ::score::mw::com::impl::SamplePtr<type>>              \
+    {                                                                                                                \
+      public:                                                                                                        \
+        static void invoke(::score::mw::com::impl::rust::FatPtr ptr_,                                                \
+                           ::score::mw::com::impl::SamplePtr<type> sample) noexcept                                  \
+        {                                                                                                            \
+            /* Wrap in placement-new and call the Rust FFI function for closure invocation */                        \
+            alignas(::score::mw::com::impl::SamplePtr<type>)                                                         \
+                std::array<char, sizeof(::score::mw::com::impl::SamplePtr<type>)>                                    \
+                    storage{};                                                                                       \
+            auto* placement_sample = new (storage.data())::score::mw::com::impl::SamplePtr<type>(std::move(sample)); \
+            ::score::mw::com::impl::rust::mw_com_impl_call_dyn_ref_fnmut_sample(&ptr_, placement_sample);            \
+        }                                                                                                            \
+        static void dispose(::score::mw::com::impl::rust::FatPtr) noexcept {}                                        \
     };
 
 }  // namespace score::mw::com::impl::rust

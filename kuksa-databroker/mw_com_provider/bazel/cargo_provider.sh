@@ -8,6 +8,16 @@ else
     cd "$script_dir/.."
 fi
 
+provider_root=""
+if [[ -f "xtask/Cargo.toml" ]]; then
+    provider_root="$PWD"
+elif [[ -f "mw_com_provider/xtask/Cargo.toml" ]]; then
+    provider_root="$PWD/mw_com_provider"
+else
+    echo "failed to locate mw_com_provider/xtask/Cargo.toml from $PWD" >&2
+    exit 2
+fi
+
 command="${1:-}"
 if [[ $# -gt 0 ]]; then
     shift
@@ -20,20 +30,14 @@ case "$command" in
     test)
         exec cargo test -p mw_com_provider "$@"
         ;;
-    score-lola-build)
-        exec cargo build -p mw_com_provider --features score-lola --example "${SCORE_E2E_EXAMPLE:-score_lola_live_speed}" "$@"
-        ;;
-    score-lola-live-e2e-local)
-        exec scripts/run-score-lola-live-e2e-local.sh "$@"
-        ;;
     codegen)
-        exec cargo run -p xtask -- codegen "$@"
+        exec cargo run --manifest-path "$provider_root/xtask/Cargo.toml" -- codegen "$@"
         ;;
     verify-codegen)
-        exec cargo run -p xtask -- verify-codegen "$@"
+        exec cargo run --manifest-path "$provider_root/xtask/Cargo.toml" -- verify-codegen "$@"
         ;;
     *)
-        echo "usage: $0 {check|test|score-lola-build|score-lola-live-e2e-local|codegen|verify-codegen} [args...]" >&2
+        echo "usage: $0 {check|test|codegen|verify-codegen} [args...]" >&2
         exit 2
         ;;
 esac

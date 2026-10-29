@@ -20,6 +20,7 @@ local_path_override(
     path = "inc_someip_gateway",
 )
 bazel_dep(name = "nlohmann_json", version = "3.12.0.bcr.1")
+bazel_dep(name = "grpc", version = "1.74.1")
 
 # Include common modules
 include("//bazel_common:score_basic_bazel.MODULE.bazel")

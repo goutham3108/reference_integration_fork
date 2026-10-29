@@ -18,6 +18,7 @@
 #include "score/mw/com/impl/configuration/lola_service_instance_deployment.h"
 #include "score/mw/com/impl/configuration/quality_type.h"
 #include "score/mw/com/impl/configuration/service_identifier_type.h"
+#include "score/mw/com/impl/configuration/someip_service_instance_deployment.h"
 #include "score/mw/com/impl/instance_specifier.h"
 
 #include "score/json/json_parser.h"
@@ -37,14 +38,15 @@ namespace score::mw::com::impl
 class ServiceInstanceDeployment
 {
   public:
-    using BindingInformation = std::variant<LolaServiceInstanceDeployment, score::cpp::blank>;
+    using BindingInformation =
+        std::variant<LolaServiceInstanceDeployment, SomeIpServiceInstanceDeployment, score::cpp::blank>;
 
     explicit ServiceInstanceDeployment(const score::json::Object& json_object);
-    ServiceInstanceDeployment(const ServiceIdentifierType service,
+    ServiceInstanceDeployment(ServiceIdentifierType service,
                               BindingInformation binding,
                               const QualityType asil_level,
                               InstanceSpecifier instance_specifier)
-        : service_{service},
+        : service_{std::move(service)},
           bindingInfo_{std::move(binding)},
           asilLevel_{asil_level},
           instance_specifier_{std::move(instance_specifier)}
@@ -73,7 +75,7 @@ class ServiceInstanceDeployment
     QualityType asilLevel_;
     // coverity[autosar_cpp14_m11_0_1_violation]
     InstanceSpecifier instance_specifier_;
-    constexpr static std::uint32_t serializationVersion = 1U;
+    constexpr static std::uint32_t serializationVersion = 2U;
 };
 
 bool operator==(const ServiceInstanceDeployment& lhs, const ServiceInstanceDeployment& rhs);

@@ -227,7 +227,7 @@ score_com_serializer_result score_com_serializer_deinit() {
 
 namespace {
 
-const score_com_serializer* lookup_serialization_config(
+const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config(
     std::string_view service_type_name, score_com_serializer_element_type element_type,
     std::string_view element_name) {
     const auto config = get_config();
@@ -257,20 +257,17 @@ const score_com_serializer* lookup_serialization_config(
                     if (event->serialization_config_as_VehicleDynamicsSerializerConfig() != nullptr) {
                         if (service_type_name == "vehicle::VehicleDynamicsService" &&
                             (element_name == "speed" || element_name == "speedAck")) {
-                            return &kVehicleDynamicsSerializer;
+                            // The caller turns the result back into a score_com_serializer*.
+                            return reinterpret_cast<const score::mw_someip_config::NullSerializerConfig*>(
+                                &kVehicleDynamicsSerializer);
                         }
                         return nullptr;
                     }
                     if (event->serialization_config_as_BooleanSerializerConfig() != nullptr) {
-                        if ((service_type_name == "/vehicle_high_beam_rx" ||
-                             service_type_name == "vehicle_high_beam_rx") &&
-                            element_name == "high_beam_state") {
-                            return &kBooleanSerializer;
-                        }
-                        return nullptr;
+                        return reinterpret_cast<const score::mw_someip_config::NullSerializerConfig*>(
+                            &kBooleanSerializer);
                     }
-                    return reinterpret_cast<const score_com_serializer*>(
-                        event->serialization_config_as_NullSerializerConfig());
+                    return event->serialization_config_as_NullSerializerConfig();
                 }
             }
         } else if (element_type == score_com_serializer_element_type_method_call) {
@@ -280,8 +277,7 @@ const score_com_serializer* lookup_serialization_config(
             for (const auto* method : *service_type->methods()) {
                 if (method->method_name() != nullptr &&
                     method->method_name()->string_view() == element_name) {
-                    return reinterpret_cast<const score_com_serializer*>(
-                        method->request_serialization_config_as_NullSerializerConfig());
+                    return method->request_serialization_config_as_NullSerializerConfig();
                 }
             }
         } else if (element_type == score_com_serializer_element_type_method_response) {
@@ -291,8 +287,7 @@ const score_com_serializer* lookup_serialization_config(
             for (const auto* method : *service_type->methods()) {
                 if (method->method_name() != nullptr &&
                     method->method_name()->string_view() == element_name) {
-                    return reinterpret_cast<const score_com_serializer*>(
-                        method->response_serialization_config_as_NullSerializerConfig());
+                    return method->response_serialization_config_as_NullSerializerConfig();
                 }
             }
         }
@@ -326,7 +321,7 @@ score_com_serializer_result score_com_serializer_get(
     }
 
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-    *serializer = serializer_config;
+    *serializer = reinterpret_cast<const struct score_com_serializer*>(serializer_config);
 
     return score_com_serializer_result_ok;
 }

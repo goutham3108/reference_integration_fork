@@ -2,8 +2,11 @@
 #include "score/mw/com/runtime_configuration.h"
 #include "score/mw/com/test/common_test_resources/stop_token_sig_term_handler.h"
 #include "score/mw/log/logging.h"
+#include "score/string_manipulation/arguments/arguments.h"
+
 #include <score/stop_token.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -25,7 +28,7 @@ struct MyEventData
 {
     std::uint64_t counter;
 #if PAYLOAD_SIZE > 8
-    char padding[PAYLOAD_SIZE - 8];
+    std::array<char, PAYLOAD_SIZE - 8> padding;
 #endif
 };
 
@@ -47,7 +50,7 @@ constexpr std::string_view kEventName = "Event8Byte";
 
 int run_provider(score::cpp::stop_token stop_token)
 {
-    const auto instance_specifier = score::mw::com::InstanceSpecifier::Create(kInstanceSpecifier).value();
+    const auto instance_specifier = score::mw::com::InstanceSpecifier::Create(std::string{kInstanceSpecifier}).value();
     std::cout << "[PROVIDER] Instance specifier created." << std::endl;
     const score::mw::com::DataTypeMetaInfo meta{sizeof(MyEventData), alignof(MyEventData)};
     std::cout << "[PROVIDER] DataTypeMetaInfo created (size=" << sizeof(MyEventData)
@@ -128,7 +131,7 @@ int run_provider(score::cpp::stop_token stop_token)
 
 int run_consumer()
 {
-    const auto instance_specifier = score::mw::com::InstanceSpecifier::Create(kInstanceSpecifier).value();
+    const auto instance_specifier = score::mw::com::InstanceSpecifier::Create(std::string{kInstanceSpecifier}).value();
 
     score::Result<score::mw::com::ServiceHandleContainer<score::mw::com::GenericProxy::HandleType>> handles_res;
     int retries{0};
@@ -136,7 +139,9 @@ int run_consumer()
     {
         handles_res = score::mw::com::GenericProxy::FindService(instance_specifier);
         if (handles_res.has_value() && !handles_res.value().empty())
+        {
             break;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         retries++;
     }
@@ -180,7 +185,7 @@ int run_consumer()
         // The receiver callback operates on type-erased memory (SamplePtr<const void>)
         const auto get_new_samples_result = generic_event.GetNewSamples(
             [&](auto sample) {
-                auto* typed_sample = static_cast<const MyEventData*>(sample.get());
+                const auto* typed_sample = static_cast<const MyEventData*>(sample.get());
 
                 if (is_first_sample)
                 {
@@ -221,18 +226,28 @@ int run_consumer()
 
 int main(int argc, const char* argv[])
 {
+    const auto arguments = score::string_manipulation::GetArguments(argc, argv);
     std::string mode;
-    for (int i = 1; i < argc; ++i)
-        if (std::string(argv[i]) == "--mode" && i + 1 < argc)
-            mode = argv[++i];
-    score::mw::com::runtime::InitializeRuntime(score::mw::com::runtime::RuntimeConfiguration(argc, argv));
+    for (std::size_t i = 1U; i < arguments.size(); ++i)
+    {
+        if (std::string_view{arguments[i]} == "--mode" && i + 1U < arguments.size())
+        {
+            mode = arguments[++i];
+        }
+    }
+    score::mw::com::runtime::InitializeRuntime(
+        score::mw::com::runtime::RuntimeConfiguration(score::string_manipulation::GetArguments(argc, argv)));
 
     score::cpp::stop_source stop_source{};
     score::mw::com::SetupStopTokenSigTermHandler(stop_source);
 
     if (mode == "provider")
+    {
         return run_provider(stop_source.get_token());
+    }
     if (mode == "consumer")
+    {
         return run_consumer();
+    }
     return 1;
 }

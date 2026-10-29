@@ -166,7 +166,7 @@ cd /home/pmj3kor/score/mwcom_provider_M1/Inisetup/kuksa-databroker
 
 set -gx SCORE_COM_BAZEL_BIN "/mnt/c/Shares/ToRutuja/ToPrashanth/communication/New folder_generatedFilesAfterBuild/bazel-bin"
 set -gx LD_LIBRARY_PATH "$SCORE_COM_BAZEL_BIN/score/mw/com/impl/bindings/lola:$SCORE_COM_BAZEL_BIN/score/mw/com/impl/rust/com-api/com-api-ffi-lola:$SCORE_COM_BAZEL_BIN/score/mw/com/example/vehicle-dynamics-example/com-api-gen:$LD_LIBRARY_PATH"
-cargo run -p databroker-mw-com-demo
+cargo run -p databroker-mw-com
 ```
 
 Then subscribe from the Databroker CLI:

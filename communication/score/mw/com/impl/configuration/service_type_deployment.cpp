@@ -19,6 +19,7 @@
 #include <score/overload.hpp>
 #include <limits>
 #include <sstream>
+#include <utility>
 
 namespace score::mw::com::impl
 {
@@ -71,6 +72,9 @@ std::string ToHashStringImpl(const ServiceTypeDeployment::BindingInformation& bi
         [](const LolaServiceTypeDeployment& service_type_deployment) noexcept -> std::string_view {
             return service_type_deployment.ToHashString();
         },
+        [](const SomeIpServiceTypeDeployment& service_type_deployment) noexcept -> std::string_view {
+            return service_type_deployment.ToHashString();
+        },
         // FP: only one statement in this line
         // coverity[autosar_cpp14_a7_1_7_violation]
         [](const score::cpp::blank&) noexcept -> std::string_view {
@@ -89,8 +93,8 @@ std::string ToHashStringImpl(const ServiceTypeDeployment::BindingInformation& bi
 // This rule states: Common class initialization for non-constant members shall be done by a delegating constructor.
 // Justification: This constructor is used by other constructors for delegation.
 // coverity[autosar_cpp14_a12_1_5_violation]
-ServiceTypeDeployment::ServiceTypeDeployment(const BindingInformation binding)
-    : binding_info_{binding}, hash_string_{ToHashStringImpl(binding_info_)}
+ServiceTypeDeployment::ServiceTypeDeployment(BindingInformation binding)
+    : binding_info_{std::move(binding)}, hash_string_{ToHashStringImpl(binding_info_)}
 {
 }
 
@@ -123,6 +127,9 @@ score::json::Object ServiceTypeDeployment::Serialize() const
 
     auto visitor = score::cpp::overload(
         [&json_object](const LolaServiceTypeDeployment& deployment) {
+            json_object[kBindingInfoKey] = deployment.Serialize();
+        },
+        [&json_object](const SomeIpServiceTypeDeployment& deployment) {
             json_object[kBindingInfoKey] = deployment.Serialize();
         },
         [](const score::cpp::blank&) noexcept {});

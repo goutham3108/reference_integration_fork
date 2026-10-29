@@ -49,6 +49,8 @@ impl MwComMapper {
         let mut by_member = HashMap::new();
         let mut by_signal_id = HashMap::new();
 
+        // Build both lookup directions once. The receive path indexes by
+        // mw::com binding, while the actuation path indexes by Databroker ID.
         for mapping in &config.mappings {
             by_member.insert(
                 MwComKey::new(&mapping.service, &mapping.instance, &mapping.member),
@@ -122,6 +124,8 @@ impl MwComMapper {
             mapping,
             Duration::from_millis(self.config.stale_after_ms),
         )?;
+        // Convert into the VSS-facing value domain before updating Databroker:
+        // this is where scaling, offset, bounds, and type checks are enforced.
         let value = convert_value(&message.value, mapping)?;
         let datapoint = Datapoint {
             ts: SystemTime::now(),
@@ -154,9 +158,18 @@ impl MwComMapper {
         }
 
         Ok(MwComMessage {
-            service: mapping.service.clone(),
-            instance: mapping.instance.clone(),
-            member: mapping.member.clone(),
+            service: mapping.actuation_binding.as_ref().map_or_else(
+                || mapping.service.clone(),
+                |binding| binding.service.clone(),
+            ),
+            instance: mapping.actuation_binding.as_ref().map_or_else(
+                || mapping.instance.clone(),
+                |binding| binding.instance.clone(),
+            ),
+            member: mapping
+                .actuation_binding
+                .as_ref()
+                .map_or_else(|| mapping.member.clone(), |binding| binding.member.clone()),
             value: data_value_to_mw_com(&change.data_value, mapping)?,
             source_timestamp: Some(SystemTime::now()),
             quality: mapping.required_quality,
@@ -212,6 +225,14 @@ fn convert_value(
                 MwComProviderError::Mapping(format!("{} is out of Int32 range", mapping.vss_path))
             })
         }),
+        VssDataType::Int16 => numeric_i64(value, mapping).and_then(|value| {
+            i16::try_from(value)
+                .map(i32::from)
+                .map(DataValue::Int32)
+                .map_err(|_| {
+                MwComProviderError::Mapping(format!("{} is out of Int16 range", mapping.vss_path))
+                })
+        }),
         VssDataType::Int32 => numeric_i64(value, mapping).and_then(|value| {
             i32::try_from(value).map(DataValue::Int32).map_err(|_| {
                 MwComProviderError::Mapping(format!("{} is out of Int32 range", mapping.vss_path))
@@ -236,6 +257,14 @@ fn convert_value(
         VssDataType::Float => {
             numeric_f64(value, mapping).map(|value| DataValue::Float(value as f32))
         }
+        VssDataType::FloatArray => match value {
+            MwComValue::FloatArray(values)
+                if mapping.max_elements.is_some_and(|max| values.len() <= max) =>
+            {
+                Ok(DataValue::FloatArray(values.clone()))
+            }
+            _ => type_error(value, mapping),
+        },
         VssDataType::Double => numeric_f64(value, mapping).map(DataValue::Double),
     }
 }
@@ -253,6 +282,7 @@ fn data_value_to_mw_com(
         (VssDataType::Int8 | VssDataType::Int32 | VssDataType::Int64, DataValue::Int64(value)) => {
             Ok(MwComValue::I64(*value))
         }
+        (VssDataType::Int16, DataValue::Int32(value)) => Ok(MwComValue::I64(*value as i64)),
         (
             VssDataType::Uint8 | VssDataType::Uint32 | VssDataType::Uint64,
             DataValue::Uint32(value),
@@ -266,6 +296,9 @@ fn data_value_to_mw_com(
         }
         (VssDataType::Float | VssDataType::Double, DataValue::Double(value)) => {
             Ok(MwComValue::F64(*value))
+        }
+        (VssDataType::FloatArray, DataValue::FloatArray(values)) => {
+            Ok(MwComValue::FloatArray(values.clone()))
         }
         _ => Err(MwComProviderError::Mapping(format!(
             "actuation value for {} does not match {:?}",
@@ -300,6 +333,8 @@ fn numeric_f64(value: &MwComValue, mapping: &SignalMapping) -> Result<f64, MwCom
         _ => return type_error(value, mapping),
     };
 
+    // Scaling belongs to the mapping, not the generated S-Core payload. This
+    // lets the middleware schema and Databroker VSS value domain evolve apart.
     let scaled = raw * mapping.scale + mapping.offset;
     if let Some(min) = mapping.min {
         if scaled < min {
@@ -341,12 +376,14 @@ mod tests {
             service: "VehicleService".into(),
             instance: "front".into(),
             member: format!("signal{signal_id}"),
+            actuation_binding: None,
             field: None,
             unit: None,
             scale: 1.0,
             offset: 0.0,
             min: None,
             max: None,
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction,
             cycle_time_ms: 100,
@@ -388,6 +425,30 @@ mod tests {
     }
 
     #[test]
+    fn routes_bidirectional_commands_to_separate_tx_binding() {
+        let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
+        signal.actuation_binding = Some(crate::config::ActuationBinding {
+            service: "/vehicle_high_beam_tx".into(),
+            instance: "local_tx".into(),
+            member: "signal1".into(),
+        });
+        let mapper = mapper_with(vec![signal]);
+        let command = mapper
+            .actuation_to_message(&ActuationChange {
+                id: 1,
+                data_value: DataValue::Bool(true),
+            })
+            .unwrap();
+        assert_eq!(command.service, "/vehicle_high_beam_tx");
+        assert_eq!(command.instance, "local_tx");
+        let (id, update) = mapper
+            .message_to_update(&message("signal1", MwComValue::Bool(false)))
+            .unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Bool(false));
+    }
+
+    #[test]
     fn converts_scaled_datapoint() {
         let mapper = mapper();
         let message = MwComMessage {
@@ -418,9 +479,11 @@ mod tests {
 
         let error = mapper.message_to_update(&message).unwrap_err();
 
-        assert!(error
-            .to_string()
-            .contains("no mapping for OtherService:front:speed"));
+        assert!(
+            error
+                .to_string()
+                .contains("no mapping for OtherService:front:speed")
+        );
     }
 
     #[test]
@@ -477,6 +540,36 @@ mod tests {
             .unwrap();
 
         assert_eq!(update.datapoint.unwrap().value, DataValue::Uint32(255));
+    }
+
+    #[test]
+    fn converts_int16_datapoint_to_databroker_int32() {
+        let mapper = mapper_with(vec![mapping(1, Direction::Datapoint, VssDataType::Int16)]);
+        let (_id, update) = mapper
+            .message_to_update(&message("signal1", MwComValue::I64(-12)))
+            .unwrap();
+        assert_eq!(update.datapoint.unwrap().value, DataValue::Int32(-12));
+    }
+
+    #[test]
+    fn converts_bounded_float_array_and_rejects_oversized_values() {
+        let mut signal = mapping(1, Direction::Datapoint, VssDataType::FloatArray);
+        signal.max_elements = Some(8);
+        let mapper = mapper_with(vec![signal]);
+        let values = vec![3.6, 3.7, 3.8];
+        let (_id, update) = mapper
+            .message_to_update(&message(
+                "signal1",
+                MwComValue::FloatArray(values.clone()),
+            ))
+            .unwrap();
+        assert_eq!(update.datapoint.unwrap().value, DataValue::FloatArray(values));
+        assert!(mapper
+            .message_to_update(&message(
+                "signal1",
+                MwComValue::FloatArray(vec![0.0; 9]),
+            ))
+            .is_err());
     }
 
     #[test]

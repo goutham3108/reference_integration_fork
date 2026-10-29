@@ -23,11 +23,14 @@ pub enum MwComValue {
     I64(i64),
     U64(u64),
     F64(f64),
+    FloatArray(Vec<f32>),
     Bytes(Vec<u8>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MwComMessage {
+    // These three fields are the stable lookup key between generated S-Core
+    // metadata and the runtime provider config.
     pub service: String,
     pub instance: String,
     pub member: String,
@@ -36,6 +39,9 @@ pub struct MwComMessage {
     pub quality: SignalQuality,
 }
 
+// Middleware integrations implement this trait. The provider stays independent
+// of S-Core LoLa details; tests use the mock transport and production uses the
+// generated ScoreBindingTransport adapter.
 #[async_trait]
 pub trait MwComTransport: Send + Sync {
     async fn connect(&mut self) -> Result<(), MwComProviderError>;

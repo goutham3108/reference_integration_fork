@@ -150,11 +150,14 @@ fn bound_value(data_type: VssDataType, value: f64) -> DataValue {
     match data_type {
         VssDataType::Bool => DataValue::Bool(value != 0.0),
         VssDataType::String => DataValue::String(value.to_string()),
-        VssDataType::Int8 | VssDataType::Int32 => DataValue::Int32(value as i32),
+        VssDataType::Int8 | VssDataType::Int16 | VssDataType::Int32 => {
+            DataValue::Int32(value as i32)
+        }
         VssDataType::Int64 => DataValue::Int64(value as i64),
         VssDataType::Uint8 | VssDataType::Uint32 => DataValue::Uint32(value as u32),
         VssDataType::Uint64 => DataValue::Uint64(value as u64),
         VssDataType::Float => DataValue::Float(value as f32),
+        VssDataType::FloatArray => DataValue::FloatArray(Vec::new()),
         VssDataType::Double => DataValue::Double(value),
     }
 }
@@ -165,12 +168,14 @@ fn data_type(data_type: VssDataType) -> DataType {
         VssDataType::Bool => DataType::Bool,
         VssDataType::String => DataType::String,
         VssDataType::Int8 => DataType::Int8,
+        VssDataType::Int16 => DataType::Int16,
         VssDataType::Int32 => DataType::Int32,
         VssDataType::Int64 => DataType::Int64,
         VssDataType::Uint8 => DataType::Uint8,
         VssDataType::Uint32 => DataType::Uint32,
         VssDataType::Uint64 => DataType::Uint64,
         VssDataType::Float => DataType::Float,
+        VssDataType::FloatArray => DataType::FloatArray,
         VssDataType::Double => DataType::Double,
     }
 }

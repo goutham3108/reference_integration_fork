@@ -34,6 +34,8 @@
 #include "score/mw/com/runtime.h"
 #include "score/mw/com/types.h"
 #include "score/mw/log/logging.h"
+#include "score/string_manipulation/arguments/arguments.h"
+
 
 #include <limits>
 #include <string_view>
@@ -59,7 +61,7 @@ ProxyEventBase* mw_com_get_event_from_proxy(ProxyBase* proxy_ptr, StringView int
     auto event = static_cast<std::string_view>(event_id);
     auto id = static_cast<std::string_view>(interface_id);
 
-    auto registry = GlobalRegistryMapping::FindMemberOperation(id, event);
+    auto* registry = GlobalRegistryMapping::FindMemberOperation(id, event);
 
     if (registry == nullptr)
     {
@@ -86,7 +88,7 @@ SkeletonEventBase* mw_com_get_event_from_skeleton(SkeletonBase* skeleton_ptr,
     auto event = static_cast<std::string_view>(event_id);
     auto id = static_cast<std::string_view>(interface_id);
 
-    auto registry = GlobalRegistryMapping::FindMemberOperation(id, event);
+    auto* registry = GlobalRegistryMapping::FindMemberOperation(id, event);
 
     if (registry == nullptr)
     {
@@ -125,12 +127,7 @@ bool mw_com_proxy_event_subscribe(ProxyEventBase* event_ptr, uint32_t max_sample
 
     auto result = event_ptr->Subscribe(max_sample_count);
 
-    if (!result.has_value())
-    {
-        return false;
-    }
-
-    return true;
+    return result.has_value();
 }
 
 /// \brief Unsubscribe from a proxy event to release sample buffers
@@ -154,45 +151,16 @@ ProxyBase* mw_com_create_proxy(StringView interface_id, const HandleType& handle
 {
     if (interface_id.data == nullptr)
     {
-        std::fprintf(stderr, "[registry] interface_id.data is null\n");
         return nullptr;
     }
-
     auto id = static_cast<std::string_view>(interface_id);
-
-    std::fprintf(
-        stderr,
-        "[registry] looking up interface: %.*s\n",
-        static_cast<int>(id.size()),
-        id.data());
-
-    auto registry = GlobalRegistryMapping::FindInterfaceRegistry(id);
+    auto* registry = GlobalRegistryMapping::FindInterfaceRegistry(id);
 
     if (registry == nullptr)
     {
-        std::fprintf(
-            stderr,
-            "[registry] interface not registered: %.*s\n",
-            static_cast<int>(id.size()),
-            id.data());
-
         return nullptr;
     }
-
-    std::fprintf(
-        stderr,
-        "[registry] interface found, creating proxy: %.*s\n",
-        static_cast<int>(id.size()),
-        id.data());
-
-    auto* proxy = registry->CreateProxy(handle_ptr);
-
-    std::fprintf(
-        stderr,
-        "[registry] CreateProxy returned: %p\n",
-        static_cast<void*>(proxy));
-
-    return proxy;
+    return registry->CreateProxy(handle_ptr);
 }
 
 /// \brief Create skeleton instance dynamically
@@ -208,7 +176,7 @@ SkeletonBase* mw_com_create_skeleton(StringView interface_id, ::score::mw::com::
     }
 
     auto id = static_cast<std::string_view>(interface_id);
-    auto registry = GlobalRegistryMapping::FindInterfaceRegistry(id);
+    auto* registry = GlobalRegistryMapping::FindInterfaceRegistry(id);
 
     if (registry == nullptr)
     {
@@ -290,7 +258,7 @@ std::uint32_t mw_com_type_registry_get_samples_from_event(ProxyEventBase* event_
 
     auto result = type_ops->GetSamplesFromEvent(event_ptr, max_samples, *callback);
 
-    if (result.has_value() == false)
+    if (!result.has_value())
     {
         return std::numeric_limits<std::uint32_t>::max();
     }
@@ -397,11 +365,7 @@ bool mw_com_proxy_set_event_receive_handler(ProxyEventBase* event_ptr, const Fat
     }
 
     auto result = event_ptr->SetReceiveHandler(RustFnMutCallable<RustBoxedCallable>{*boxed_handler});
-    if (result.has_value() == false)
-    {
-        return false;
-    }
-    return true;
+    return result.has_value();
 }
 
 /// \brief Clear event receive handler for proxy event
@@ -495,7 +459,7 @@ const void* mw_com_get_type_ops_instance(StringView interface_id, StringView mem
     auto id = static_cast<std::string_view>(interface_id);
     auto member = static_cast<std::string_view>(member_name);
 
-    auto registry = GlobalRegistryMapping::FindMemberOperation(id, member);
+    auto* registry = GlobalRegistryMapping::FindMemberOperation(id, member);
 
     if (registry == nullptr)
     {
@@ -594,7 +558,7 @@ const ::score::mw::com::impl::HandleType* mw_com_impl_handle_container_get_handl
 /// \param argc Number of command-line arguments
 void mw_com_impl_initialize(const char* argv[], std::int32_t argc)
 {
-    ::score::mw::com::runtime::InitializeRuntime(argc, argv);
+    ::score::mw::com::runtime::InitializeRuntime(score::string_manipulation::GetArguments(argc, argv));
 }
 
 /// \brief Get the size of a SamplePtr

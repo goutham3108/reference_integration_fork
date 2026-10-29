@@ -27,6 +27,7 @@
 
 #include <iostream>
 #include <mutex>
+#include <utility>
 
 namespace score::mw::com::test
 {
@@ -36,6 +37,8 @@ namespace
 const std::chrono::seconds kMaxHandleNotificationWaitTime{15U};
 }  // namespace
 
+namespace
+{
 void DoConsumerActionsWithProxy(CheckPointControl& check_point_control,
                                 HandleNotificationData& handle_notification_data,
                                 score::cpp::stop_token test_stop_token,
@@ -340,6 +343,7 @@ void DoConsumerActionsWithOutProxy(CheckPointControl& check_point_control,
     }
     check_point_control_error_guard.Release();
 }
+}  // namespace
 
 /// \brief Implements Actions/Steps done by the Consumer process in the Partial Restart ITF
 /// \param check_point_control communication/sync object to interact with the parent/controller process.
@@ -392,7 +396,7 @@ void DoConsumerActions(CheckPointControl& check_point_control,
         return;
     }
 
-    auto find_service_callback = [&handle_notification_data, &check_point_control](auto service_handle_container,
+    auto find_service_callback = [&handle_notification_data, &check_point_control](const auto& service_handle_container,
                                                                                    auto) noexcept {
         HandleReceivedNotification(service_handle_container, handle_notification_data, check_point_control);
     };

@@ -15,341 +15,298 @@
 
 # mw::com Provider for Kuksa Databroker
 
-`mw_com_provider` is a Rust provider crate that bridges S-Core `mw::com` service data with Kuksa Databroker VSS signals. Transport-specific logic is isolated behind a small async trait, incoming middleware samples are mapped to VSS datapoints, and actuator targets from Kuksa clients are mapped back to middleware messages.
+`mw_com_provider` is a Rust provider module that connects S-Core `mw::com` services to Kuksa Databroker VSS entries. It receives middleware samples, maps them to VSS datapoints, writes them into Databroker, and forwards Kuksa actuator requests back to `mw::com`.
 
-The crate contains the Databroker-facing API integration, mapping layer, quality checks, reconnect handling, reference-generated provider metadata/config consumption, mock transport, generated SCORE binding transport, and a feature-gated S-Core LoLa runtime adapter. Default builds remain independent from S-Core so normal provider tests stay lightweight, while `score-lola` enables the real adapter source when the S-Core checkout and runtime dependencies are available.
+The module is intentionally optional. Databroker core can run without it, and no Databroker core source changes are required for the provider. Projects that need S-Core integration can add this module and the `databroker-mw-com` composition binary; projects that do not need S-Core can ignore them.
+
+## Functional Overview
+
+The provider owns the Databroker-facing integration and the middleware abstraction. Its main responsibilities are:
+
+- Register configured VSS datapoints and actuators with Databroker.
+- Receive S-Core `mw::com` event samples through `MwComTransport`.
+- Convert middleware values into Databroker `DataValue` updates.
+- Validate data type, signal direction, quality, scaling, and min/max constraints.
+- Write accepted samples into Databroker using `update_entries`.
+- Receive actuator requests from Databroker and publish typed S-Core LoLa events.
+- Bridge Kuksa `val.v1` actuator-target writes to the same actuation path used by `val.v2` actuation callbacks.
+- Reconnect and clean up middleware subscriptions if the transport fails.
+
+The default feature set uses an in-memory mock transport. This keeps provider unit tests and provider E2E tests independent from S-Core. The `score-lola` feature enables the generated S-Core LoLa adapter and local temporary S-Core Rust crate shims.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-		MW[mw::com service/member] <--> T[MwComTransport]
-		T <--> P[MwComProvider]
-		P <--> M[MwComMapper]
-		M <--> C[ProviderConfig]
-		P --> B[Kuksa Databroker]
-		B --> K[Kuksa gRPC clients]
+    SCore[S-Core mw::com service] -->|event samples| Transport[MwComTransport]
+    Transport --> Provider[MwComProviderWorker]
+    Provider --> Mapper[MwComMapper]
+    Mapper --> Broker[(Kuksa Databroker)]
+    Broker --> Clients[Kuksa gRPC clients]
+    Clients -->|actuate| Broker
+    Broker --> Provider
+    Provider -->|actuation message| Transport
+    Transport -->|typed LoLa event| SCore
 ```
 
-Editable Draw.io diagrams are available in [docs/mw_com_provider_lld.drawio](docs/mw_com_provider_lld.drawio). The file contains these pages:
+The provider is split into small layers:
 
-- Component Block Diagram
-- Startup Sequence
-- Inbound Datapoint Flow
-- Outbound Actuation Flow
-- End-to-End Architecture
-- Code-Level Startup Behavior
-- Config-Code Generation User Flow
-- Code-Level Startup Behavior - S-Core LoLa
-- Config-Code Generation - S-Core Bindings
+| Layer | Purpose |
+| --- | --- |
+| `provider.rs` | Databroker registration, worker loop, receive publishing, actuation queue, v1 actuator-target bridge. |
+| `mapper.rs` | O(1) mapping between `mw::com` messages and Databroker updates or actuation messages. |
+| `transport.rs` | Transport trait plus mock transport used by tests. |
+| `score_bindings.rs` | Generated binding lookup and `ScoreRuntimeAdapter` delegation. |
+| `generated/` | Generated S-Core types, interfaces, metadata, runtime config, and LoLa adapter. |
+| `templates/reference-codegen/` | Templates used to regenerate the checked-in generated provider artifacts. |
 
-The same flows are described in [docs/low-level-design.md](docs/low-level-design.md).
-
-## Project Structure
-
-```text
-mw_com_provider/
-├── Cargo.toml
-├── MODULE.bazel
-├── BUILD.bazel
-├── README.md
-├── build.rs
-├── bazel/
-│   ├── mw_com_provider.bzl
-│   └── cargo/
-│       └── third_party.Cargo.toml
-├── generated/
-│   ├── files.json
-│   ├── mw_com_provider_config.json
-│   ├── mw_com_provider_instances.rs
-│   ├── mw_com_provider_interfaces.rs
-│   ├── mw_com_provider_metadata.rs
-│   └── mw_com_provider_types.rs
-├── models/
-│   └── vehicle_dynamics.json
-├── templates/
-│   └── reference-codegen/
-├── xtask/
-│   └── src/
-├── native/
-│   ├── mw_com_native_bridge.h
-│   └── mw_com_native_bridge.cpp
-├── src/
-│   ├── lib.rs
-│   ├── provider.rs
-│   ├── transport.rs
-│   ├── native_bridge.rs
-│   ├── mapper.rs
-│   ├── config.rs
-│   ├── lifecycle.rs
-│   ├── quality.rs
-│   ├── score_bindings.rs
-│   ├── bindings.rs
-│   └── error.rs
-└── docs/
-		├── folder-structure.md
-		├── bazel-toolchain.md
-		├── low-level-design.md
-		├── mw_com_provider_lld.drawio
-		├── samples.md
-		└── startup.md
-```
-
-See [docs/folder-structure.md](docs/folder-structure.md) for the responsibility of each file. The Bazel integration entry point is described in [docs/bazel-toolchain.md](docs/bazel-toolchain.md).
-
-## Databroker Integration
-
-The provider uses Databroker's internal Rust provider contracts:
-
-- `SignalProvider` for externally supplied VSS datapoints.
-- `ActuationProvider` for actuator targets that must be sent to middleware.
-- `register_signals(...)` to register datapoint or bidirectional mappings.
-- `provide_actuation(...)` to register actuator or bidirectional mappings.
-- `update_entries(...)` to write accepted middleware samples into Databroker.
+## Data Flow
 
 Inbound datapoint flow:
 
 ```text
-mw::com event
-		-> MwComTransport::recv
-		-> MwComMapper::message_to_update
-		-> DataBroker::update_entries
-		-> Kuksa clients read or subscribe to VSS data
+S-Core LoLa event sample
+    -> generated LolaScoreRuntimeAdapter
+    -> MwComTransport::recv
+    -> MwComMapper::message_to_update
+    -> DataBroker::update_entries
+    -> Kuksa read/subscribe clients
 ```
 
 Outbound actuation flow:
 
 ```text
-Kuksa Actuate / BatchActuate
-		-> DataBroker::actuate / batch_actuate
-		-> MwComProvider::actuate
-		-> MwComMapper::actuation_to_message
-		-> MwComTransport::send_actuation
-		-> mw::com service/member
+Kuksa val.v2 Actuate or BatchActuate
+    -> Databroker ActuationProvider callback
+    -> MwComMapper::actuation_to_message
+    -> MwComTransport::send_actuation
+    -> generated LoLa producer event
+    -> S-Core application
 ```
 
-## Build
+Kuksa `val.v1` CLI actuation writes the actuator target field instead of calling the `val.v2` actuation callback. To keep existing CLI demos working without Databroker core changes, the provider subscribes to actuator-target updates and forwards them into the same `send_actuation` path.
 
-This crate depends on Databroker internal Rust APIs. For a standalone checkout, place a compatible Kuksa Databroker repository checkout next to this repository so the manifest path dependency resolves:
+## Optional Databroker Composition
+
+The provider can be used in two ways:
+
+- Embedded by an application that already owns a Databroker instance and wants to register an `MwComProviderWorker`.
+- Through `databroker-mw-com`, a composition binary that starts Databroker and the provider in the same process.
+
+`databroker-mw-com` is the recommended integration binary for the current check-in. It:
+
+- Creates the Databroker instance.
+- Seeds VSS metadata from the provider config.
+- Validates generated S-Core bindings.
+- Starts the provider worker using `LolaScoreRuntimeAdapter`.
+- Exposes Kuksa `val.v1` and `val.v2` gRPC APIs on `127.0.0.1:55555` by default.
+
+The binary defaults to:
 
 ```text
-Inisetup/
-├── kuksa-databroker/  # full Kuksa Databroker repository checkout
-│   └── databroker/    # Databroker Rust package used by this crate
-└── mw_com_provider/
+provider config: mw_com_provider/generated/mw_com_provider_config.json
+S-Core LoLa config: mw_com_provider/generated/vehicle_dynamics_lola_config.json
+address: 127.0.0.1:55555
 ```
 
-Run a package check from this repository root:
+## Included Files
 
-```console
-cargo check
+The current package keeps the S-Core generated artifacts locally because the required generated values and scripts are not yet available from the S-Core repository. These files should move to upstream S-Core ownership once that integration exists.
+
+| Path | Purpose |
+| --- | --- |
+| `src/` | Provider runtime, mapper, lifecycle, transport abstractions, and score binding integration. |
+| `tests/e2e_stubbed_score.rs` | Provider E2E test using Databroker plus mock `mw::com`, without S-Core. |
+| `generated/` | Generated provider config, metadata, S-Core interfaces/types, LoLa adapter, and LoLa config. |
+| `models/vehicle_dynamics.json` | Reference model used to generate the current vehicle dynamics provider artifacts. |
+| `templates/reference-codegen/` | Reference generator templates for the provider artifacts. |
+| `score_com_cargo/` | Temporary Cargo manifests/shims over S-Core runtime crates. |
+| `docs/s-core-integration.md` | Practical integration guide for wiring this provider to S-Core applications. |
+
+## Build And Test
+
+Run these commands from the Kuksa Databroker workspace root.
+
+Format check:
+
+```sh
+cargo fmt -p mw_com_provider --check
 ```
 
-## Ubuntu 24.04 Dev Container
+Provider unit tests:
 
-The repository includes a VS Code dev container in [.devcontainer/devcontainer.json](.devcontainer/devcontainer.json). It runs Ubuntu 24.04 and mounts `/home/pmj3kor/score` at the same path inside the container so the existing Databroker and S-Core relative path dependencies continue to resolve.
-
-Open the repo in VS Code and run **Dev Containers: Reopen in Container**. The container also mounts `/mnt/c`, so the local S-Core communication checkout configured in [MODULE.bazel](MODULE.bazel) is available inside the container.
-
-Inside the dev container, run the live E2E test through Bazel:
-
-```console
-cd /home/pmj3kor/score/mwcom_provider_M1/Inisetup/mw_com_provider
-
-bazel run //:score_lola_live_e2e
+```sh
+cargo test -p mw_com_provider provider::tests
+cargo test -p mw_com_provider score_bindings::tests
 ```
 
-The provider E2E process stays alive until it observes 25 changed speed values by default. Pass a sample count only when a shorter or longer run is needed.
+Provider E2E test without S-Core:
 
-```console
-SCORE_E2E_SAMPLE_COUNT=50 \
-SCORE_E2E_TIMEOUT_SECS=60 \
-bazel run //:score_lola_live_e2e
+```sh
+cargo test -p mw_com_provider --test e2e_stubbed_score
 ```
 
-Use [scripts/run-score-lola-live-e2e.sh](scripts/run-score-lola-live-e2e.sh) only when running from a non-Ubuntu-24 host and staging into an existing Ubuntu 24 container such as `loving_payne`.
+Normal provider build without S-Core:
 
-Run package tests:
-
-```console
-cargo test
+```sh
+cargo check -p mw_com_provider
 ```
 
-The Bazel entry point keeps Databroker and provider compilation in Cargo while giving integration flows a Bazel-facing command surface:
+S-Core LoLa adapter and composition binary checks:
 
-```console
-bazel run //:cargo_check_mw_com_provider
-bazel run //:cargo_test_mw_com_provider
-
-bazel run //:score_lola_live_e2e
+```sh
+cargo check -p mw_com_provider --features score-lola
+cargo check -p databroker-mw-com
 ```
 
-The live LoLa E2E waits for 25 changed `Vehicle.Speed` samples by default. Override `SCORE_E2E_SAMPLE_COUNT` when a shorter or longer sampling run is needed.
+The S-Core checks require the local S-Core checkout and native artifacts. The build scripts auto-discover S-Core Bazel link params from the local Bazel cache when they are already available. For reproducible builds, CI, containers, or fresh developer machines, pass the artifact paths explicitly:
 
-The integration test `e2e_stubbed_score` runs the provider against an in-memory Databroker and a stubbed S-CORE `mw::com` application implemented with the mock transport. It verifies both directions of the placeholder flow:
-
-- stubbed S-CORE sample -> provider -> Databroker VSS datapoint
-- Databroker actuation -> provider -> stubbed S-CORE command
-
-Run the same core checks used by CI:
-
-```console
-cargo fmt --package mw_com_provider --check
-cargo test -p mw_com_provider
-MW_COM_NATIVE_BUILD_BRIDGE=1 cargo check --features mw-com-native
+```sh
+SCORE_COM_LINK_PARAMS=<path-to-vehicle-dynamics-example-0.params> \
+SCORE_COM_BAZEL_BIN=<path-to-bazel-bin> \
+cargo check -p databroker-mw-com
 ```
 
-The CI workflow also runs codegen verification when `MW_COM_CODEGEN_GIT_URL` is configured for the repository.
+If the Bazel cache is outside the default cache location, set `SCORE_COM_BAZEL_CACHE_ROOTS` to one or more cache roots using the platform path separator.
 
-Generate provider artifacts with the reference SCORE config code generator:
+## Development Container
 
-```console
-cargo run -p xtask -- codegen
+The S-Core LoLa toolchain and generated native artifacts are validated with an Ubuntu 24.04 based development environment. If the host machine does not provide the required compiler, Bazel, Java, Rust, protobuf, and native library tooling, use a VS Code devcontainer for provider development.
+
+A provider devcontainer should provide at least:
+
+- Ubuntu 24.04 base image.
+- `build-essential`, `clang`, `cmake`, `g++`, `gcc`, `gdb`, `lld`, `make`, `pkg-config`, `protobuf-compiler`, `python3`, `unzip`, and `zip`.
+- OpenJDK 17 for Bazel repository rules and Java-based tooling.
+- Bazelisk installed as `bazel`.
+- Rust stable toolchain with `rustfmt` and `clippy`.
+- CA certificates configured for both the OS trust store and the Java trust store used by Bazel.
+
+If development happens behind a corporate TLS inspection proxy, install the corporate root certificates inside the container and run `update-ca-certificates`. Bazel also uses a JVM trust store, so configure `/etc/bazel.bazelrc` or an equivalent Bazel startup option to point Java to the updated trust store when needed.
+
+## Regenerate Provider Artifacts
+
+The checked-in generated files are kept until S-Core provides the generated artifacts directly. Regenerate them with:
+
+```sh
+cd mw_com_provider
+bazel run //:generate_mw_com_provider_artifacts
+bazel run //:verify_mw_com_provider_codegen
 ```
 
-By default, `xtask` reads `models/vehicle_dynamics.json`, uses `templates/reference-codegen/`, and writes into `generated/`. To generate from a product-specific model, pass an explicit model path:
+The generator reads `models/vehicle_dynamics.json`, applies `templates/reference-codegen/`, and writes `generated/`.
 
-```console
-cargo run -p xtask -- codegen --model /path/to/model.json
+To generate from a custom model or write to a custom output directory, call `xtask` directly:
+
+```sh
+cargo run --manifest-path mw_com_provider/xtask/Cargo.toml -- codegen \
+  --model /path/to/custom-model.json \
+  --templates mw_com_provider/templates/reference-codegen \
+  --out mw_com_provider/generated \
+  --prefix mw_com
 ```
 
-If the reference SCORE config generator is already checked out elsewhere, set `MW_COM_CODEGEN_ROOT` or pass `--codegen-root`. If it is not checked out, `xtask` can clone it into `target/xtask/` when a Git URL is provided:
+If the reference SCORE config code generator is not in the default relative location, pass it explicitly:
 
-```console
-MW_COM_CODEGEN_GIT_URL=<reference-codegen-git-url> \
-cargo run -p xtask -- codegen
+```sh
+cargo run --manifest-path mw_com_provider/xtask/Cargo.toml -- codegen \
+  --model /path/to/custom-model.json \
+  --templates mw_com_provider/templates/reference-codegen \
+  --out mw_com_provider/generated \
+  --prefix mw_com \
+  --codegen-root /path/to/vsps_sdk_score_config_codegen-main
 ```
 
-Use `MW_COM_CODEGEN_GIT_REF` or `--codegen-ref` to pin a branch, tag, or commit after cloning.
+## Complete Integration Test With S-Core
 
-The reference generator writes:
+The three-terminal demo is the full integration test for the current S-Core vehicle dynamics setup. Detailed integration hints and troubleshooting are in [docs/s-core-integration.md](docs/s-core-integration.md).
 
-- `generated/mw_com_provider_metadata.rs`, consumed by the crate build.
-- `generated/mw_com_provider_config.json`, usable as runtime `ProviderConfig` input.
-- `generated/mw_com_provider_types.rs`, generated SCORE payload structs with `CommData`/`Reloc` derives.
-- `generated/mw_com_provider_interfaces.rs`, generated `score_com::interface!` declarations.
-- `generated/mw_com_provider_instances.rs`, generated SCORE instance specifier constants.
+Terminal 1 starts the S-Core vehicle dynamics application:
 
-The build script copies `generated/mw_com_provider_metadata.rs` into Cargo `OUT_DIR` so [src/lib.rs](src/lib.rs) can include it as `generated`. Set `MW_COM_PROVIDER_METADATA_RS` only when consuming a different generated metadata file.
-
-## SCORE Binding Integration
-
-The long-term SCORE integration path is split into two layers:
-
-- The provider crate owns the stable Databroker-facing runtime, generic generated metadata, and [src/score_bindings.rs](src/score_bindings.rs).
-- A SCORE adapter owns direct dependencies on `score_com`, `score_com_concept`, `com-api-runtime-lola`, `bridge_ffi_lola`, and native Bazel artifacts.
-
-`ScoreBindingTransport<A>` implements `MwComTransport` by resolving every `(service, instance, member)` through generated metadata and delegating runtime work to a `ScoreRuntimeAdapter`. A real adapter should use the high-level S-Core Rust API: initialize `LolaRuntimeBuilderImpl`, call `find_service::<GeneratedInterface>()`, create typed consumers/subscribers for inbound events, and use typed producers/publishers for actuation. It should not duplicate low-level sample pointer ownership logic from the S-Core runtime crates.
-
-This keeps normal `cargo check` and mock tests independent from S-Core checkout layout while still making the SCORE-specific binding contract explicit and generated.
-
-Run the terminal E2E demo with:
-
-```console
-cargo run --example score_bindings_demo
+```sh
+cd <s-core-communication>
+rm -rf /tmp/mw_com_lola
+bazel run //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example -- --run-mode both
 ```
 
-The demo uses the real provider and Databroker APIs plus a small demo `ScoreRuntimeAdapter`. It prints the generated SCORE bindings, publishes a SCORE-side speed sample into Databroker, actuates target speed and cruise-control enabled through Databroker, and prints the outbound SCORE messages. A LoLa-backed adapter can replace the demo adapter once the S-Core Bazel/native runtime artifact bundle is available.
+Terminal 2 starts Databroker with the in-process mw::com provider:
 
-For a visual walkthrough of the same receive and actuator paths, open [docs/e2e-demo.html](docs/e2e-demo.html). The page animates S-Core mw::com lower layers, `mw_com_provider`, Kuksa Databroker, and the application side. It includes selectable signal and actuator values, validation checkpoints, an ingress/egress event console, and a separate startup/code-flow terminal that traces provider initialization through ingress and egress handling.
+```sh
+cd <kuksa-databroker>
+cargo run -p databroker-mw-com
+```
 
-## Features
+Terminal 3 verifies the reception path by reading a VSS datapoint that is published by the S-Core application and forwarded by the provider into Databroker:
 
-| Feature | Default | Description |
-| --- | --- | --- |
-| `mock-transport` | Yes | Enables the in-memory mock transport used for tests and skeleton validation. |
-| `mw-com-native` | No | Enables the Rust native bridge transport adapter for mw::com `GenericProxy` / `GenericSkeleton` bridge libraries. |
-| `score-lola` | No | Enables the real S-Core LoLa adapter source through the local `score_com_cargo` bridge manifests. Requires sibling S-Core `communication` and `baselibs` checkouts. |
+```sh
+cd <kuksa-databroker>
+cargo run -p databroker-cli -- get Vehicle.Speed
+```
 
-## SCORE LoLa Adapter
+For a streaming check, subscribe to the same datapoint:
 
-The `score-lola` feature exposes `LolaScoreRuntimeAdapter`, a real implementation of `ScoreRuntimeAdapter` for the generated `VehicleDynamicsService` bindings. It uses the same S-Core Rust API pattern as `score/mw/com/example/com-api-example`: `LolaRuntimeBuilderImpl`, typed service discovery, typed subscribers, and typed producers/publishers.
+```sh
+cd <kuksa-databroker>
+cargo run -p databroker-cli -- subscribe Vehicle.Speed
+```
 
-The adapter source is generated into [generated/mw_com_provider_lola_adapter.rs](generated/mw_com_provider_lola_adapter.rs) from [templates/reference-codegen/mw_com_provider_lola_adapter.rs.jinja](templates/reference-codegen/mw_com_provider_lola_adapter.rs.jinja). For local Cargo builds, [score_com_cargo](score_com_cargo) contains thin manifests over the existing S-Core Rust sources and baselibs checkout. They expect this sibling layout:
+Expected Terminal 3 output is a changing `Vehicle.Speed` value. This proves the receive path:
 
 ```text
-score/
-├── info/
-│   ├── baselibs/baselibs/
-│   └── mwcom/communication/
-└── mwcom_provider_M1/Inisetup/mw_com_provider/
+S-Core VehicleDynamicsService.speed
+  -> mw_com_provider
+  -> Kuksa Databroker Vehicle.Speed
+  -> databroker-cli get/subscribe
 ```
 
-Validate the adapter compile path with:
+The same terminal can then verify the actuation path by sending a Kuksa actuator request:
 
-```console
-cargo check --features score-lola
-cargo test -p mw_com_provider --features score-lola --no-run
+```sh
+cd <kuksa-databroker>
+cargo run -p databroker-cli -- actuate Vehicle.ADAS.CruiseControl.TargetSpeed 88.0
 ```
 
-The delivery runner is available as `mw_com_provider` when built with `score-lola`:
+Expected Terminal 1 output for actuation:
 
-```console
-cargo build -p mw_com_provider --features score-lola --bin mw_com_provider
-target/debug/mw_com_provider \
-	--provider-config generated/mw_com_provider_config.json \
-	--score-config generated/vehicle_dynamics_lola_config.json
+```text
+1 target speed actuation samples received. target_speed=88
 ```
 
-Use `--seed-databroker-metadata` only for standalone E2E runs with an in-process Databroker. Production Databroker integration should use the metadata owned by the Databroker deployment.
+For repeated demo updates in bash:
 
-For the validated Ubuntu 24 live E2E path and the combined provider/S-Core codegen workflow, see [docs/score-lola-integration-runbook.md](docs/score-lola-integration-runbook.md). For remaining production delivery criteria, see [docs/provider-production-readiness.md](docs/provider-production-readiness.md).
-
-Running against a real LoLa runtime still requires a matching S-Core configuration and the generated C++ registration/native LoLa libraries for the selected service model. The bridge manifests are intentionally not the owner of S-Core's internal unit tests; use package-scoped provider checks unless those Bazel-only S-Core test dependencies are also exposed to Cargo.
-
-The provider functionality has been verified through the package E2E demo and tests. The additional Bazel LoLa runtime execution is an environment-dependent qualification step for live S-Core runtime behavior, not a prerequisite for validating the provider mapping, generated binding contract, Databroker update path, or Databroker-to-SCORE actuation path.
-
-## mw::com Native Bridge Adapter
-
-The `mw-com-native` feature exposes `GenericMwComNativeTransport`, an implementation of `MwComTransport` that calls a narrow C ABI. The ABI is declared in `native/mw_com_native_bridge.h` and is designed to be implemented by a C++ bridge using mw::com APIs:
-
-- `GenericProxy::Create(...)`, `GetEvents()`, `GenericProxyEvent::GetNewSamples(...)`, `GetSampleSize()`, and `HasSerializedFormat()` for inbound samples.
-- `GenericSkeleton::Create(...)`, `GenericSkeletonServiceElementInfo`, `EventInfo`, `DataTypeMetaInfo`, `OfferService()`, `GenericSkeletonEvent::Allocate()`, and `Send(...)` for outbound publishing.
-
-Build-time environment variables:
-
-```console
-MW_COM_NATIVE_LIB_DIR=/path/to/native/libs \
-MW_COM_NATIVE_LIBS=mw_com_provider_bridge,mw_com \
-cargo check --features mw-com-native
+```sh
+speed=60
+while true; do
+  cargo run -p databroker-cli -- actuate Vehicle.ADAS.CruiseControl.TargetSpeed "$speed"
+  speed=$((speed + 1))
+  if [ "$speed" -gt 100 ]; then
+    speed=60
+  fi
+  sleep 0.5
+done
 ```
 
-For local ABI validation, the repository also contains a compilable stub bridge:
+## LoLa Queue Tuning
 
-```console
-MW_COM_NATIVE_BUILD_BRIDGE=1 cargo check --features mw-com-native
+The generated adapter defaults to the current vehicle dynamics demo limits:
+
+```text
+SCORE_SUBSCRIPTION_QUEUE_CAPACITY=3
+SCORE_RECEIVE_BATCH_SIZE=min(16, SCORE_SUBSCRIPTION_QUEUE_CAPACITY)
 ```
 
-That stub validates the Rust/C ABI shape but deliberately returns `MW_COM_PROVIDER_NATIVE_UNSUPPORTED` for real mw::com operations. Production integration should replace or extend `native/mw_com_native_bridge.cpp` with calls into the platform mw::com runtime.
+For production LoLa configurations with larger event slots, raise both values together:
 
-## Configuration
-
-Runtime VSS bindings are loaded from JSON through `ProviderConfig`. Each mapping connects one VSS signal to one `mw::com` service, instance, and member.
-
-```json
-{
-	"provider_name": "mw_com_provider",
-	"queue_capacity": 256,
-	"stale_after_ms": 1000,
-	"mappings": [
-		{
-			"signal_id": 42,
-			"vss_path": "Vehicle.Speed",
-			"datatype": "double",
-			"service": "VehicleSpeedService",
-			"instance": "front_vehicle",
-			"member": "speed",
-			"unit": "km/h",
-			"scale": 3.6,
-			"offset": 0.0,
-			"min": 0.0,
-			"max": 300.0,
-			"required_quality": "valid",
-			"direction": "datapoint",
-			"cycle_time_ms": 100
-		}
-	]
-}
+```sh
+SCORE_SUBSCRIPTION_QUEUE_CAPACITY=32 \
+SCORE_RECEIVE_BATCH_SIZE=16 \
+cargo run -p databroker-mw-com
 ```
 
-More examples are available in [docs/samples.md](docs/samples.md).
+`SCORE_SUBSCRIPTION_QUEUE_CAPACITY` is per receive event subscription. It is not a global provider queue and it is not the actuator transmit queue.
+
+## Production Notes
+
+- The generated adapter stores receive subscriptions per exact binding, so repeated event names across different S-Core instances are supported.
+- Lossless delivery of every high-rate middleware sample depends on S-Core LoLa queue sizing, producer rate, provider drain rate, Databroker subscriber behavior, and client speed.
+- The local generated files and `score_com_cargo/` shims are temporary integration assets and should be replaced by S-Core-owned artifacts when available.

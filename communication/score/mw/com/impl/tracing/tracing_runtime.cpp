@@ -512,7 +512,7 @@ Result<void> TracingRuntime::Trace(const BindingType binding_type,
                                    const ServiceElementInstanceIdentifierView service_element_instance_identifier,
                                    const TracePointType trace_point_type,
                                    const TracePointDataId trace_point_data_id,
-                                   TypeErasedSamplePtr sample_ptr,
+                                   impl::SamplePtr<void> sample_ptr,
                                    const void* const shm_data_ptr,
                                    const std::size_t shm_data_size)
 {
@@ -555,7 +555,7 @@ Result<void> TracingRuntime::Trace(const BindingType binding_type,
         // Handle debounced logging for no available tracing slots
         // Log first 10 failures at LogInfo level, then switch to LogDebug to reduce DLT bandwidth.
         ++debounce_counter_;
-        const bool debouncing_active = (debounce_counter_ >= kDebounceAfter);
+        const bool debouncing_active = debounce_counter_ >= kDebounceAfter;
 
         if (!debouncing_active)
         {
