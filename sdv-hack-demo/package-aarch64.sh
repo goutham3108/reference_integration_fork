@@ -84,4 +84,3 @@ tar -chzf "${dist_dir}/remote-aarch64.tar.gz" -C "${remote_dir}" .
 printf 'Created:\n  %s\n  %s\n' \
     "${dist_dir}/vehicle-aarch64.tar.gz" \
     "${dist_dir}/remote-aarch64.tar.gz"
-cd 
