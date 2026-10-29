@@ -175,7 +175,7 @@ impl MwComProvider {
                                 warn!(%error, "mw::com sample rejected");
                             }
                             Err(MwComProviderError::NoData) => {
-                                tokio::task::yield_now().await;
+                                sleep(std::time::Duration::from_millis(1)).await;
                             }
                             Err(MwComProviderError::Shutdown) => {
                                 info!("mw::com transport shut down");
@@ -451,7 +451,7 @@ where
                                 warn!(%error, "mw::com sample rejected");
                             }
                             Err(MwComProviderError::NoData) => {
-                                tokio::task::yield_now().await;
+                                sleep(std::time::Duration::from_millis(1)).await;
                             }
                             Err(MwComProviderError::Shutdown) => {
                                 info!("mw::com transport shut down");
