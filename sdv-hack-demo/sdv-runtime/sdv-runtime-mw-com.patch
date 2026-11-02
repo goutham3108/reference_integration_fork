@@ -1,5 +1,5 @@
 diff --git a/Dockerfile b/Dockerfile
-index 19aa255..613c81f 100644
+index 19aa255195f95012238feed11597f9a367a0acc9..613c81fbbdf922615e946dbdc0f5ff2abf989792 100644
 --- a/Dockerfile
 +++ b/Dockerfile
 @@ -5,6 +5,9 @@
@@ -61,10 +61,10 @@ index 19aa255..613c81f 100644
  # Re-install grpcio to ensure it's built for the target platform
  RUN pip3 uninstall -y grpcio && pip3 install grpcio==1.64.1
 diff --git a/README.md b/README.md
-index b0693f6..d84fb49 100644
+index b0693f675e1a4c858bd605e2ec66092a8d4cc7a2..21a09f91bf18004bbd7125b4b9f83d107fa174cd 100644
 --- a/README.md
 +++ b/README.md
-@@ -31,6 +31,34 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
+@@ -31,6 +31,57 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
  
  Video instruction: [https://youtu.be/HQrsGY7XLU4](https://youtu.be/HQrsGY7XLU4)
  
@@ -96,14 +96,47 @@ index b0693f6..d84fb49 100644
 +on a guest interface reachable from the Podman container. The Kit Manager is
 +available on the guest at `127.0.0.1:3202`.
 +
++### Playground signal writes without mocks
++
++Widget `write_signals_value` requests publish broker **current values** for all
++registered writable entry types, including actuators. With `MOCK_SIGNAL=""`,
++Signal Watch `set_mock_signals` requests also publish current values directly;
++neither subscribing nor setting values starts a mock provider. CLI `get` and
++playground subscriptions read those same current values. Configured real vehicle
++feedback can subsequently replace them.
++
++The external mw::com broker forwards published current values for configured
++command-capable mappings through middleware. Sensor-only entries are not sent as
++commands. Unknown paths, invalid values, and denied writes return a `Failed`
++reply with an `error`, rather than a successful acknowledgement.
++
++When `MOCK_SIGNAL` names a file, `set_mock_signals` retains its mock-configuration
++behavior. Native CLI `actuate` remains a separate actuator-target operation.
++
++Run the write-path regression tests in an environment with the runtime dependencies:
++
++```bash
++python3 -m unittest discover -s test -p test_signal_writes.py
++```
++
  ### Arguments for setting runtime name
  `$RUNTIME_NAME`: this is the ID to add your runtime to playground.digital.auto.
  `$RUNTIME_PREFIX`: (Optional) Custom prefix for the runtime ID. Default is "Runtime-". Set to empty string for no prefix.
 diff --git a/kuksa-syncer/syncer.py b/kuksa-syncer/syncer.py
-index 56e3e42..83adfb3 100644
+index 56e3e42549c19d4adb1def63d2138bf43a98ed0a..62733943f50e83f3b8cfe87b7c82448f3fdabb2b 100644
 --- a/kuksa-syncer/syncer.py
 +++ b/kuksa-syncer/syncer.py
-@@ -30,8 +30,8 @@ apply_global_patch()
+@@ -12,8 +12,7 @@ from kuksa_client.grpc.aio import VSSClient
+ from kuksa_client.grpc import VSSClient as KClient
+ from kuksa_client.grpc import Datapoint
+ from kuksa_client.grpc import VSSClientError
+-from kuksa_client.grpc import MetadataField
+-from kuksa_client.grpc import EntryType
++from grpc import RpcError
+ import socketio
+ import asyncio
+ from subpiper import subpiper
+@@ -30,8 +29,8 @@ apply_global_patch()
  from vehicle_model_manager import generate_vehicle_model, revert_vehicle_model
  import pkg_manager
  
@@ -114,104 +147,157 @@ index 56e3e42..83adfb3 100644
  
  DEFAULT_KIT_SERVER = 'https://kit.digitalauto.tech'
  DEFAULT_RUNTIME_NAME = 'MyRuntime'
-diff --git a/start_services.sh b/start_services.sh
-index 8c7e965..a5dd9dd 100755
---- a/start_services.sh
-+++ b/start_services.sh
-@@ -10,13 +10,38 @@
+@@ -520,46 +519,36 @@ async def messageToKit(data):
+         })
+         return 0
+     
+-    if data["cmd"] == "set_mock_signals":
+-        modifyMockSignal(data["data"])
+-        mock_signal = listMockSignal()
+-        # print("After modifying:")
+-        # print(mock_signal)
+-        restartMockProvider()
+-        await sio.emit("messageToKit-kitReply", {
+-            "kit_id": CLIENT_ID,
+-            "request_from": data["request_from"],
+-            "cmd": "set_mock_signals",
+-            "data": mock_signal,
+-            "result": "Successful"
+-        })
+-        return 0
+-    
+-    if data["cmd"] == "write_signals_value":
+-        writeSignalsValue(data["data"])
+-        # mock_signal = listMockSignal()
+-        mock_signal = {}
+-        await sio.emit("messageToKit-kitReply", {
+-            "kit_id": CLIENT_ID,
+-            "request_from": data["request_from"],
+-            "cmd": "write_signals_value",
+-            "data": mock_signal,
+-            "result": "Successful"
+-        })
+-        return 0
+-    
+-    if data["cmd"] == "reset_signals_value":
+-        with open(mock_signal_path) as f:
+-            signal_list = json.load(f)
+-        writeSignalsValue(str(signal_list))
+-        mock_signal = listMockSignal()
+-        await sio.emit("messageToKit-kitReply", {
++    if data["cmd"] in ("set_mock_signals", "write_signals_value", "reset_signals_value"):
++        reply = {
+             "kit_id": CLIENT_ID,
+             "request_from": data["request_from"],
+-            "cmd": "reset_signals_value",
+-            "data": mock_signal,
+-            "result": "Successful"
+-        })
++            "cmd": data["cmd"],
++            "data": {},
++        }
++        try:
++            if data["cmd"] == "set_mock_signals":
++                values = signalValuesFromList(data["data"])
++                if mockProviderEnabled():
++                    modifyMockSignal(data["data"])
++                    restartMockProvider()
++                    reply["data"] = listMockSignal()
++                else:
++                    writeSignalsValue(values)
++                    reply["data"] = data["data"]
++            elif data["cmd"] == "reset_signals_value":
++                with open(mock_signal_path) as f:
++                    signals = json.load(f)
++                writeSignalsValue(signalValuesFromList(signals))
++                reply["data"] = signals
++            else:
++                writeSignalsValue(data["data"])
++            reply["result"] = "Successful"
++        except (VSSClientError, RpcError, ValueError, TypeError, OSError) as error:
++            print(f"Error handling {data['cmd']}: {error}", flush=True)
++            reply["result"] = "Failed"
++            reply["error"] = str(error)
++        await sio.emit("messageToKit-kitReply", reply)
+         return 0
+     
+     if data["cmd"] == "generate_vehicle_model":
+@@ -913,12 +902,14 @@ def startMockService():
+         return 1
  
+ def restartMockProvider():
++    if not mockProviderEnabled():
++        return
+     stopMockService()
+     time.sleep(0.5)
+     startMockService()
  
- DISABLE_DATABROKER=${DISABLE_DATABROKER:-""}
--DATABROKER_ARGS=${DATABROKER_ARGS:-""}
-+DATABROKER_BIN=/app/databroker
-+MW_COM_BIN=/app/databroker-mw-com
-+DATABROKER_BACKEND=${DATABROKER_BACKEND:-"databroker"}
-+KUKSA_DATABROKER_HOST=${KUKSA_DATABROKER_HOST:-"127.0.0.1"}
-+KUKSA_DATABROKER_PORT=${KUKSA_DATABROKER_PORT:-"55555"}
-+case "$DATABROKER_BACKEND" in
-+    databroker)
-+        SELECTED_DATABROKER_BIN="$DATABROKER_BIN"
-+        DATABROKER_ARGS=${DATABROKER_ARGS:-""}
-+        DEFAULT_MOCK_SIGNAL=/home/dev/ws/mock/signals.json
-+        ;;
-+    databroker-mw-com|mw-com-dem-bin)
-+        SELECTED_DATABROKER_BIN="$MW_COM_BIN"
-+        DATABROKER_ARGS=${DATABROKER_ARGS:-"--address ${KUKSA_DATABROKER_ADDR:-0.0.0.0}:${KUKSA_DATABROKER_PORT:-55555} \
-+            --provider-config /home/dev/mw_com_provider/generated/gateway_provider_config.json \
-+            --score-config /home/dev/mw_com_config.json"}
-+        DEFAULT_MOCK_SIGNAL=""
-+        ;;
-+    *)
-+        echo "ERROR: invalid DATABROKER_BACKEND '$DATABROKER_BACKEND' (expected databroker or databroker-mw-com; mw-com-dem-bin is a legacy alias)"
-+        exit 1
-+        ;;
-+esac
- SYNCER_SERVER_URL=${SYNCER_SERVER_URL:-"https://kit.digitalauto.tech"}
- VSS_DATA=${VSS_DATA:-""}
- RUNTIME_NAME=${RUNTIME_NAME:-"VSS4.0"} # Display name on the playground
--MOCK_SIGNAL=${MOCK_SIGNAL:-"/home/dev/ws/mock/signals.json"}
--SITE_PACKAGES_DIR="/home/dev/python-packages"
--GEN_MODEL_DIR="/home/dev/python-packages/vehicle-model-generator/gen_model"
-+MOCK_SIGNAL=${MOCK_SIGNAL-"$DEFAULT_MOCK_SIGNAL"}
-+SITE_PACKAGES_DIR="${SITE_PACKAGES_DIR:-/home/dev/python-packages}"
-+GEN_MODEL_DIR="${GEN_MODEL_DIR:-$SITE_PACKAGES_DIR}"
-+PYTHONPATH="$SITE_PACKAGES_DIR:$GEN_MODEL_DIR${PYTHONPATH:+:$PYTHONPATH}"
-+export SYNCER_SERVER_URL RUNTIME_NAME MOCK_SIGNAL SITE_PACKAGES_DIR GEN_MODEL_DIR PYTHONPATH
-+export KUKSA_DATABROKER_HOST KUKSA_DATABROKER_PORT
+ def appendMockSignal(signals):
+-    if signals is None or len(signals) <=0:
++    if not mockProviderEnabled() or signals is None or len(signals) <=0:
+         return 0
+     hasNew = False
+     with KClient(BORKER_IP, BROKER_PORT) as kclient:
+@@ -975,32 +966,31 @@ def modifyMockSignal(input_str):
+         file.truncate()
+         return 0
  
- log_kit_manager_container() {
-     ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-@@ -72,7 +97,12 @@ log_kit_manager_container "CONTAINER_STARTING" "user=$(id -u -n)"
- mosquitto -d -c /etc/mosquitto/mosquitto-no-auth.conf
+-def writeSignalsValue(input_str):
+-    json_str = json.dumps(input_str)
+-    signal_values = json.loads(json_str)
++def mockProviderEnabled():
++    return bool(os.environ.get("MOCK_SIGNAL", mock_signal_path))
++
++def signalValuesFromList(signals):
++    if not isinstance(signals, list):
++        raise ValueError("Expected a list of signal/value objects")
++    values = {}
++    for item in signals:
++        if not isinstance(item, dict) or "signal" not in item or "value" not in item:
++            raise ValueError("Each signal must contain 'signal' and 'value'")
++        path = item["signal"]
++        if not isinstance(path, str) or not path:
++            raise ValueError("Signal paths must be non-empty strings")
++        values[path] = item["value"]
++    return values
++
++def writeSignalsValue(signal_values):
++    if not isinstance(signal_values, dict) or not signal_values:
++        raise ValueError("Expected a non-empty object mapping signal paths to values")
++    if any(not isinstance(path, str) or not path for path in signal_values):
++        raise ValueError("Signal paths must be non-empty strings")
+     with KClient(BORKER_IP, BROKER_PORT) as kclient:
+-        for path,value in signal_values.items():
+-            try:
+-                meta_data = kclient.get_metadata([path], MetadataField.ENTRY_TYPE)
+-                entry_type = meta_data[path].entry_type
+-                if entry_type == EntryType.ACTUATOR:
+-                    try:
+-                        target_value = {path: Datapoint(value)}
+-                        kclient.set_target_values(target_value)
+-                        # print(target_value,flush=True)
+-                    except Exception as e:
+-                        print("Error occured when writing target values: " + str(e),flush=True)
+-                elif entry_type == EntryType.SENSOR:
+-                    try:
+-                        current_value = {path: Datapoint(value)}
+-                        kclient.set_current_values(current_value)
+-                        # print(current_value, flush=True)
+-                    except Exception as e:
+-                        print("Error occured when writing current values: " + str(e), flush=True)
+-                else:
+-                    print("The signal path provided was not actuator or sensor", flush=True)
+-            except Exception as e:
+-                print("Error occured when writing signal values: " + str(e),flush=True)
++        kclient.set_current_values({
++            path: Datapoint(value) for path, value in signal_values.items()
++        })
  
- if [ -z "$DISABLE_DATABROKER" ]; then
--    /app/databroker $DATABROKER_ARGS & 
-+    if [ ! -x "$SELECTED_DATABROKER_BIN" ]; then
-+        echo "ERROR: $DATABROKER_BACKEND binary not found or not executable: $SELECTED_DATABROKER_BIN"
-+        exit 1
-+    fi
-+    echo "Starting $DATABROKER_BACKEND: $SELECTED_DATABROKER_BIN"
-+    "$SELECTED_DATABROKER_BIN" $DATABROKER_ARGS &
-     DATABROKER_PID=$!
- fi
- 
-@@ -84,7 +114,7 @@ sleep 4 # Ensure that the kuksa databroker and mosquitto start before the syncer
- 
- #python3 /home/dev/ws/kuksa-syncer/syncer.pyc &   
- 
--python3 /home/dev/ws/kuksa-syncer/syncer.py &   
-+python3 -u /home/dev/ws/kuksa-syncer/syncer.py &
- SYNCER_PID=$!
- 
- # if [ -n "$VSS_DATA" ]; then
-@@ -107,6 +137,24 @@ fi
- # process traps after wait returns, which can hide shutdown logs during
- # `docker compose stop` and lead Docker to escalate to SIGKILL / exit 137.
- while kill -0 "$KIT_MANAGER_PID" 2>/dev/null; do
-+    if [ -n "${DATABROKER_PID:-}" ] && ! kill -0 "$DATABROKER_PID" 2>/dev/null; then
-+        wait "$DATABROKER_PID"
-+        DATABROKER_EXIT_CODE=$?
-+        if [ "$DATABROKER_EXIT_CODE" -eq 0 ]; then
-+            DATABROKER_EXIT_CODE=1
-+        fi
-+        log_kit_manager_container "DATABROKER_CHILD_EXITED" "databrokerPid=$DATABROKER_PID exitCode=$DATABROKER_EXIT_CODE"
-+        terminate_children TERM "$DATABROKER_EXIT_CODE"
-+    fi
-+    if ! kill -0 "$SYNCER_PID" 2>/dev/null; then
-+        wait "$SYNCER_PID"
-+        SYNCER_EXIT_CODE=$?
-+        if [ "$SYNCER_EXIT_CODE" -eq 0 ]; then
-+            SYNCER_EXIT_CODE=1
-+        fi
-+        log_kit_manager_container "SYNCER_CHILD_EXITED" "syncerPid=$SYNCER_PID exitCode=$SYNCER_EXIT_CODE"
-+        terminate_children TERM "$SYNCER_EXIT_CODE"
-+    fi
-     sleep 1
- done
- wait "$KIT_MANAGER_PID" 2>/dev/null
+ async def start_socketio(SERVER):
+     print("Connecting to Kit Server: " + SERVER, flush=True)
 diff --git a/mw_com_config.json b/mw_com_config.json
 new file mode 100644
-index 0000000..0728d3d
+index 0000000000000000000000000000000000000000..0728d3dcaec5d9b45bdcf0009269ec3b77560416
 --- /dev/null
 +++ b/mw_com_config.json
 @@ -0,0 +1,1149 @@
@@ -1366,7 +1452,7 @@ index 0000000..0728d3d
 +}
 diff --git a/mw_com_provider/generated/gateway_provider_config.json b/mw_com_provider/generated/gateway_provider_config.json
 new file mode 100644
-index 0000000..38a9500
+index 0000000000000000000000000000000000000000..38a9500753878715015c7a61cb958e09e1ebf5fd
 --- /dev/null
 +++ b/mw_com_provider/generated/gateway_provider_config.json
 @@ -0,0 +1,712 @@
@@ -2084,7 +2170,7 @@ index 0000000..38a9500
 +}
 diff --git a/mw_com_provider/generated/mw_com_provider_config.json b/mw_com_provider/generated/mw_com_provider_config.json
 new file mode 100644
-index 0000000..8dbb155
+index 0000000000000000000000000000000000000000..8dbb155bbdec8c71685ea94d0a82aa54654e8925
 --- /dev/null
 +++ b/mw_com_provider/generated/mw_com_provider_config.json
 @@ -0,0 +1,82 @@
@@ -2173,7 +2259,7 @@ index 0000000..8dbb155
 \ No newline at end of file
 diff --git a/mw_com_provider/generated/vehicle_dynamics_lola_config.json b/mw_com_provider/generated/vehicle_dynamics_lola_config.json
 new file mode 100644
-index 0000000..2531e39
+index 0000000000000000000000000000000000000000..2531e39c466f6030507d7c7290eb853ba2c2ac06
 --- /dev/null
 +++ b/mw_com_provider/generated/vehicle_dynamics_lola_config.json
 @@ -0,0 +1,200 @@
@@ -2378,3 +2464,276 @@ index 0000000..2531e39
 +  ]
 +}
 \ No newline at end of file
+diff --git a/start_services.sh b/start_services.sh
+index 8c7e9656265ad41efe1bdc06bc3ea5be5de0044f..a5dd9ddb9dad6ef5b048725316d43e731be9556c 100755
+--- a/start_services.sh
++++ b/start_services.sh
+@@ -10,13 +10,38 @@
+ 
+ 
+ DISABLE_DATABROKER=${DISABLE_DATABROKER:-""}
+-DATABROKER_ARGS=${DATABROKER_ARGS:-""}
++DATABROKER_BIN=/app/databroker
++MW_COM_BIN=/app/databroker-mw-com
++DATABROKER_BACKEND=${DATABROKER_BACKEND:-"databroker"}
++KUKSA_DATABROKER_HOST=${KUKSA_DATABROKER_HOST:-"127.0.0.1"}
++KUKSA_DATABROKER_PORT=${KUKSA_DATABROKER_PORT:-"55555"}
++case "$DATABROKER_BACKEND" in
++    databroker)
++        SELECTED_DATABROKER_BIN="$DATABROKER_BIN"
++        DATABROKER_ARGS=${DATABROKER_ARGS:-""}
++        DEFAULT_MOCK_SIGNAL=/home/dev/ws/mock/signals.json
++        ;;
++    databroker-mw-com|mw-com-dem-bin)
++        SELECTED_DATABROKER_BIN="$MW_COM_BIN"
++        DATABROKER_ARGS=${DATABROKER_ARGS:-"--address ${KUKSA_DATABROKER_ADDR:-0.0.0.0}:${KUKSA_DATABROKER_PORT:-55555} \
++            --provider-config /home/dev/mw_com_provider/generated/gateway_provider_config.json \
++            --score-config /home/dev/mw_com_config.json"}
++        DEFAULT_MOCK_SIGNAL=""
++        ;;
++    *)
++        echo "ERROR: invalid DATABROKER_BACKEND '$DATABROKER_BACKEND' (expected databroker or databroker-mw-com; mw-com-dem-bin is a legacy alias)"
++        exit 1
++        ;;
++esac
+ SYNCER_SERVER_URL=${SYNCER_SERVER_URL:-"https://kit.digitalauto.tech"}
+ VSS_DATA=${VSS_DATA:-""}
+ RUNTIME_NAME=${RUNTIME_NAME:-"VSS4.0"} # Display name on the playground
+-MOCK_SIGNAL=${MOCK_SIGNAL:-"/home/dev/ws/mock/signals.json"}
+-SITE_PACKAGES_DIR="/home/dev/python-packages"
+-GEN_MODEL_DIR="/home/dev/python-packages/vehicle-model-generator/gen_model"
++MOCK_SIGNAL=${MOCK_SIGNAL-"$DEFAULT_MOCK_SIGNAL"}
++SITE_PACKAGES_DIR="${SITE_PACKAGES_DIR:-/home/dev/python-packages}"
++GEN_MODEL_DIR="${GEN_MODEL_DIR:-$SITE_PACKAGES_DIR}"
++PYTHONPATH="$SITE_PACKAGES_DIR:$GEN_MODEL_DIR${PYTHONPATH:+:$PYTHONPATH}"
++export SYNCER_SERVER_URL RUNTIME_NAME MOCK_SIGNAL SITE_PACKAGES_DIR GEN_MODEL_DIR PYTHONPATH
++export KUKSA_DATABROKER_HOST KUKSA_DATABROKER_PORT
+ 
+ log_kit_manager_container() {
+     ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+@@ -72,7 +97,12 @@ log_kit_manager_container "CONTAINER_STARTING" "user=$(id -u -n)"
+ mosquitto -d -c /etc/mosquitto/mosquitto-no-auth.conf
+ 
+ if [ -z "$DISABLE_DATABROKER" ]; then
+-    /app/databroker $DATABROKER_ARGS & 
++    if [ ! -x "$SELECTED_DATABROKER_BIN" ]; then
++        echo "ERROR: $DATABROKER_BACKEND binary not found or not executable: $SELECTED_DATABROKER_BIN"
++        exit 1
++    fi
++    echo "Starting $DATABROKER_BACKEND: $SELECTED_DATABROKER_BIN"
++    "$SELECTED_DATABROKER_BIN" $DATABROKER_ARGS &
+     DATABROKER_PID=$!
+ fi
+ 
+@@ -84,7 +114,7 @@ sleep 4 # Ensure that the kuksa databroker and mosquitto start before the syncer
+ 
+ #python3 /home/dev/ws/kuksa-syncer/syncer.pyc &   
+ 
+-python3 /home/dev/ws/kuksa-syncer/syncer.py &   
++python3 -u /home/dev/ws/kuksa-syncer/syncer.py &
+ SYNCER_PID=$!
+ 
+ # if [ -n "$VSS_DATA" ]; then
+@@ -107,6 +137,24 @@ fi
+ # process traps after wait returns, which can hide shutdown logs during
+ # `docker compose stop` and lead Docker to escalate to SIGKILL / exit 137.
+ while kill -0 "$KIT_MANAGER_PID" 2>/dev/null; do
++    if [ -n "${DATABROKER_PID:-}" ] && ! kill -0 "$DATABROKER_PID" 2>/dev/null; then
++        wait "$DATABROKER_PID"
++        DATABROKER_EXIT_CODE=$?
++        if [ "$DATABROKER_EXIT_CODE" -eq 0 ]; then
++            DATABROKER_EXIT_CODE=1
++        fi
++        log_kit_manager_container "DATABROKER_CHILD_EXITED" "databrokerPid=$DATABROKER_PID exitCode=$DATABROKER_EXIT_CODE"
++        terminate_children TERM "$DATABROKER_EXIT_CODE"
++    fi
++    if ! kill -0 "$SYNCER_PID" 2>/dev/null; then
++        wait "$SYNCER_PID"
++        SYNCER_EXIT_CODE=$?
++        if [ "$SYNCER_EXIT_CODE" -eq 0 ]; then
++            SYNCER_EXIT_CODE=1
++        fi
++        log_kit_manager_container "SYNCER_CHILD_EXITED" "syncerPid=$SYNCER_PID exitCode=$SYNCER_EXIT_CODE"
++        terminate_children TERM "$SYNCER_EXIT_CODE"
++    fi
+     sleep 1
+ done
+ wait "$KIT_MANAGER_PID" 2>/dev/null
+diff --git a/test/test_signal_writes.py b/test/test_signal_writes.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..3cc43c80c5ab555cf4b2d56e9c58d8376b09bc90
+--- /dev/null
++++ b/test/test_signal_writes.py
+@@ -0,0 +1,172 @@
++import asyncio
++import os
++from pathlib import Path
++import sys
++import unittest
++from unittest.mock import AsyncMock, MagicMock, mock_open, patch
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kuksa-syncer"))
++
++import syncer
++from grpc import RpcError
++from kuksa_client.grpc import Datapoint, EntryType, VSSClientError
++
++
++class SignalWriteTests(unittest.TestCase):
++    def setUp(self):
++        self.environment = patch.dict(os.environ, {"MOCK_SIGNAL": ""})
++        self.environment.start()
++        self.addCleanup(self.environment.stop)
++        self.client_factory = patch.object(syncer, "KClient")
++        self.client = self.client_factory.start().return_value.__enter__.return_value
++        self.addCleanup(self.client_factory.stop)
++        emit_patch = patch.object(syncer.sio, "emit", new_callable=AsyncMock)
++        self.emit = emit_patch.start()
++        self.addCleanup(emit_patch.stop)
++        client_id_patch = patch.object(syncer, "CLIENT_ID", "test-runtime", create=True)
++        client_id_patch.start()
++        self.addCleanup(client_id_patch.stop)
++
++    def command(self, cmd, data):
++        asyncio.run(syncer.messageToKit({
++            "cmd": cmd, "data": data, "request_from": "test-client",
++        }))
++        return self.emit.call_args.args[1]
++
++    def test_widget_publishes_current_for_every_entry_type(self):
++        for entry_type in (EntryType.ACTUATOR, EntryType.SENSOR, EntryType.ATTRIBUTE):
++            with self.subTest(entry_type=entry_type):
++                self.client.reset_mock()
++                self.client.get_metadata.return_value = {
++                    "Vehicle.Test": MagicMock(entry_type=entry_type),
++                }
++                syncer.writeSignalsValue({"Vehicle.Test": True})
++                self.client.set_current_values.assert_called_once()
++                values = self.client.set_current_values.call_args.args[0]
++                self.assertEqual(values["Vehicle.Test"].value, True)
++                self.client.set_target_values.assert_not_called()
++
++    def test_batch_keeps_client_supported_value_types(self):
++        expected = {
++            "Vehicle.Mode": "ECONOMY", "Vehicle.Light": False,
++            "Vehicle.Speed": 12.5, "Vehicle.Count": 2,
++            "Vehicle.Cells": [8.1, 8.2],
++        }
++        syncer.writeSignalsValue(expected)
++        self.client.set_current_values.assert_called_once()
++        actual = self.client.set_current_values.call_args.args[0]
++        self.assertEqual({key: value.value for key, value in actual.items()}, expected)
++        self.assertTrue(all(isinstance(value, Datapoint) for value in actual.values()))
++
++    def test_widget_acknowledges_success(self):
++        reply = self.command("write_signals_value", {"Vehicle.Mode": "ECONOMY"})
++        self.assertEqual(reply["result"], "Successful")
++        self.client.set_current_values.assert_called_once()
++
++    def test_signal_watch_publishes_without_mock_files_or_processes(self):
++        with patch.object(syncer, "modifyMockSignal") as modify, \
++                patch.object(syncer, "restartMockProvider") as restart:
++            data = [{"signal": "Vehicle.Mode", "value": "ECONOMY"}]
++            reply = self.command("set_mock_signals", data)
++            self.assertEqual(reply["result"], "Successful")
++            self.assertEqual(reply["data"], data)
++            self.client.set_current_values.assert_called_once()
++            self.assertEqual(
++                self.client.set_current_values.call_args.args[0]["Vehicle.Mode"].value,
++                "ECONOMY",
++            )
++            modify.assert_not_called()
++            restart.assert_not_called()
++
++    def test_enabled_mock_configuration_is_preserved(self):
++        with patch.dict(os.environ, {"MOCK_SIGNAL": "/tmp/configured-mocks.json"}), \
++                patch.object(syncer, "modifyMockSignal") as modify, \
++                patch.object(syncer, "listMockSignal", return_value=[]) as listing, \
++                patch.object(syncer, "restartMockProvider") as restart:
++            data = [{"signal": "Vehicle.Mode", "value": "NORMAL"}]
++            reply = self.command("set_mock_signals", data)
++            self.assertEqual(reply["result"], "Successful")
++            modify.assert_called_once_with(data)
++            listing.assert_called_once()
++            restart.assert_called_once()
++            self.client.set_current_values.assert_not_called()
++
++    def test_disabled_mock_subscription_does_not_open_files(self):
++        with patch("builtins.open", side_effect=AssertionError("mock file accessed")), \
++                patch.object(syncer, "restartMockProvider") as restart:
++            syncer.appendMockSignal(["Vehicle.Light"])
++            restart.assert_not_called()
++
++    def test_enabled_mock_list_can_be_cleared(self):
++        with patch.dict(os.environ, {"MOCK_SIGNAL": "/tmp/configured-mocks.json"}), \
++                patch.object(syncer, "modifyMockSignal") as modify, \
++                patch.object(syncer, "listMockSignal", return_value=[]), \
++                patch.object(syncer, "restartMockProvider"):
++            reply = self.command("set_mock_signals", [])
++            self.assertEqual(reply["result"], "Successful")
++            modify.assert_called_once_with([])
++            self.client.set_current_values.assert_not_called()
++
++    def test_disabled_mock_restart_does_not_start_or_stop_processes(self):
++        with patch.object(syncer, "startMockService") as start, \
++                patch.object(syncer, "stopMockService") as stop:
++            syncer.restartMockProvider()
++            start.assert_not_called()
++            stop.assert_not_called()
++
++    def test_broker_error_is_returned_for_both_write_commands(self):
++        for command, data in (
++            ("write_signals_value", {"Vehicle.Missing": True}),
++            ("set_mock_signals", [{"signal": "Vehicle.Missing", "value": True}]),
++        ):
++            with self.subTest(command=command):
++                self.client.set_current_values.side_effect = VSSClientError(
++                    {"code": 404, "reason": "not_found", "message": "Unknown signal"},
++                    [],
++                )
++                reply = self.command(command, data)
++                self.assertEqual(reply["result"], "Failed")
++                self.assertIn("Unknown signal", reply["error"])
++
++    def test_invalid_payloads_are_reported_without_writes(self):
++        for command, data in (
++            ("write_signals_value", []),
++            ("write_signals_value", {}),
++            ("set_mock_signals", [{"signal": "Vehicle.Mode"}]),
++            ("set_mock_signals", {"Vehicle.Mode": "ECONOMY"}),
++        ):
++            with self.subTest(command=command, data=data):
++                with patch.object(syncer, "modifyMockSignal"), \
++                        patch.object(syncer, "restartMockProvider"):
++                    reply = self.command(command, data)
++                self.assertEqual(reply["result"], "Failed")
++                self.client.set_current_values.assert_not_called()
++
++    def test_connection_and_type_errors_are_not_successful(self):
++        for error in (RpcError("Unavailable"), ValueError("Invalid boolean")):
++            with self.subTest(error=error):
++                self.client.set_current_values.side_effect = error
++                reply = self.command("write_signals_value", {"Vehicle.Light": "bad"})
++                self.assertEqual(reply["result"], "Failed")
++                self.assertIn(str(error), reply["error"])
++
++    def test_reset_uses_signal_objects_not_a_string(self):
++        content = '[{"signal": "Vehicle.Mode", "value": "NORMAL"}]'
++        with patch("builtins.open", mock_open(read_data=content)):
++            reply = self.command("reset_signals_value", {})
++        self.assertEqual(reply["result"], "Successful")
++        self.assertEqual(
++            self.client.set_current_values.call_args.args[0]["Vehicle.Mode"].value,
++            "NORMAL",
++        )
++
++    def test_missing_reset_file_is_reported(self):
++        with patch("builtins.open", side_effect=FileNotFoundError("No reset file")):
++            reply = self.command("reset_signals_value", {})
++        self.assertEqual(reply["result"], "Failed")
++        self.assertIn("No reset file", reply["error"])
++        self.client.set_current_values.assert_not_called()
++
++
++if __name__ == "__main__":
++    unittest.main()
