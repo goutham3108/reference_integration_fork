@@ -1,16 +1,18 @@
 diff --git a/Dockerfile b/Dockerfile
-index 19aa255..5292eb2 100644
+index 19aa255..613c81f 100644
 --- a/Dockerfile
 +++ b/Dockerfile
-@@ -5,6 +5,7 @@
+@@ -5,6 +5,9 @@
  # AMD is a statically linked MUSL build
  FROM ubuntu:22.04 AS target-amd64
  ENV BUILDTARGET="x86_64-unknown-linux-musl"
 +ENV DATABROKER_BACKEND="databroker"
++ENV DISABLE_DATABROKER="1"
++ENV MOCK_SIGNAL=""
  COPY --chmod=0755 bin/amd64/databroker-amd64 /app/databroker
  
  RUN groupadd -r sdvr && useradd -r -g sdvr dev \
-@@ -15,9 +16,12 @@ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
+@@ -15,9 +18,12 @@ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
      && apt-get clean \
      && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
  
@@ -24,7 +26,7 @@ index 19aa255..5292eb2 100644
  COPY --chmod=0755 bin/arm64/databroker-arm64 /app/databroker
  
  RUN groupadd -r sdvr && useradd -r -g sdvr dev \
-@@ -28,7 +32,6 @@ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
+@@ -28,7 +34,6 @@ RUN groupadd -r sdvr && useradd -r -g sdvr dev \
      && apt-get clean \
      && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* 
  
@@ -32,7 +34,7 @@ index 19aa255..5292eb2 100644
  # Kit-Manager builder stage: install Node dependencies on Linux to avoid
  # carrying any Windows-built node_modules into the final image.
  FROM node:20-bullseye AS kit-manager-builder
-@@ -56,7 +59,7 @@ COPY requirements-docker.txt .
+@@ -56,7 +61,7 @@ COPY requirements-docker.txt .
  RUN mkdir -p /home/dev/python-packages
  
  # Install all Python packages to the target directory
@@ -41,7 +43,7 @@ index 19aa255..5292eb2 100644
  RUN pip3 install --no-cache-dir --target /home/dev/python-packages -r requirements-docker.txt
  
  # Copy VSS specification from submodule and overlay files
-@@ -105,12 +108,15 @@ COPY --chown=dev:sdvr --chmod=0755 data/vss-core/vss.json /home/dev/ws/vss.json
+@@ -105,12 +110,15 @@ COPY --chown=dev:sdvr --chmod=0755 data/vss-core/vss.json /home/dev/ws/vss.json
  COPY --chown=dev:sdvr --chmod=0755 data/vss-core/default_vss.json /home/dev/ws/default_vss.json
  COPY requirements.txt .
  COPY --chown=dev:sdvr --chmod=0755 kuksa-syncer /home/dev/ws/kuksa-syncer/
@@ -59,7 +61,7 @@ index 19aa255..5292eb2 100644
  # Re-install grpcio to ensure it's built for the target platform
  RUN pip3 uninstall -y grpcio && pip3 install grpcio==1.64.1
 diff --git a/README.md b/README.md
-index b0693f6..8f95b1a 100644
+index b0693f6..d84fb49 100644
 --- a/README.md
 +++ b/README.md
 @@ -31,6 +31,34 @@ docker run -d --restart=always -e RUNTIME_PREFIX="Kit-" -e RUNTIME_NAME="MyRunti
@@ -88,7 +90,7 @@ index b0693f6..8f95b1a 100644
 +	docker.io/library/sdv-runtime:mw-com
 +```
 +
-+The ARM64 image disables its bundled databroker and mock provider by default;
++The ARM64 and AMD64 images disable their bundled databroker and mock provider by default;
 +the Python syncer and Kit Manager still start. The syncer connects to the
 +databroker running on the guest at port 55555. Ensure that broker is listening
 +on a guest interface reachable from the Podman container. The Kit Manager is
