@@ -15,6 +15,24 @@ An API typically supports either *Target Value* or *Actuation Value*, not both!
 
 Use of the *Target Value*  perspective is deprecated!
 
+### mw::com provider publish forwarding
+
+The `databroker-mw-com` composition additionally forwards current-value
+updates for configured actuator and bidirectional mappings through its
+in-process provider. VAL v1 CLI `publish` therefore updates the readable
+current value and queues an outbound middleware command. Explicit targets
+remain supported; when both fields change in one update, the target wins.
+Only mappings accepting actuation participate; sensor-only publishes are
+not outbound commands.
+
+Received middleware state uses the broker's internal provider-feedback
+notification origin. It still updates current values and notifies clients,
+but is not re-sent by the command forwarder. Initial subscription snapshots
+are ignored. This prevents bidirectional feedback loops without a separate
+process or changes to the VAL wire protocol. Current-value reads confirm the
+broker value, not physical command completion. Repeated current publishes
+follow the entry's change policy (`Continuous` entries notify every publish).
+
 ## Overview
 
 This is an overview of the APIs supported described using the perspectives above

@@ -153,6 +153,8 @@ pub struct ChangeNotification {
     pub id: i32,
     pub update: EntryUpdate,
     pub fields: HashSet<Field>,
+    /// Internal provenance only; not exposed as a VAL field.
+    pub provider_feedback: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -818,12 +820,13 @@ impl Subscriptions {
         &self,
         changed: Option<&HashMap<i32, HashSet<Field>>>,
         db: &Database,
+        provider_feedback: bool,
     ) -> Result<Option<HashMap<String, ()>>, NotificationError> {
         let mut error = None;
         let lag_updates: HashMap<String, ()> = HashMap::new();
 
         for sub in self.change_subscriptions.values() {
-            match sub.notify(changed, db).await {
+            match sub.notify(changed, db, provider_feedback).await {
                 Ok(_) => {}
                 Err(err) => error = Some(err),
             }
@@ -917,6 +920,7 @@ impl ChangeSubscription {
         &self,
         changed: Option<&HashMap<i32, HashSet<Field>>>,
         db: &Database,
+        provider_feedback: bool,
     ) -> Result<(), NotificationError> {
         let db_read = db.authorized_read_access(&self.permissions);
         match changed {
@@ -967,6 +971,7 @@ impl ChangeSubscription {
                                                 id: *id,
                                                 update,
                                                 fields: notify_fields,
+                                                provider_feedback,
                                             });
                                         }
                                         Err(ReadError::PermissionExpired) => {
@@ -1024,6 +1029,7 @@ impl ChangeSubscription {
                                     id: *id,
                                     update,
                                     fields: notify_fields,
+                                    provider_feedback,
                                 });
                             }
                             Err(_) => {
@@ -1523,6 +1529,22 @@ impl AuthorizedAccess<'_, '_> {
         &self,
         updates: impl IntoIterator<Item = (i32, EntryUpdate)>,
     ) -> Result<(), Vec<(i32, UpdateError)>> {
+        self.update_entries_with_origin(updates, false).await
+    }
+
+    /// Publish received middleware state without treating it as a new command.
+    pub async fn update_entries_from_provider(
+        &self,
+        updates: impl IntoIterator<Item = (i32, EntryUpdate)>,
+    ) -> Result<(), Vec<(i32, UpdateError)>> {
+        self.update_entries_with_origin(updates, true).await
+    }
+
+    async fn update_entries_with_origin(
+        &self,
+        updates: impl IntoIterator<Item = (i32, EntryUpdate)>,
+        provider_feedback: bool,
+    ) -> Result<(), Vec<(i32, UpdateError)>> {
         let mut errors = Vec::new();
         let mut db = self.broker.database.write().await;
         let mut db_write = db.authorized_write_access(self.permissions);
@@ -1557,7 +1579,7 @@ impl AuthorizedAccess<'_, '_> {
                 .subscriptions
                 .read()
                 .await
-                .notify(Some(&changed), &db)
+                .notify(Some(&changed), &db, provider_feedback)
                 .await
             {
                 Ok(None) => false,
@@ -1632,7 +1654,7 @@ impl AuthorizedAccess<'_, '_> {
         {
             // Send everything subscribed to in an initial notification
             let db = self.broker.database.read().await;
-            if subscription.notify(None, &db).await.is_err() {
+            if subscription.notify(None, &db, false).await.is_err() {
                 warn!("Failed to create initial notification");
             }
         }
