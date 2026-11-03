@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if mapping
                 .actuation_binding
                 .as_ref()
-                .is_some_and(|binding| binding.service == "/vehicle_high_beam_tx")
+                .is_some_and(|binding| binding.service == "/body_control_module_tx")
             {
                 mapping.direction = Direction::Datapoint;
                 mapping.actuation_binding = None;

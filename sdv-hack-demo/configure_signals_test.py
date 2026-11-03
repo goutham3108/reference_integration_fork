@@ -12,12 +12,12 @@ class SignalConfigurationTest(unittest.TestCase):
         assert len(document["mappings"]) == 45
         for mapping in document["mappings"][:-1]:
             if mapping["vss_path"] == "Vehicle.Powertrain.Transmission.PerformanceMode":
-                assert mapping["service"] == "/vehicle_high_beam_tx"
+                assert mapping["service"] == "/body_control_module_tx"
                 assert mapping["instance"] == "local_tx"
                 assert mapping["direction"] == "actuator"
                 assert "actuation_binding" not in mapping
                 continue
-            assert mapping["service"] == "/vehicle_high_beam_rx"
+            assert mapping["service"] == "/body_control_module_rx"
             if mapping["vss_path"] in {
                 "Vehicle.Powertrain.CombustionEngine.IsRunning",
                 "Vehicle.OBD.OilTemperature",
@@ -30,7 +30,7 @@ class SignalConfigurationTest(unittest.TestCase):
                 assert "actuation_binding" not in mapping
             else:
                 assert mapping["direction"] == "bidirectional"
-                assert mapping["actuation_binding"]["service"] == "/vehicle_high_beam_tx"
+                assert mapping["actuation_binding"]["service"] == "/body_control_module_tx"
                 assert mapping["member"] == mapping["actuation_binding"]["member"]
         sources = "\n".join(gateway_provider_sources(ROOT).values())
         assert 'Id = "HighBeamTx"' in sources
@@ -87,7 +87,7 @@ class SignalConfigurationTest(unittest.TestCase):
             if route["service"] != 17152:
                 continue
             for direction, prefix in (("tx", "vehicle"), ("rx", "remote")):
-                type_name = "vehicle_high_beam_" + direction
+                type_name = "body_control_module_" + direction
                 for config in configs:
                     service = next(
                         item for item in config["service_types"] if item["service_type_name"].lstrip("/") == type_name
@@ -129,7 +129,7 @@ class SignalConfigurationTest(unittest.TestCase):
         example = read_json(example_root / "etc/mw_com_config.json")
         gateway = read_json(self.gateway / "score/gatewayd/etc/mw_com_config.json")
         for key in ("serviceTypes", "serviceInstances"):
-            for type_name in ("/vehicle_high_beam_tx", "/vehicle_high_beam_rx"):
+            for type_name in ("/body_control_module_tx", "/body_control_module_rx"):
                 expected = [item for item in gateway[key] if item["serviceTypeName"] == type_name]
                 actual = [item for item in example[key] if item["serviceTypeName"] == type_name]
                 assert actual == expected

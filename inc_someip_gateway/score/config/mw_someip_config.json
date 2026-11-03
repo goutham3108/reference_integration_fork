@@ -1,7 +1,7 @@
 {
     "service_types": [
         {
-            "service_type_name": "vehicle_high_beam_tx",
+            "service_type_name": "body_control_module_tx",
             "service_id": 17152,
             "service_version_major": 1,
             "service_version_minor": 0,
@@ -493,13 +493,13 @@
             ],
             "local_service_instances": [
                 {
-                    "instance_specifier": "/vehicle_high_beam/local_tx",
+                    "instance_specifier": "/body_control_module/local_tx",
                     "instance_id": 4096
                 }
             ]
         },
         {
-            "service_type_name": "vehicle_high_beam_rx",
+            "service_type_name": "body_control_module_rx",
             "service_id": 17152,
             "service_version_major": 1,
             "service_version_minor": 0,
@@ -927,7 +927,7 @@
             ],
             "remote_service_instances": [
                 {
-                    "instance_specifier": "/vehicle_high_beam/network_rx",
+                    "instance_specifier": "/body_control_module/network_rx",
                     "instance_id": 4097
                 }
             ]

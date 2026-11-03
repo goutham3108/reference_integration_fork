@@ -105,7 +105,7 @@ The binary defaults to:
 
 ```text
 provider config: mw_com_provider/generated/mw_com_provider_config.json
-S-Core LoLa config: mw_com_provider/generated/vehicle_dynamics_lola_config.json
+S-Core LoLa config: mw_com_provider/generated/bcm_config_lola_config.json
 address: 127.0.0.1:55555
 ```
 
@@ -118,7 +118,7 @@ The current package keeps the S-Core generated artifacts locally because the req
 | `src/` | Provider runtime, mapper, lifecycle, transport abstractions, and score binding integration. |
 | `tests/e2e_stubbed_score.rs` | Provider E2E test using Databroker plus mock `mw::com`, without S-Core. |
 | `generated/` | Generated provider config, metadata, S-Core interfaces/types, LoLa adapter, and LoLa config. |
-| `models/vehicle_dynamics.json` | Reference model used to generate the current vehicle dynamics provider artifacts. |
+| `models/BCM_Config.json` | Body Control Module model used to generate the provider mappings and wire types. |
 | `templates/reference-codegen/` | Reference generator templates for the provider artifacts. |
 | `score_com_cargo/` | Temporary Cargo manifests/shims over S-Core runtime crates. |
 | `docs/s-core-integration.md` | Practical integration guide for wiring this provider to S-Core applications. |
@@ -162,7 +162,7 @@ cargo check -p databroker-mw-com
 The S-Core checks require the local S-Core checkout and native artifacts. The build scripts auto-discover S-Core Bazel link params from the local Bazel cache when they are already available. For reproducible builds, CI, containers, or fresh developer machines, pass the artifact paths explicitly:
 
 ```sh
-SCORE_COM_LINK_PARAMS=<path-to-vehicle-dynamics-example-0.params> \
+SCORE_COM_LINK_PARAMS=<path-to-body-control-module-example-0.params> \
 SCORE_COM_BAZEL_BIN=<path-to-bazel-bin> \
 cargo check -p databroker-mw-com
 ```
@@ -194,7 +194,7 @@ bazel run //:generate_mw_com_provider_artifacts
 bazel run //:verify_mw_com_provider_codegen
 ```
 
-The generator reads `models/vehicle_dynamics.json`, applies `templates/reference-codegen/`, and writes `generated/`.
+The generator reads `models/BCM_Config.json`, applies `templates/reference-codegen/`, and writes `generated/`. The BodyControl events use separate `standard_vehicle_datapoints` and `standard_vehicle_actuators` instances.
 
 To generate from a custom model or write to a custom output directory, call `xtask` directly:
 
@@ -219,14 +219,14 @@ cargo run --manifest-path mw_com_provider/xtask/Cargo.toml -- codegen \
 
 ## Complete Integration Test With S-Core
 
-The three-terminal demo is the full integration test for the current S-Core vehicle dynamics setup. Detailed integration hints and troubleshooting are in [docs/s-core-integration.md](docs/s-core-integration.md).
+The three-terminal demo is the full integration test for the current S-Core BodyControl setup. Detailed integration hints and troubleshooting are in [docs/s-core-integration.md](docs/s-core-integration.md).
 
 Terminal 1 starts the S-Core vehicle dynamics application:
 
 ```sh
 cd <s-core-communication>
 rm -rf /tmp/mw_com_lola
-bazel run //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example -- --run-mode both
+bazel run //score/mw/com/example/vehicle-dynamics-example:body-control-module-example -- --run-mode both
 ```
 
 Terminal 2 starts Databroker with the in-process mw::com provider:
@@ -253,42 +253,47 @@ cargo run -p databroker-cli -- subscribe Vehicle.Speed
 Expected Terminal 3 output is a changing `Vehicle.Speed` value. This proves the receive path:
 
 ```text
-S-Core VehicleDynamicsService.speed
+S-Core BodyControlModuleService.vehicle_speed
   -> mw_com_provider
   -> Kuksa Databroker Vehicle.Speed
   -> databroker-cli get/subscribe
 ```
 
-The same terminal can then verify the actuation path by sending a Kuksa actuator request:
+To verify actuation in the other direction, use a second client command:
+
+```sh
+cargo run -p databroker-cli -- actuate Vehicle.Body.Horn.IsActive true
+```
+
+The `body-control-module-example` consumer should log the received `horn_is_active` sample.
+
+The same terminal can verify the actuation path by sending a Kuksa actuator request:
 
 ```sh
 cd <kuksa-databroker>
-cargo run -p databroker-cli -- actuate Vehicle.ADAS.CruiseControl.TargetSpeed 88.0
+cargo run -p databroker-cli -- actuate Vehicle.Body.Horn.IsActive true
 ```
 
 Expected Terminal 1 output for actuation:
 
 ```text
-1 target speed actuation samples received. target_speed=88
+1 horn actuation samples received: true
 ```
 
 For repeated demo updates in bash:
 
 ```sh
-speed=60
+horn=true
 while true; do
-  cargo run -p databroker-cli -- actuate Vehicle.ADAS.CruiseControl.TargetSpeed "$speed"
-  speed=$((speed + 1))
-  if [ "$speed" -gt 100 ]; then
-    speed=60
-  fi
+  cargo run -p databroker-cli -- actuate Vehicle.Body.Horn.IsActive "$horn"
+  if [ "$horn" = true ]; then horn=false; else horn=true; fi
   sleep 0.5
 done
 ```
 
 ## LoLa Queue Tuning
 
-The generated adapter defaults to the current vehicle dynamics demo limits:
+The generated adapter defaults to the current BCM demo limits:
 
 ```text
 SCORE_SUBSCRIPTION_QUEUE_CAPACITY=3

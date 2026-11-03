@@ -90,7 +90,7 @@ class SignalTestApplication {
   private:
     bool ConnectReceiver() {
         const auto instance = score::mw::com::InstanceSpecifier::Create(
-            std::string{"/vehicle_high_beam/network_rx"});
+            std::string{"/body_control_module/network_rx"});
         if (!instance.has_value()) {
             return false;
         }
@@ -120,7 +120,7 @@ class SignalTestApplication {
             events.push_back({signal.event_name, metadata});
         }
         const auto instance = score::mw::com::InstanceSpecifier::Create(
-            std::string{"/vehicle_high_beam/local_tx"});
+            std::string{"/body_control_module/local_tx"});
         if (!instance.has_value()) {
             return false;
         }

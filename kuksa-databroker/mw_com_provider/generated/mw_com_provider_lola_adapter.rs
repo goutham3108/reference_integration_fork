@@ -15,7 +15,6 @@ use crate::error::MwComProviderError;
 use crate::quality::SignalQuality;
 use crate::score_bindings::{ScoreBinding, ScoreRuntimeAdapter};
 use crate::transport::{MwComMessage, MwComValue};
-use crate::mw_com_provider_types::vehicle::{BoolSample, F32Sample, U8Sample};
 use async_trait::async_trait;
 use score_com::{
     Builder, FindServiceSpecifier, InstanceSpecifier, Interface, LolaRuntimeBuilderImpl,
@@ -37,16 +36,33 @@ type BodyControlModuleServiceProducer =
     <BodyControlModuleServiceInterfaceAlias as Interface>::Producer<LolaRuntime>;
 type BodyControlModuleServiceOfferedProducer =
     <BodyControlModuleServiceProducer as Producer<LolaRuntime>>::OfferedProducer;
-type BodyControlModuleServiceFrontWasherFluidLevelSubscription =
-    <<LolaRuntime as Runtime>::Subscriber<U8Sample> as Subscriber<U8Sample, LolaRuntime>>::Subscription;
-type BodyControlModuleServiceFrontWasherFluidIsLowSubscription =
-    <<LolaRuntime as Runtime>::Subscriber<BoolSample> as Subscriber<BoolSample, LolaRuntime>>::Subscription;
-type BodyControlModuleServiceRainIntensitySubscription =
-    <<LolaRuntime as Runtime>::Subscriber<U8Sample> as Subscriber<U8Sample, LolaRuntime>>::Subscription;
+type BodyControlModuleServiceFrontWasherFluidLevelSubscription = <<LolaRuntime as Runtime>::Subscriber<crate::mw_com_provider_types::vehicle::FrontWasherFluidLevel> as Subscriber<
+    crate::mw_com_provider_types::vehicle::FrontWasherFluidLevel,
+    LolaRuntime,
+>>::Subscription;
+type BodyControlModuleServiceFrontWasherFluidIsLowSubscription = <<LolaRuntime as Runtime>::Subscriber<crate::mw_com_provider_types::vehicle::FrontWasherFluidIsLow> as Subscriber<
+    crate::mw_com_provider_types::vehicle::FrontWasherFluidIsLow,
+    LolaRuntime,
+>>::Subscription;
+type BodyControlModuleServiceRainIntensitySubscription = <<LolaRuntime as Runtime>::Subscriber<
+    crate::mw_com_provider_types::vehicle::RainIntensity,
+> as Subscriber<
+    crate::mw_com_provider_types::vehicle::RainIntensity,
+    LolaRuntime,
+>>::Subscription;
 type BodyControlModuleServiceDriverDoorChildLockIsActiveSubscription =
-    <<LolaRuntime as Runtime>::Subscriber<BoolSample> as Subscriber<BoolSample, LolaRuntime>>::Subscription;
-type BodyControlModuleServiceVehicleSpeedSubscription =
-    <<LolaRuntime as Runtime>::Subscriber<F32Sample> as Subscriber<F32Sample, LolaRuntime>>::Subscription;
+    <<LolaRuntime as Runtime>::Subscriber<
+        crate::mw_com_provider_types::vehicle::DriverDoorChildLockIsActive,
+    > as Subscriber<
+        crate::mw_com_provider_types::vehicle::DriverDoorChildLockIsActive,
+        LolaRuntime,
+    >>::Subscription;
+type BodyControlModuleServiceVehicleSpeedSubscription = <<LolaRuntime as Runtime>::Subscriber<
+    crate::mw_com_provider_types::vehicle::VehicleSpeed,
+> as Subscriber<
+    crate::mw_com_provider_types::vehicle::VehicleSpeed,
+    LolaRuntime,
+>>::Subscription;
 
 #[allow(dead_code)]
 enum GeneratedReceiveSubscription {
@@ -448,274 +464,274 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "horn_is_active",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "HornIsActive",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "low_beam_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "LowBeamIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "high_beam_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "HighBeamIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "high_beam_switch_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "HighBeamSwitchIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "parking_lights_are_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "ParkingLightsAreOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "running_lights_are_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RunningLightsAreOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_fog_lights_are_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "FrontFogLightsAreOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_fog_lights_are_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearFogLightsAreOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "hazard_lights_are_signaling",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "HazardLightsAreSignaling",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "left_indicator_is_signaling",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "LeftIndicatorIsSignaling",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "right_indicator_is_signaling",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RightIndicatorIsSignaling",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "brake_lights_are_active",
             element_kind: "event",
-            payload_type: "string",
+            payload_type: "BrakeLightsAreActive",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "hood_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "HoodIsOpen",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_trunk_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearTrunkIsOpen",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_trunk_is_locked",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearTrunkIsLocked",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_trunk_position",
             element_kind: "event",
-            payload_type: "uint8",
+            payload_type: "RearTrunkPosition",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "driver_mirror_is_folded",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "DriverMirrorIsFolded",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "passenger_mirror_is_folded",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "PassengerMirrorIsFolded",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "driver_mirror_heating_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "DriverMirrorHeatingIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "passenger_mirror_heating_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "PassengerMirrorHeatingIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_wiper_mode",
             element_kind: "event",
-            payload_type: "string",
+            payload_type: "FrontWiperMode",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_wiper_intensity",
             element_kind: "event",
-            payload_type: "uint8",
+            payload_type: "FrontWiperIntensity",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_windshield_heating_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "FrontWindshieldHeatingIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_windshield_heating_is_on",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearWindshieldHeatingIsOn",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "driver_door_is_locked",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "DriverDoorIsLocked",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "driver_door_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "DriverDoorIsOpen",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "driver_door_window_position",
             element_kind: "event",
-            payload_type: "uint8",
+            payload_type: "DriverDoorWindowPosition",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_passenger_door_is_locked",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "FrontPassengerDoorIsLocked",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_passenger_door_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "FrontPassengerDoorIsOpen",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "front_passenger_door_window_position",
             element_kind: "event",
-            payload_type: "uint8",
+            payload_type: "FrontPassengerDoorWindowPosition",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_driver_door_is_locked",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearDriverDoorIsLocked",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_driver_door_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearDriverDoorIsOpen",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_passenger_door_is_locked",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearPassengerDoorIsLocked",
         })?;
         self.ensure_bodycontrolmoduleservice_offered_producer(ScoreBinding {
             service_name: "BodyControlModuleService",
             instance_name: "standard_vehicle",
-            instance_specifier: "",
+            instance_specifier: "/standard_vehicle_actuators",
             member_name: "rear_passenger_door_is_open",
             element_kind: "event",
-            payload_type: "boolean",
+            payload_type: "RearPassengerDoorIsOpen",
         })?;
         Ok(())
     }
@@ -1012,7 +1028,8 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.horn_is_active.allocate().map_err(|error| {
                     Self::score_error("SCORE horn_is_active allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::HornIsActive { value: value });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE horn_is_active publish failed", error)
                 })
@@ -1024,7 +1041,8 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.low_beam_is_on.allocate().map_err(|error| {
                     Self::score_error("SCORE low_beam_is_on allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::LowBeamIsOn { value: value });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE low_beam_is_on publish failed", error)
                 })
@@ -1036,7 +1054,8 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.high_beam_is_on.allocate().map_err(|error| {
                     Self::score_error("SCORE high_beam_is_on allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::HighBeamIsOn { value: value });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE high_beam_is_on publish failed", error)
                 })
@@ -1052,7 +1071,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                         .map_err(|error| {
                             Self::score_error("SCORE high_beam_switch_is_on allocate failed", error)
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::HighBeamSwitchIsOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE high_beam_switch_is_on publish failed", error)
                 })
@@ -1064,7 +1085,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.parking_lights_are_on.allocate().map_err(|error| {
                     Self::score_error("SCORE parking_lights_are_on allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::ParkingLightsAreOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE parking_lights_are_on publish failed", error)
                 })
@@ -1076,7 +1099,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.running_lights_are_on.allocate().map_err(|error| {
                     Self::score_error("SCORE running_lights_are_on allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RunningLightsAreOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE running_lights_are_on publish failed", error)
                 })
@@ -1095,7 +1120,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontFogLightsAreOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_fog_lights_are_on publish failed", error)
                 })
@@ -1111,7 +1138,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                         .map_err(|error| {
                             Self::score_error("SCORE rear_fog_lights_are_on allocate failed", error)
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearFogLightsAreOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_fog_lights_are_on publish failed", error)
                 })
@@ -1130,7 +1159,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::HazardLightsAreSignaling {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE hazard_lights_are_signaling publish failed", error)
                 })
@@ -1149,7 +1182,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::LeftIndicatorIsSignaling {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE left_indicator_is_signaling publish failed", error)
                 })
@@ -1168,13 +1205,17 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RightIndicatorIsSignaling {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE right_indicator_is_signaling publish failed", error)
                 })
             }
             ("BodyControlModuleService", "brake_lights_are_active") => {
-                let value = string16_value(&message.value, binding)?;
+                let value = bool_value(&message.value, binding)?;
                 let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
                 tracing::debug!(value = ?value, "SCORE brake_lights_are_active actuation sample publishing");
                 let uninit_sample =
@@ -1187,7 +1228,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::BrakeLightsAreActive { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE brake_lights_are_active publish failed", error)
                 })
@@ -1199,7 +1242,8 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.hood_is_open.allocate().map_err(|error| {
                     Self::score_error("SCORE hood_is_open allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::HoodIsOpen { value: value });
                 sample
                     .send()
                     .map_err(|error| Self::score_error("SCORE hood_is_open publish failed", error))
@@ -1211,7 +1255,8 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.rear_trunk_is_open.allocate().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_is_open allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::RearTrunkIsOpen { value: value });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_is_open publish failed", error)
                 })
@@ -1223,7 +1268,10 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.rear_trunk_is_locked.allocate().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_is_locked allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample =
+                    uninit_sample.write(crate::mw_com_provider_types::vehicle::RearTrunkIsLocked {
+                        value: value,
+                    });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_is_locked publish failed", error)
                 })
@@ -1235,7 +1283,10 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.rear_trunk_position.allocate().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_position allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample =
+                    uninit_sample.write(crate::mw_com_provider_types::vehicle::RearTrunkPosition {
+                        value: value,
+                    });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_trunk_position publish failed", error)
                 })
@@ -1254,7 +1305,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::DriverMirrorIsFolded { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE driver_mirror_is_folded publish failed", error)
                 })
@@ -1273,7 +1326,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::PassengerMirrorIsFolded { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE passenger_mirror_is_folded publish failed", error)
                 })
@@ -1292,7 +1347,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::DriverMirrorHeatingIsOn { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE driver_mirror_heating_is_on publish failed", error)
                 })
@@ -1311,19 +1368,24 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::PassengerMirrorHeatingIsOn {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE passenger_mirror_heating_is_on publish failed", error)
                 })
             }
             ("BodyControlModuleService", "front_wiper_mode") => {
-                let value = string16_value(&message.value, binding)?;
+                let value = crate::score_bindings::encode_string16(&message.value, binding)?;
                 let producer = self.ensure_bodycontrolmoduleservice_offered_producer(binding)?;
                 tracing::debug!(value = ?value, "SCORE front_wiper_mode actuation sample publishing");
                 let uninit_sample = producer.front_wiper_mode.allocate().map_err(|error| {
                     Self::score_error("SCORE front_wiper_mode allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample
+                    .write(crate::mw_com_provider_types::vehicle::FrontWiperMode { value: value });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_wiper_mode publish failed", error)
                 })
@@ -1335,7 +1397,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.front_wiper_intensity.allocate().map_err(|error| {
                     Self::score_error("SCORE front_wiper_intensity allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontWiperIntensity { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_wiper_intensity publish failed", error)
                 })
@@ -1354,7 +1418,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontWindshieldHeatingIsOn {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_windshield_heating_is_on publish failed", error)
                 })
@@ -1373,7 +1441,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearWindshieldHeatingIsOn {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_windshield_heating_is_on publish failed", error)
                 })
@@ -1385,7 +1457,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.driver_door_is_locked.allocate().map_err(|error| {
                     Self::score_error("SCORE driver_door_is_locked allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::DriverDoorIsLocked { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE driver_door_is_locked publish failed", error)
                 })
@@ -1397,7 +1471,10 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                 let uninit_sample = producer.driver_door_is_open.allocate().map_err(|error| {
                     Self::score_error("SCORE driver_door_is_open allocate failed", error)
                 })?;
-                let sample = uninit_sample.write(value.into());
+                let sample =
+                    uninit_sample.write(crate::mw_com_provider_types::vehicle::DriverDoorIsOpen {
+                        value: value,
+                    });
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE driver_door_is_open publish failed", error)
                 })
@@ -1416,7 +1493,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::DriverDoorWindowPosition {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE driver_door_window_position publish failed", error)
                 })
@@ -1435,7 +1516,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontPassengerDoorIsLocked {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_passenger_door_is_locked publish failed", error)
                 })
@@ -1454,7 +1539,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontPassengerDoorIsOpen {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE front_passenger_door_is_open publish failed", error)
                 })
@@ -1472,7 +1561,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                             error,
                         )
                     })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::FrontPassengerDoorWindowPosition {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error(
                         "SCORE front_passenger_door_window_position publish failed",
@@ -1494,7 +1587,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearDriverDoorIsLocked { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_driver_door_is_locked publish failed", error)
                 })
@@ -1513,7 +1608,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearDriverDoorIsOpen { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_driver_door_is_open publish failed", error)
                 })
@@ -1532,7 +1629,11 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearPassengerDoorIsLocked {
+                        value: value,
+                    },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_passenger_door_is_locked publish failed", error)
                 })
@@ -1551,7 +1652,9 @@ impl ScoreRuntimeAdapter for LolaScoreRuntimeAdapter {
                                 error,
                             )
                         })?;
-                let sample = uninit_sample.write(value.into());
+                let sample = uninit_sample.write(
+                    crate::mw_com_provider_types::vehicle::RearPassengerDoorIsOpen { value: value },
+                );
                 sample.send().map_err(|error| {
                     Self::score_error("SCORE rear_passenger_door_is_open publish failed", error)
                 })
@@ -1590,20 +1693,6 @@ fn numeric_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<f64, M
 }
 
 #[allow(dead_code)]
-fn string16_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<[u8; 16], MwComProviderError> {
-    match value {
-        MwComValue::String(value) if value.len() <= 16 => {
-            let mut bytes = [0; 16];
-            bytes[..value.len()].copy_from_slice(value.as_bytes());
-            Ok(bytes)
-        }
-        other => Err(MwComProviderError::Transport(format!(
-            "{}:{} requires a string of at most 16 UTF-8 bytes, got {other:?}",
-            binding.service_name, binding.member_name
-        ))),
-    }
-}
-
 fn bool_value(value: &MwComValue, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
     match value {
         MwComValue::Bool(value) => Ok(*value),

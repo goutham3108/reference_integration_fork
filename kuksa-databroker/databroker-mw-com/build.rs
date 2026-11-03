@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 const SCORE_LINK_PARAMS_SUFFIX: &str =
-    "score/mw/com/example/vehicle-dynamics-example/vehicle-dynamics-example-0.params";
+    "score/mw/com/example/vehicle-dynamics-example/body-control-module-example-0.params";
 
 fn main() {
     println!("cargo:rerun-if-env-changed=SCORE_COM_BAZEL_BIN");
@@ -56,8 +56,8 @@ fn collect_alwayslink_archives(bazel_bin: &Path, params_path: &Path) -> Vec<Path
     let params = fs::read_to_string(&params_path).unwrap_or_else(|error| {
         panic!(
             "failed to read S-Core link params at {}: {error}. \
-             Rebuild the S-Core vehicle-dynamics-example target and set \
-             SCORE_COM_LINK_PARAMS to its vehicle-dynamics-example-0.params file. \
+             Rebuild the S-Core body-control-module-example target and set \
+             SCORE_COM_LINK_PARAMS to its body-control-module-example-0.params file. \
              If SCORE_COM_BAZEL_BIN points to a stale bazel-bin symlink, use `bazel info bazel-bin` from the S-Core communication checkout and export that path instead.",
             params_path.display()
         )

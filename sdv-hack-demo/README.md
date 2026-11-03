@@ -288,7 +288,13 @@ The scripts create these Git-ignored archives:
 ```text
 dist/vehicle-aarch64.tar.gz
 dist/remote-aarch64.tar.gz
+dist/body-control-aarch64.tar.gz
 ```
+
+`body-control-aarch64.tar.gz` is a separate KUKSA/BodyControl test package. It
+contains the BCM LoLa producer/consumer, KUKSA broker and CLI, provider config,
+and the matching LoLa manifests. It does not replace or alter the gateway
+vehicle/remote archives.
 
 The gateway configuration lives in this folder, not in `inc_someip_gateway`:
 `sdv-hack-demo/config/mw_someip_config.json`, built by
@@ -299,7 +305,7 @@ Bazel workspaces rather than the most recent `bazel-bin` link.
 
 The gateway keys its SOCom connectors by service type name, so one type must
 not have both a local and a remote instance. The demo config therefore uses
-one type per direction: `vehicle_high_beam_tx`/`vehicle_high_beam_rx` and
+one type per direction: `body_control_module_tx`/`body_control_module_rx` and
 `vehicle::VehicleDynamicsService` (Tx, `/Vehicle/Service1/Instance`) /
 `vehicle::VehicleDynamicsService_rx` (Rx, `/Vehicle/Service2/Instance`). Both
 vehicle-dynamics types share SOME/IP service ID `6433`, so the wire format and
@@ -353,6 +359,17 @@ Important build note:
   for runtime on the RPis — you only need to extract the appropriate archive
   on each Pi and run the scripts in `~/sdv-demo/run/` (no Bazel or toolchain is
   required on the RPis).
+
+- The BCM archive can be deployed independently to a Raspberry Pi guest. Extract
+  it to `~/body-control-demo` and run `~/body-control-demo/run/start-body-control.sh`.
+  In another shell on that Pi, use the bundled CLI to check datapoints and
+  actuator feedback:
+
+  ```sh
+  cd ~/body-control-demo
+  ./databroker-cli get Vehicle.Speed
+  ./databroker-cli actuate Vehicle.Body.Horn.IsActive true
+  ```
 
 - If you want to avoid requiring the full workspace on the build host, you can
   either: (A) vendor prebuilt `someipd`/`gatewayd` and required libraries into
@@ -590,7 +607,7 @@ In default combined mode the forward-command logs are:
 ```text
 Vehicle menu requested High.IsOn=1 through KUKSA
 KUKSA accepted vehicle command High.IsOn=1 (not remote output acknowledgement)
-Command transmitted through mw::com Tx service=/vehicle_high_beam_tx value=Bool(true)
+Command transmitted through mw::com Tx service=/body_control_module_tx value=Bool(true)
 Remote received vehicle-side command High.IsOn=1
 Remote GPIO output applied High.IsOn=1 line=27
 ```
@@ -824,7 +841,7 @@ restart.
 ```text
 sdv-hack-demo/
   build-aarch64.sh              Build all ARM64 demo targets
-  package-aarch64.sh            Produce vehicle and remote archives
+  package-aarch64.sh            Produce vehicle, remote, and BCM archives
   deploy/start-vehicle.sh       Launch vehicle stack on 10.56.121.101
   deploy/start-remote.sh        Launch remote sensor on 10.56.121.79
   deploy/network.env            Editable vehicle/remote address configuration

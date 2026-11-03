@@ -9,7 +9,7 @@ def gateway_provider_documents(root):
     for index, signal in enumerate(signals, start=1):
         event = signal.get("eventName", signal["name"] + "_state")
         signal_type = signal.get("type")
-        service = "/vehicle_high_beam_tx" if signal_type == "actuator" else "/vehicle_high_beam_rx"
+        service = "/body_control_module_tx" if signal_type == "actuator" else "/body_control_module_rx"
         instance = "local_tx" if signal_type == "actuator" else "network_rx"
         direction = {
             "sensor": "datapoint",
@@ -37,7 +37,7 @@ def gateway_provider_documents(root):
             mapping.update({"min": 0, "max": 100, "unit": "percent"})
         if signal_type not in {"sensor", "actuator"}:
             mapping["actuation_binding"] = {
-                "service": "/vehicle_high_beam_tx",
+                "service": "/body_control_module_tx",
                 "instance": "local_tx",
                 "member": event,
             }
@@ -74,8 +74,8 @@ def gateway_provider_sources(root):
     metadata = ["use crate::generated::GenericMwComElement;", "pub const GATEWAY_BINDINGS: &[GenericMwComElement] = &["]
     runtime = []
     for direction, interface, instance, specifier in (
-        ("tx", "HighBeamTx", "local_tx", "/vehicle_high_beam/local_tx"),
-        ("rx", "VehicleHighBeamRx", "network_rx", "/vehicle_high_beam/network_rx"),
+        ("tx", "HighBeamTx", "local_tx", "/body_control_module/local_tx"),
+        ("rx", "VehicleHighBeamRx", "network_rx", "/body_control_module/network_rx"),
     ):
         runtime.append(f'score_com::interface!(interface {interface} {{ Id = "{interface}",')
         for signal in signals:
@@ -97,7 +97,7 @@ def gateway_provider_sources(root):
                 "BodySignalPayload": (48, 16),
             }[sample]
             metadata.append(
-                f'GenericMwComElement {{ service_name: "/vehicle_high_beam_{direction}", '
+                f'GenericMwComElement {{ service_name: "/body_control_module_{direction}", '
                 f'instance_name: "{instance}", instance_specifier: "{specifier}", '
                 f'member_name: "{event}", element_kind: "event", payload_type: "{sample}", '
                 f"sample_size: {size}, sample_alignment: {alignment}, has_serialized_format: false }},"

@@ -14,7 +14,7 @@
 use crate::config::ProviderConfig;
 use crate::error::MwComProviderError;
 use crate::generated;
-use crate::transport::{MwComMessage, MwComTransport};
+use crate::transport::{MwComMessage, MwComTransport, MwComValue};
 use async_trait::async_trait;
 use std::collections::HashSet;
 
@@ -39,6 +39,60 @@ impl<'a> From<&'a generated::GenericMwComElement> for ScoreBinding<'a> {
             payload_type: element.payload_type,
         }
     }
+}
+
+/// Encodes a string-valued `MwComValue` into a fixed 16-byte buffer suitable
+/// for score's `String16` wire representation (UTF-8 bytes, NUL-padded).
+#[allow(dead_code)]
+pub(crate) fn encode_string16(
+    value: &MwComValue,
+    binding: ScoreBinding<'_>,
+) -> Result<[u8; 16], MwComProviderError> {
+    let MwComValue::String(s) = value else {
+        return Err(MwComProviderError::Transport(format!(
+            "{}/{}/{} expects a string value for String16 encoding",
+            binding.service_name, binding.instance_name, binding.member_name
+        )));
+    };
+
+    let bytes = s.as_bytes();
+    if bytes.len() >= 16 {
+        return Err(MwComProviderError::Transport(format!(
+            "{}/{}/{} string value too long for String16 (max 15 bytes)",
+            binding.service_name, binding.instance_name, binding.member_name
+        )));
+    }
+
+    let mut out = [0u8; 16];
+    out[..bytes.len()].copy_from_slice(bytes);
+    Ok(out)
+}
+
+/// Decodes a fixed 16-byte `String16` wire buffer into a string-valued
+/// `MwComValue`. Validates that the buffer contains a NUL-terminated (or
+/// fully-filled) valid UTF-8 string with no embedded NUL bytes before the
+/// terminator.
+#[allow(dead_code)]
+pub(crate) fn decode_string16(
+    bytes: &[u8; 16],
+    binding: ScoreBinding<'_>,
+) -> Result<MwComValue, MwComProviderError> {
+    let len = bytes.iter().position(|&b| b == 0).unwrap_or(16);
+    if bytes[len..].iter().any(|&b| b != 0) {
+        return Err(MwComProviderError::Transport(format!(
+            "{}/{}/{} String16 buffer has data after NUL terminator",
+            binding.service_name, binding.instance_name, binding.member_name
+        )));
+    }
+
+    let s = std::str::from_utf8(&bytes[..len]).map_err(|_| {
+        MwComProviderError::Transport(format!(
+            "{}/{}/{} String16 buffer is not valid UTF-8",
+            binding.service_name, binding.instance_name, binding.member_name
+        ))
+    })?;
+
+    Ok(MwComValue::String(s.to_string()))
 }
 
 pub fn generated_score_bindings() -> impl Iterator<Item = ScoreBinding<'static>> {
@@ -566,7 +620,7 @@ mod tests {
         assert_eq!(transport.recv().await.unwrap().value, MwComValue::F64(12.5));
         transport
             .send_actuation(MwComMessage {
-                service: "/vehicle_high_beam_tx".into(),
+                service: "/body_control_module_tx".into(),
                 instance: "local_tx".into(),
                 member: "high_beam_state".into(),
                 value: MwComValue::Bool(true),
@@ -609,5 +663,45 @@ mod tests {
             }
             other => panic!("unexpected error: {other}"),
         }
+    }
+
+    #[test]
+    fn string16_codec_round_trips_utf8_and_rejects_invalid_values() {
+        let binding = ScoreBinding {
+            service_name: "BodyControlModuleService",
+            instance_name: "standard_vehicle_actuators",
+            instance_specifier: "/body_control/actuators",
+            member_name: "front_wiper_mode",
+            element_kind: "event",
+            payload_type: "FrontWiperMode",
+        };
+
+        let encoded =
+            encode_string16(&MwComValue::String("auto".to_string()), binding).unwrap();
+        let mut expected = [0u8; 16];
+        expected[..4].copy_from_slice(b"auto");
+        assert_eq!(encoded, expected);
+
+        let decoded = decode_string16(&encoded, binding).unwrap();
+        assert_eq!(decoded, MwComValue::String("auto".to_string()));
+
+        // Too long (>= 16 bytes including terminator) must be rejected.
+        let too_long = "0123456789012345";
+        assert!(encode_string16(&MwComValue::String(too_long.to_string()), binding).is_err());
+
+        // Non-string value must be rejected.
+        assert!(encode_string16(&MwComValue::Bool(true), binding).is_err());
+
+        // Buffer with data after the NUL terminator must be rejected.
+        let mut corrupt = [0u8; 16];
+        corrupt[0] = b'a';
+        corrupt[1] = 0;
+        corrupt[2] = b'b';
+        assert!(decode_string16(&corrupt, binding).is_err());
+
+        // Invalid UTF-8 must be rejected.
+        let mut invalid_utf8 = [0u8; 16];
+        invalid_utf8[0] = 0xFF;
+        assert!(decode_string16(&invalid_utf8, binding).is_err());
     }
 }

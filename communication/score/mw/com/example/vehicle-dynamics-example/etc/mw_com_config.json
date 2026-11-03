@@ -24,7 +24,7 @@
       ]
     },
     {
-      "serviceTypeName": "/vehicle_high_beam_tx",
+      "serviceTypeName": "/body_control_module_tx",
       "version": {
         "major": 1,
         "minor": 0
@@ -215,7 +215,7 @@
       ]
     },
     {
-      "serviceTypeName": "/vehicle_high_beam_rx",
+      "serviceTypeName": "/body_control_module_rx",
       "version": {
         "major": 1,
         "minor": 0
@@ -528,8 +528,8 @@
       ]
     },
     {
-      "instanceSpecifier": "/vehicle_high_beam/local_tx",
-      "serviceTypeName": "/vehicle_high_beam_tx",
+      "instanceSpecifier": "/body_control_module/local_tx",
+      "serviceTypeName": "/body_control_module_tx",
       "version": {
         "major": 1,
         "minor": 0
@@ -765,8 +765,8 @@
       ]
     },
     {
-      "instanceSpecifier": "/vehicle_high_beam/network_rx",
-      "serviceTypeName": "/vehicle_high_beam_rx",
+      "instanceSpecifier": "/body_control_module/network_rx",
+      "serviceTypeName": "/body_control_module_rx",
       "version": {
         "major": 1,
         "minor": 0

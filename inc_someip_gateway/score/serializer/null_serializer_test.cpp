@@ -88,7 +88,7 @@ std::vector<uint8_t> build_test_config() {
     std::vector<flatbuffers::Offset<config::Event>> high_beam_events = {
         high_beam_event, horn_event};
     auto high_beam_service = config::CreateServiceTypeDirect(
-        fbb, "vehicle_high_beam_rx", 17152, 1, 0, &high_beam_events);
+        fbb, "body_control_module_rx", 17152, 1, 0, &high_beam_events);
     service_types_vec.push_back(high_beam_service);
     auto root = config::CreateRootDirect(fbb, &service_types_vec);
     fbb.Finish(root);
@@ -176,7 +176,7 @@ TEST_F(NullSerializer_test, vehicle_dynamics_round_trip_preserves_typed_sample) 
 }
 
 TEST_F(NullSerializer_test, high_beam_boolean_round_trip_preserves_typed_value) {
-    const std::string service = "/vehicle_high_beam_rx";
+    const std::string service = "/body_control_module_rx";
     const std::string event = "high_beam_state";
     const score_com_serializer* serializer = nullptr;
     ASSERT_EQ(score_com_serializer_get(service.data(), service.size(),
@@ -210,7 +210,7 @@ TEST_F(NullSerializer_test, high_beam_boolean_round_trip_preserves_typed_value) 
 
 TEST_F(NullSerializer_test, body_boolean_round_trip_supports_both_service_names) {
     for (const std::string event : {"high_beam_state", "horn_state"}) {
-        for (const std::string service : {"vehicle_high_beam_rx", "/vehicle_high_beam_rx"}) {
+        for (const std::string service : {"body_control_module_rx", "/body_control_module_rx"}) {
             const score_com_serializer* serializer = nullptr;
             ASSERT_EQ(score_com_serializer_get(service.data(), service.size(),
                                                score_com_serializer_element_type_event,

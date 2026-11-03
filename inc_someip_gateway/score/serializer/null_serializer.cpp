@@ -241,8 +241,8 @@ const score::mw_someip_config::NullSerializerConfig* lookup_serialization_config
         }
         const auto configured_service_type_name = service_type->service_type_name()->string_view();
         const bool is_high_beam_name_alias =
-            service_type_name == "/vehicle_high_beam_rx" &&
-            configured_service_type_name == "vehicle_high_beam_rx";
+            service_type_name == "/body_control_module_rx" &&
+            configured_service_type_name == "body_control_module_rx";
         if (configured_service_type_name != service_type_name && !is_high_beam_name_alias) {
             continue;
         }

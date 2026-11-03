@@ -72,7 +72,7 @@ rust_binary(
     crate_name = "mw_com_provider_bin",
     data = [
         ":provider_generated_artifacts",
-        "@score_communication//score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example",
+        "@score_communication//score/mw/com/example/vehicle-dynamics-example:body-control-module-example",
     ],
     edition = "2021",
     features = ["link_std_cpp_lib"],
@@ -88,7 +88,7 @@ rust_binary(
 
 filegroup(
     name = "provider_model",
-    srcs = ["models/vehicle_dynamics.json"],
+    srcs = ["models/BCM_Config.json"],
 )
 
 filegroup(

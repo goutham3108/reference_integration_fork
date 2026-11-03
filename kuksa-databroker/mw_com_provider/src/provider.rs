@@ -565,7 +565,7 @@ impl SignalProvider for QueuedSignalProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &mut self,
+        &self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())
@@ -710,7 +710,7 @@ impl SignalProvider for MwComProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &mut self,
+        &self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())

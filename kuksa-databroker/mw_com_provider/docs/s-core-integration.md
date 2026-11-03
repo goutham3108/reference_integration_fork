@@ -2,7 +2,7 @@
 
 This guide explains how to connect an S-Core `mw::com` application to Kuksa Databroker using `mw_com_provider`. It is written for users who are new to this integration and need to understand what to build, what to configure, and how the pieces work together.
 
-The vehicle dynamics application used in this repository is a reference integration. Your own S-Core application can use the same pattern with its own services, instances, events, payload types, and VSS mappings. In an S-Core communication checkout, example applications live under `score/mw/com/example/`.
+The BodyControlModuleService application used in this repository is the BCM reference integration. The separate vehicle-dynamics and gateway examples remain available. Your own S-Core application can use the same pattern with its own services, instances, events, payload types, and VSS mappings. In an S-Core communication checkout, example applications live under `score/mw/com/example/`.
 
 ## What You Are Integrating
 
@@ -41,13 +41,13 @@ VSS path
     <-> payload field and data type
 ```
 
-Examples from the reference vehicle dynamics setup:
+Examples from the reference BCM setup:
 
 | VSS path | Direction | S-Core service/member |
 | --- | --- | --- |
-| `Vehicle.Speed` | Datapoint | `VehicleDynamicsService.speed` |
-| `Vehicle.ADAS.CruiseControl.IsEnabled` | Datapoint | `VehicleDynamicsService.cruise_control_enabled` |
-| `Vehicle.ADAS.CruiseControl.TargetSpeed` | Actuator | `VehicleDynamicsService.target_speed` |
+| `Vehicle.Speed` | Datapoint | `BodyControlModuleService.vehicle_speed` |
+| `Vehicle.Body.Windshield.Front.WasherFluid.Level` | Datapoint | `BodyControlModuleService.front_washer_fluid_level` |
+| `Vehicle.Body.Horn.IsActive` | Actuator | `BodyControlModuleService.horn_is_active` |
 
 Directions mean:
 
@@ -68,15 +68,15 @@ The S-Core application and provider must use compatible generated artifacts and 
 - allowed consumer/provider application lists
 - LoLa queue/slot capacity
 
-For the reference vehicle dynamics integration:
+For the reference BodyControl integration:
 
 ```text
 S-Core application id: 4001
 provider application id: 4002
-Service1 instance: /Vehicle/Service1/Instance
-Service2 instance: /Vehicle/Service2/Instance
-receive events: speed, cruise_control_enabled
-actuator event: target_speed
+datapoint instance: /standard_vehicle_datapoints
+actuator instance: /standard_vehicle_actuators
+service id: 6434
+events: 39 BodyControlModuleService members
 ```
 
 If service discovery succeeds but samples do not flow, first check application IDs, instance specifiers, and allowed consumer/provider lists in the LoLa manifests.
@@ -85,10 +85,10 @@ If service discovery succeeds but samples do not flow, first check application I
 
 Until the required generated artifacts and scripts are available directly from the S-Core repository, this provider keeps the integration artifacts locally:
 
-- `mw_com_provider/models/vehicle_dynamics.json`
+- `mw_com_provider/models/BCM_Config.json`
 - `mw_com_provider/templates/reference-codegen/`
 - `mw_com_provider/generated/mw_com_provider_config.json`
-- `mw_com_provider/generated/vehicle_dynamics_lola_config.json`
+- `mw_com_provider/generated/bcm_config_lola_config.json`
 - `mw_com_provider/generated/mw_com_provider_lola_adapter.rs`
 - `mw_com_provider/generated/mw_com_provider_interfaces.rs`
 - `mw_com_provider/generated/mw_com_provider_instances.rs`
@@ -106,13 +106,13 @@ Start from an S-Core application that uses `mw::com` events. The application sho
 - consume events that Databroker should expose as VSS actuators, or
 - do both.
 
-In the reference setup, this repository uses the S-Core vehicle dynamics example. It is not special to the provider; it is simply a concrete application that publishes speed and cruise-control state and consumes target-speed actuation.
+In the reference setup, this repository uses the S-Core BodyControlModuleService example. It publishes five body/vehicle datapoints and consumes horn actuation; the generated interface describes all 39 BCM events.
 
 Reference command:
 
 ```sh
 cd <s-core-communication>
-bazel build //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example
+bazel build //score/mw/com/example/vehicle-dynamics-example:body-control-module-example
 ```
 
 For your own S-Core application, build the Bazel target that produces your application binary and matching LoLa/native artifacts.
@@ -183,7 +183,7 @@ If the S-Core Bazel build has produced link params, the build scripts try to aut
 For reproducible builds, CI, containers, or fresh developer machines, provide the paths explicitly:
 
 ```sh
-SCORE_COM_LINK_PARAMS=<path-to-vehicle-dynamics-example-0.params> \
+SCORE_COM_LINK_PARAMS=<path-to-body-control-module-example-0.params> \
 SCORE_COM_BAZEL_BIN=<path-to-bazel-bin> \
 cargo check -p databroker-mw-com
 ```
@@ -192,12 +192,12 @@ cargo check -p databroker-mw-com
 
 ## Step 4: Run The S-Core Application
 
-For the reference vehicle dynamics application:
+For the reference BodyControl application:
 
 ```sh
 cd <s-core-communication>
 rm -rf /tmp/mw_com_lola
-bazel run //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example -- --run-mode both
+bazel run //score/mw/com/example/vehicle-dynamics-example:body-control-module-example -- --run-mode both
 ```
 
 For your own S-Core application, run your application binary with the LoLa config that matches the generated provider artifacts. Make sure the S-Core application and the provider use different application IDs and are allowed to communicate with each other.
@@ -221,7 +221,7 @@ Default inputs:
 
 ```text
 provider config: mw_com_provider/generated/mw_com_provider_config.json
-LoLa config: mw_com_provider/generated/vehicle_dynamics_lola_config.json
+LoLa config: mw_com_provider/generated/bcm_config_lola_config.json
 address: 127.0.0.1:55555
 ```
 
@@ -231,7 +231,7 @@ You can override these when needed:
 cargo run -p databroker-mw-com -- \
   --address 127.0.0.1:55555 \
   --provider-config mw_com_provider/generated/mw_com_provider_config.json \
-  --score-config mw_com_provider/generated/vehicle_dynamics_lola_config.json
+  --score-config mw_com_provider/generated/bcm_config_lola_config.json
 ```
 
 ## Step 6: Connect A Kuksa Client Or Application
@@ -239,13 +239,19 @@ cargo run -p databroker-mw-com -- \
 For a quick manual check, use the existing Kuksa CLI:
 
 ```sh
-cargo run -p databroker-cli -- actuate Vehicle.ADAS.CruiseControl.TargetSpeed 88.0
+cargo run -p databroker-cli -- actuate Vehicle.Body.Horn.IsActive true
 ```
 
-Expected reference S-Core output:
+For the BCM example, actuate the horn:
 
-```text
-1 target speed actuation samples received. target_speed=88
+```sh
+cargo run -p databroker-cli -- actuate Vehicle.Body.Horn.IsActive true
+```
+
+The communication consumer logs received `horn_is_active` actuation samples. To verify the datapoint receive path, read the published speed:
+
+```sh
+cargo run -p databroker-cli -- get Vehicle.Speed
 ```
 
 The CLI is only a demo client. Product applications can use Kuksa gRPC directly:
@@ -261,7 +267,7 @@ The provider handles both paths:
 
 ## Queue And Rate Configuration
 
-The reference vehicle dynamics LoLa skeleton has small event slot limits. The provider therefore defaults to:
+The reference BCM LoLa skeleton has small event slot limits. The provider therefore defaults to:
 
 ```text
 SCORE_SUBSCRIPTION_QUEUE_CAPACITY=3

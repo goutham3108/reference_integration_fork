@@ -50,6 +50,26 @@ From the `communication` workspace, run the interface regression tests:
 bazel test //score/mw/com/example/vehicle-dynamics-example/com-api-gen:body_signal_interface_test
 ```
 
+## BodyControlModuleService Integration
+
+The `body-control-module-example` target uses the BodyControl service contract
+and a separate LoLa instance for datapoints and actuator feedback. Start the
+KUKSA composition from `kuksa-databroker/`:
+
+```bash
+cargo run -p databroker-mw-com
+```
+
+Then, from the `communication` workspace, run:
+
+```bash
+bazel run //score/mw/com/example/vehicle-dynamics-example:body-control-module-example -- --run-mode both
+```
+
+The producer publishes washer, rain, door-child-lock, and vehicle-speed
+datapoints. The consumer subscribes to horn actuation. The existing
+`vehicle-dynamics-example` target and gateway service instances remain separate.
+
 ## Overview
 
 This example application demonstrates the COM (Communication Middleware) API capabilities using a Vehicle Monitor scenario. It showcases producer-consumer communication patterns with the Lola runtime, featuring both synchronous and asynchronous operations.

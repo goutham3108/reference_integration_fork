@@ -428,7 +428,7 @@ mod tests {
     fn routes_bidirectional_commands_to_separate_tx_binding() {
         let mut signal = mapping(1, Direction::Bidirectional, VssDataType::Bool);
         signal.actuation_binding = Some(crate::config::ActuationBinding {
-            service: "/vehicle_high_beam_tx".into(),
+            service: "/body_control_module_tx".into(),
             instance: "local_tx".into(),
             member: "signal1".into(),
         });
@@ -439,7 +439,7 @@ mod tests {
                 data_value: DataValue::Bool(true),
             })
             .unwrap();
-        assert_eq!(command.service, "/vehicle_high_beam_tx");
+        assert_eq!(command.service, "/body_control_module_tx");
         assert_eq!(command.instance, "local_tx");
         let (id, update) = mapper
             .message_to_update(&message("signal1", MwComValue::Bool(false)))

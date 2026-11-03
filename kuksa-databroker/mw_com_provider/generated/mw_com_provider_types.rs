@@ -16,74 +16,238 @@ use std::default::Default;
 
 pub mod vehicle {
     use super::*;
-
     #[repr(C)]
     #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
-    #[comm_data(id = "BoolSample")]
-    pub struct BoolSample {
+    #[comm_data(id = "HornIsActive")]
+    pub struct HornIsActive {
         pub value: bool,
     }
-
-    impl From<bool> for BoolSample {
-        fn from(value: bool) -> Self {
-            Self { value }
-        }
-    }
-
     #[repr(C)]
     #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
-    #[comm_data(id = "U8Sample")]
-    pub struct U8Sample {
+    #[comm_data(id = "LowBeamIsOn")]
+    pub struct LowBeamIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "HighBeamIsOn")]
+    pub struct HighBeamIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "HighBeamSwitchIsOn")]
+    pub struct HighBeamSwitchIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "ParkingLightsAreOn")]
+    pub struct ParkingLightsAreOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RunningLightsAreOn")]
+    pub struct RunningLightsAreOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontFogLightsAreOn")]
+    pub struct FrontFogLightsAreOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearFogLightsAreOn")]
+    pub struct RearFogLightsAreOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "HazardLightsAreSignaling")]
+    pub struct HazardLightsAreSignaling {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "LeftIndicatorIsSignaling")]
+    pub struct LeftIndicatorIsSignaling {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RightIndicatorIsSignaling")]
+    pub struct RightIndicatorIsSignaling {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "BrakeLightsAreActive")]
+    pub struct BrakeLightsAreActive {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "HoodIsOpen")]
+    pub struct HoodIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearTrunkIsOpen")]
+    pub struct RearTrunkIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearTrunkIsLocked")]
+    pub struct RearTrunkIsLocked {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearTrunkPosition")]
+    pub struct RearTrunkPosition {
         pub value: u8,
     }
-
-    impl From<u8> for U8Sample {
-        fn from(value: u8) -> Self {
-            Self { value }
-        }
-    }
-
     #[repr(C)]
     #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
-    #[comm_data(id = "F32Sample")]
-    pub struct F32Sample {
-        pub value: f32,
+    #[comm_data(id = "DriverMirrorIsFolded")]
+    pub struct DriverMirrorIsFolded {
+        pub value: bool,
     }
-
-    impl From<f32> for F32Sample {
-        fn from(value: f32) -> Self {
-            Self { value }
-        }
-    }
-
     #[repr(C)]
     #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
-    #[comm_data(id = "String16Sample")]
-    pub struct String16Sample {
+    #[comm_data(id = "PassengerMirrorIsFolded")]
+    pub struct PassengerMirrorIsFolded {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "DriverMirrorHeatingIsOn")]
+    pub struct DriverMirrorHeatingIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "PassengerMirrorHeatingIsOn")]
+    pub struct PassengerMirrorHeatingIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontWiperMode")]
+    pub struct FrontWiperMode {
         pub value: [u8; 16],
     }
-
-    impl From<[u8; 16]> for String16Sample {
-        fn from(value: [u8; 16]) -> Self {
-            Self { value }
-        }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontWiperIntensity")]
+    pub struct FrontWiperIntensity {
+        pub value: u8,
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-        use std::mem::{align_of, size_of};
-
-        #[test]
-        fn primitive_samples_match_bcm_layouts() {
-            assert_eq!((size_of::<BoolSample>(), align_of::<BoolSample>()), (1, 1));
-            assert_eq!((size_of::<U8Sample>(), align_of::<U8Sample>()), (1, 1));
-            assert_eq!((size_of::<F32Sample>(), align_of::<F32Sample>()), (4, 4));
-            assert_eq!((size_of::<String16Sample>(), align_of::<String16Sample>()), (16, 1));
-            assert!(BoolSample::from(true).value);
-            assert_eq!(U8Sample::from(100).value, 100);
-            assert_eq!(F32Sample::from(12.5).value, 12.5);
-            assert_eq!(String16Sample::from(*b"0123456789ABCDEF").value, *b"0123456789ABCDEF");
-        }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontWasherFluidLevel")]
+    pub struct FrontWasherFluidLevel {
+        pub value: u8,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontWasherFluidIsLow")]
+    pub struct FrontWasherFluidIsLow {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RainIntensity")]
+    pub struct RainIntensity {
+        pub value: u8,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontWindshieldHeatingIsOn")]
+    pub struct FrontWindshieldHeatingIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearWindshieldHeatingIsOn")]
+    pub struct RearWindshieldHeatingIsOn {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "DriverDoorIsLocked")]
+    pub struct DriverDoorIsLocked {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "DriverDoorIsOpen")]
+    pub struct DriverDoorIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "DriverDoorWindowPosition")]
+    pub struct DriverDoorWindowPosition {
+        pub value: u8,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "DriverDoorChildLockIsActive")]
+    pub struct DriverDoorChildLockIsActive {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontPassengerDoorIsLocked")]
+    pub struct FrontPassengerDoorIsLocked {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontPassengerDoorIsOpen")]
+    pub struct FrontPassengerDoorIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "FrontPassengerDoorWindowPosition")]
+    pub struct FrontPassengerDoorWindowPosition {
+        pub value: u8,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearDriverDoorIsLocked")]
+    pub struct RearDriverDoorIsLocked {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearDriverDoorIsOpen")]
+    pub struct RearDriverDoorIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearPassengerDoorIsLocked")]
+    pub struct RearPassengerDoorIsLocked {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "RearPassengerDoorIsOpen")]
+    pub struct RearPassengerDoorIsOpen {
+        pub value: bool,
+    }
+    #[repr(C)]
+    #[derive(Debug, Clone, PartialEq, Default, Reloc, CommData)]
+    #[comm_data(id = "VehicleSpeed")]
+    pub struct VehicleSpeed {
+        pub value: f32,
     }
 }

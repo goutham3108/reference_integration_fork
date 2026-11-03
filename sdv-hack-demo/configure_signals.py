@@ -29,7 +29,7 @@ def configure(root):
     vsomeip_path = gateway / "tests/integration/vsomeip-gateway-services.json"
     vsomeip = read_json(vsomeip_path)
 
-    body_types = {"/vehicle_high_beam_tx", "/vehicle_high_beam_rx"}
+    body_types = {"/body_control_module_tx", "/body_control_module_rx"}
     for config in configs.values():
         for service in config["service_types"]:
             if "/" + service["service_type_name"].lstrip("/") in body_types:
@@ -79,7 +79,7 @@ def configure(root):
             route["maxElements"] = signal["maxElements"]
         routes["routes"].append(route)
         for direction, offset, instance_id in (("tx", 0, 4096), ("rx", 1, 4097)):
-            type_name = "vehicle_high_beam_" + direction
+            type_name = "body_control_module_" + direction
             wire_id = event_id + offset
             boolean_rx = direction == "rx" and signal["datatype"] == "boolean"
             event = {

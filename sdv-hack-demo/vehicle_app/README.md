@@ -43,15 +43,15 @@ republished back to the network:
 
 | Direction | Service | Event | Instance |
 | --- | --- | --- | --- |
-| Vehicle app to network | `vehicle_high_beam_tx` (`0x4300`) | `0x8430` | `0x1000` |
-| Network to Vehicle app | `vehicle_high_beam_rx` (`0x4300`) | `0x8431` | `0x1001` |
+| Vehicle app to network | `body_control_module_tx` (`0x4300`) | `0x8430` | `0x1000` |
+| Network to Vehicle app | `body_control_module_rx` (`0x4300`) | `0x8431` | `0x1001` |
 
 `gatewayd` consumes the Tx service through a `mw::com::GenericProxy` and exposes
 the Rx service through a `mw::com::GenericSkeleton`. `someipd` owns the local
 vSomeIP network stack.
 
 The shared-memory binding is resolved as `service / instance / member`:
-`/vehicle_high_beam_tx` or `/vehicle_high_beam_rx` / their configured instance
+`/body_control_module_tx` or `/body_control_module_rx` / their configured instance
 specifier / `high_beam_state`.
 
 ## Build

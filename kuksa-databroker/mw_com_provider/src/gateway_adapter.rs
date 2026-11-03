@@ -210,8 +210,8 @@ impl GatewayScoreRuntimeAdapter {
         let manifest: serde_json::Value = serde_json::from_str(&contents)
             .map_err(|error| MwComProviderError::Config(error.to_string()))?;
         for expected in [
-            "/vehicle_high_beam/local_tx",
-            "/vehicle_high_beam/network_rx",
+            "/body_control_module/local_tx",
+            "/body_control_module/network_rx",
             "/Vehicle/Service2/Instance",
         ] {
             if !manifest["serviceInstances"]
@@ -244,7 +244,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
             .build()
             .map_err(|error| Self::error("gateway runtime", error))?;
         if std::env::var("KUKSA_HIGH_BEAM_ACTUATION").as_deref() != Ok("0") {
-            let instance = InstanceSpecifier::new("/vehicle_high_beam/local_tx")
+            let instance = InstanceSpecifier::new("/body_control_module/local_tx")
                 .map_err(|error| Self::error("gateway Tx instance", error))?;
             self.tx = Some(
                 runtime
@@ -274,7 +274,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
 
     async fn find_service(&self, binding: ScoreBinding<'_>) -> Result<bool, MwComProviderError> {
         match binding.service_name {
-            "/vehicle_high_beam_rx" => Ok(!self
+            "/body_control_module_rx" => Ok(!self
                 .runtime()?
                 .find_service::<VehicleHighBeamRxInterface>(FindServiceSpecifier::Specific(
                     Self::instance(binding)?,
@@ -290,7 +290,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
                 .get_available_instances()
                 .map_err(|error| Self::error("gateway speed discovery", error))?
                 .is_empty()),
-            "/vehicle_high_beam_tx" => Ok(self.tx.is_some()),
+            "/body_control_module_tx" => Ok(self.tx.is_some()),
             _ => Err(MwComProviderError::Transport(
                 "unsupported gateway binding".into(),
             )),
@@ -306,7 +306,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
             return Ok(());
         }
         match binding.service_name {
-            "/vehicle_high_beam_rx" => self.subscribe_body(binding),
+            "/body_control_module_rx" => self.subscribe_body(binding),
             "VehicleDynamicsService" if binding.member_name == "speed" => {
                 let consumer = self
                     .runtime()?
@@ -366,7 +366,7 @@ impl ScoreRuntimeAdapter for GatewayScoreRuntimeAdapter {
         binding: ScoreBinding<'_>,
         message: MwComMessage,
     ) -> Result<(), MwComProviderError> {
-        if binding.service_name != "/vehicle_high_beam_tx" {
+        if binding.service_name != "/body_control_module_tx" {
             return Err(MwComProviderError::Transport(
                 "gateway actuation must use the Tx binding".into(),
             ));
