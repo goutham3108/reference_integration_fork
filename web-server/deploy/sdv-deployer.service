@@ -1,0 +1,21 @@
+[Unit]
+Description=SDV Web-Based Application Deployment Server
+Documentation=https://github.com/eclipse-score/reference_integration
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/sdv-deployer
+ExecStart=/usr/bin/python3 /opt/sdv-deployer/server.py /opt/sdv-deployer/config.json
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+# Security & Sandboxing
+ProtectSystem=strict
+ReadWritePaths=/var/lib/sdv-deployer /var/log/sdv-deployer /dev/shm
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

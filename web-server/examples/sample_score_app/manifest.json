@@ -1,0 +1,14 @@
+{
+  "app_id": "vehicle-speed-reader",
+  "name": "S-CORE Vehicle Speed Reader",
+  "version": "1.0.0",
+  "description": "Native AArch64 binary consuming S-CORE mw::com vehicle dynamics from /dev/shm",
+  "runtime": "native",
+  "entrypoint": "vehicle_speed_reader",
+  "target_architecture": "aarch64",
+  "author": "Eclipse S-CORE SDV Team",
+  "checksums": {
+    "vehicle_speed_reader": "78777c8d192d9512f3be35c1849aaa1637e14a1875bb567b9b4e47a54452df0e",
+    "config/mw_com_config.json": "0af42e2d628759cc85b5b3491f5b5940736ddbf8c9a837c87227c4eb6e4821f7"
+  }
+}

@@ -1,0 +1,26 @@
+[Unit]
+Description=SDV Deployed Application: %i
+After=network.target
+
+[Service]
+Type=simple
+User=sdv-apps
+Group=sdv-apps
+WorkingDirectory=/var/lib/sdv-deployer/apps/%i/current
+ExecStart=/usr/bin/python3 /opt/sdv-deployer/runner.py %i
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sdv-app-%i
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=false
+ReadOnlyPaths=/var/lib/sdv-deployer/apps/%i
+StateDirectory=sdv-app-%i
+Environment=SDV_APP_DATA_DIR=/var/lib/sdv-app-%i
+ReadWritePaths=/dev/shm
+
+[Install]
+WantedBy=multi-user.target

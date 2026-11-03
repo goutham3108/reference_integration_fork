@@ -1,0 +1,20 @@
+[Unit]
+Description=SDV Deployed Application: %i
+After=network.target sdv-deployer.service
+
+[Service]
+Type=simple
+WorkingDirectory=/var/lib/sdv-deployer/apps/%i/current
+ExecStart=/bin/sh -c 'exec $(cat /var/lib/sdv-deployer/apps/%i/current/entrypoint.cmd 2>/dev/null || echo ./run.sh)'
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=sdv-app-%i
+
+# Allow access to S-CORE shared memory for mw::com (LoLa) applications
+ReadWritePaths=/dev/shm
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

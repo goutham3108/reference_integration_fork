@@ -1,0 +1,36 @@
+{
+  "host": "0.0.0.0",
+  "port": 8443,
+  "use_tls": false,
+  "tls_cert_file": "/opt/sdv-deployer/certs/server.crt",
+  "tls_key_file": "/opt/sdv-deployer/certs/server.key",
+  "auth_token": "sdv-dev-secret-token-2026",
+  "users": [
+    {
+      "email": "demo@example.com",
+      "salt": "409eaea528e6f84b490ff40c3c1d60be",
+      "password_hash": "6d4cfe2695279c52bc70d5e765a2ceced7f41a8889e44a345336dff2c782e0a2",
+      "iterations": 310000
+    },
+    {
+      "email": "demo@exa.com",
+      "salt": "a8aed7741946559ee53c4e8d19e4c889",
+      "password_hash": "d5beab19ae84654683825d17c1015ae9af49168965d40e8f582fcfbd2cdd8fa1",
+      "iterations": 310000
+    },
+    {
+      "email": "email@example.com",
+      "salt": "3c1bbda57233442f53f43e5f78900a29",
+      "password_hash": "45e006998fdc1752be891e1d4f900a66b56241fd542c9a4b84e622fcc40212fa",
+      "iterations": 310000
+    }
+  ],
+  "data_dir": "/var/lib/sdv-deployer",
+  "apps_dir": "/var/lib/sdv-deployer/apps",
+  "staging_dir": "/var/lib/sdv-deployer/staging",
+  "logs_dir": "/var/log/sdv-deployer",
+  "max_upload_size_mb": 100,
+  "smoke_test_seconds": 3,
+  "target_architecture": "aarch64",
+  "kuksa_endpoint": "127.0.0.1:55555"
+}
