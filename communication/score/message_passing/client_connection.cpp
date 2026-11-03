@@ -351,7 +351,7 @@ void ClientConnection::TryConnect() noexcept
     SCORE_LANGUAGE_FUTURECPP_ASSERT_DBG(((stop_reason_ == StopReason::kNone) && (state_ == State::kStarting)) ||
                                         ((state_ == State::kStopping) && (stop_reason_ == StopReason::kUserRequested)));
 
-    auto& logger = engine_->GetLogger();
+    const auto& logger = engine_->GetLogger();
 
     LogInfo(logger, "TryOpenClientConnection ", identifier_);
     LogWarnOnTimeout delay_guard(
@@ -468,8 +468,10 @@ IClientConnection::StopReason ClientConnection::ProcessInputEvent() noexcept
     // This switch statement is considered not well-formed due to early exits, i.e. return statements.
     // New Misra rule 9.4.2 allows terminating switch statements with a return statement
     // coverity[autosar_cpp14_m6_4_3_violation]
+    // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
     switch (code)
     {
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(ServerToClient::REPLY):
         {
             std::unique_lock<std::mutex> lock{send_mutex_};
@@ -487,6 +489,7 @@ IClientConnection::StopReason ClientConnection::ProcessInputEvent() noexcept
             }
             break;
         }
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(ServerToClient::NOTIFY):
         {
             if (!notify_callback_.empty())

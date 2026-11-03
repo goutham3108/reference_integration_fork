@@ -23,7 +23,7 @@
       "name": "ResolveInstanceIDs",
       "qualified_name": "score::mw::com::runtime::ResolveInstanceIDs",
       "kind": "function",
-      "signature": "ResolveInstanceIDs : score::Result<score::mw::com::InstanceIdentifierContainer> (const InstanceSpecifier)"
+      "signature": "ResolveInstanceIDs : score::Result<score::mw::com::InstanceIdentifierContainer> (const InstanceSpecifier &)"
     },
     {
       "name": "InitializeRuntime",
@@ -36,6 +36,18 @@
       "qualified_name": "score::mw::com::runtime::InitializeRuntime",
       "kind": "function",
       "signature": "InitializeRuntime : void (const RuntimeConfiguration &)"
+    },
+    {
+      "name": "AddConfiguration",
+      "qualified_name": "score::mw::com::runtime::AddConfiguration",
+      "kind": "function",
+      "signature": "AddConfiguration : Result<void> (const RuntimeConfiguration &)"
+    },
+    {
+      "name": "AddConfiguration",
+      "qualified_name": "score::mw::com::runtime::AddConfiguration",
+      "kind": "function",
+      "signature": "AddConfiguration : Result<void> (score::json::Any)"
     },
     {
       "name": "RuntimeConfiguration",
@@ -317,7 +329,7 @@
       "name": "SetReceiveHandler",
       "qualified_name": "score::mw::com::GenericProxyEvent::SetReceiveHandler",
       "kind": "method",
-      "signature": "SetReceiveHandler : Result<void> (EventReceiveHandler) noexcept"
+      "signature": "SetReceiveHandler : Result<void> (EventReceiveHandler)"
     },
     {
       "name": "SetSubscriptionStateChangeHandler",
@@ -335,7 +347,7 @@
       "name": "UnsetReceiveHandler",
       "qualified_name": "score::mw::com::GenericProxyEvent::UnsetReceiveHandler",
       "kind": "method",
-      "signature": "UnsetReceiveHandler : Result<void> () noexcept"
+      "signature": "UnsetReceiveHandler : Result<void> ()"
     },
     {
       "name": "UnsetSubscriptionStateChangeHandler",
@@ -347,7 +359,7 @@
       "name": "Unsubscribe",
       "qualified_name": "score::mw::com::GenericProxyEvent::Unsubscribe",
       "kind": "method",
-      "signature": "Unsubscribe : void () noexcept"
+      "signature": "Unsubscribe : void ()"
     },
     {
       "name": "GenericSkeleton",
@@ -365,7 +377,7 @@
       "name": "StopOfferService",
       "qualified_name": "score::mw::com::GenericSkeleton::StopOfferService",
       "kind": "method",
-      "signature": "StopOfferService : void () noexcept"
+      "signature": "StopOfferService : void ()"
     },
     {
       "name": "DataTypeMetaInfo",
@@ -610,10 +622,22 @@
       "signature": "SamplePtr<SampleType> : void (SamplePtr<SampleType> &&) noexcept"
     },
     {
+      "name": "SamplePtr<SampleType>",
+      "qualified_name": "score::mw::com::SamplePtr::SamplePtr<SampleType>",
+      "kind": "template_function",
+      "signature": "SamplePtr<SampleType>"
+    },
+    {
       "name": "Swap",
       "qualified_name": "score::mw::com::SamplePtr::Swap",
       "kind": "method",
       "signature": "Swap : void (SamplePtr<SampleType> &) noexcept"
+    },
+    {
+      "name": "Swap",
+      "qualified_name": "score::mw::com::SamplePtr::Swap",
+      "kind": "template_function",
+      "signature": "Swap : void (SamplePtr<OtherSampleType> &) noexcept"
     },
     {
       "name": "get",
@@ -694,10 +718,22 @@
       "signature": "SampleAllocateePtr<SampleType> : void (SampleAllocateePtr<SampleType> &&) noexcept"
     },
     {
+      "name": "SampleAllocateePtr<SampleType>",
+      "qualified_name": "score::mw::com::SampleAllocateePtr::SampleAllocateePtr<SampleType>",
+      "kind": "template_function",
+      "signature": "SampleAllocateePtr<SampleType>"
+    },
+    {
       "name": "Swap",
       "qualified_name": "score::mw::com::SampleAllocateePtr::Swap",
       "kind": "method",
       "signature": "Swap : void (SampleAllocateePtr<SampleType> &) noexcept"
+    },
+    {
+      "name": "Swap",
+      "qualified_name": "score::mw::com::SampleAllocateePtr::Swap",
+      "kind": "template_function",
+      "signature": "Swap : void (SampleAllocateePtr<OtherSampleType> &) noexcept"
     },
     {
       "name": "operator*",
@@ -790,6 +826,12 @@
       "signature": "GenericProxyEvent : void (ProxyBase &, const std::string_view)"
     },
     {
+      "name": "GetDataTypeSizeInfo",
+      "qualified_name": "score::mw::com::GenericProxyEvent::GetDataTypeSizeInfo",
+      "kind": "method",
+      "signature": "GetDataTypeSizeInfo : memory::DataTypeSizeInfo () const"
+    },
+    {
       "name": "GetNewSamples",
       "qualified_name": "score::mw::com::GenericProxyEvent::GetNewSamples",
       "kind": "template_function",
@@ -802,12 +844,6 @@
       "signature": "GetReferenceToMoveable : typename ReferenceToMoveable<T>::Reference &()"
     },
     {
-      "name": "GetSampleSize",
-      "qualified_name": "score::mw::com::GenericProxyEvent::GetSampleSize",
-      "kind": "method",
-      "signature": "GetSampleSize : std::size_t () const noexcept"
-    },
-    {
       "name": "HasSerializedFormat",
       "qualified_name": "score::mw::com::GenericProxyEvent::HasSerializedFormat",
       "kind": "method",
@@ -817,7 +853,7 @@
       "name": "ProxyEventBase",
       "qualified_name": "score::mw::com::GenericProxyEvent::ProxyEventBase",
       "kind": "constructor",
-      "signature": "ProxyEventBase : void (std::string_view, Result<std::unique_ptr<ProxyEventBindingBase>>)"
+      "signature": "ProxyEventBase : void (std::string_view, Result<std::unique_ptr<ProxyEventBinding>>)"
     },
     {
       "name": "ProxyEventBase",
@@ -955,7 +991,7 @@
       "name": "GenericSkeletonEvent",
       "qualified_name": "score::mw::com::GenericSkeletonEvent::GenericSkeletonEvent",
       "kind": "constructor",
-      "signature": "GenericSkeletonEvent : void (SkeletonBase &, const std::string_view, std::unique_ptr<GenericSkeletonEventBinding>)"
+      "signature": "GenericSkeletonEvent : void (SkeletonBase &, const std::string_view, std::unique_ptr<SkeletonEventBinding>)"
     },
     {
       "name": "GetReferenceToMoveable",
@@ -973,7 +1009,7 @@
       "name": "Notify",
       "qualified_name": "score::mw::com::GenericSkeletonEvent::Notify",
       "kind": "method",
-      "signature": "Notify : Result<void> () noexcept"
+      "signature": "Notify : Result<void> ()"
     },
     {
       "name": "PrepareOffer",
@@ -991,7 +1027,7 @@
       "name": "Send",
       "qualified_name": "score::mw::com::GenericSkeletonEvent::Send",
       "kind": "method",
-      "signature": "Send : Result<void> (SampleAllocateePtr<void>) noexcept"
+      "signature": "Send : Result<void> (SampleAllocateePtr<void>)"
     },
     {
       "name": "SetReceiveHandlerRegistrationChangedHandler",
@@ -1003,7 +1039,7 @@
       "name": "SkeletonEventBase",
       "qualified_name": "score::mw::com::GenericSkeletonEvent::SkeletonEventBase",
       "kind": "constructor",
-      "signature": "SkeletonEventBase : void (const std::string_view, std::unique_ptr<SkeletonEventBindingBase>)"
+      "signature": "SkeletonEventBase : void (const std::string_view, std::optional<InitializeSampleCallback>, std::unique_ptr<SkeletonEventBinding>)"
     },
     {
       "name": "UnsetReceiveHandlerRegistrationChangedHandler",

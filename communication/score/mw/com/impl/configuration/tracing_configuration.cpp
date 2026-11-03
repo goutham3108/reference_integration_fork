@@ -59,12 +59,12 @@ void TracingConfiguration::SetTracingEnabled(const bool tracing_enabled) noexcep
 
 void TracingConfiguration::SetApplicationInstanceID(std::string application_instance_id) noexcept
 {
-    tracing_config_.application_instance_id = application_instance_id;
+    tracing_config_.application_instance_id = std::move(application_instance_id);
 }
 
 void TracingConfiguration::SetTracingTraceFilterConfigPath(std::string trace_filter_config_path) noexcept
 {
-    tracing_config_.trace_filter_config_path = trace_filter_config_path;
+    tracing_config_.trace_filter_config_path = std::move(trace_filter_config_path);
 }
 
 void TracingConfiguration::SetServiceElementTracingEnabled(tracing::ServiceElementIdentifier service_element_identifier,
@@ -115,7 +115,7 @@ bool TracingConfiguration::IsServiceElementTracingEnabled(
         instance_specifier_result.has_value(),
         "an instance specifier could not be created from the given instance_specifier_view.");
 
-    const auto instance_specifier = instance_specifier_result.value();
+    const auto& instance_specifier = instance_specifier_result.value();
     const auto& instance_specifier_set = find_result->second;
     return instance_specifier_set.count(instance_specifier) != 0U;
 }

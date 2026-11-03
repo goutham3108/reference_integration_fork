@@ -46,16 +46,22 @@ cross_ar="${AARCH64_AR:-${toolchain_root}/toolchain/bin/aarch64-none-linux-gnu-a
 [[ -x "$cross_gcc" ]] || fail "AArch64 C compiler not executable: ${cross_gcc}"
 [[ -x "$cross_ar" ]] || fail "AArch64 archiver not executable: ${cross_ar}"
 
-printf '\n[1/6] Building Communication vehicle-dynamics artifacts for AArch64...\n'
+printf '\n[1/6] Building Communication examples for AArch64...\n'
 (
     cd "$communication_root"
     bazel build --config=linux_aarch64_score_gcc_12_2_0_posix \
-        //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example
+    //score/mw/com/example/vehicle-dynamics-example:vehicle-dynamics-example \
+    //score/mw/com/example/vehicle-dynamics-example:body-control-module-example
 )
 
 score_com_bazel_bin="$(cd "$communication_root" && bazel info bazel-bin)"
-score_com_link_params="${score_com_bazel_bin}/score/mw/com/example/vehicle-dynamics-example/vehicle-dynamics-example-0.params"
+score_com_example_dir="${score_com_bazel_bin}/score/mw/com/example/vehicle-dynamics-example"
+score_com_link_params="${score_com_example_dir}/body-control-module-example-0.params"
+body_control_binary="${score_com_example_dir}/body-control-module-example"
+body_control_manifest="${communication_root}/score/mw/com/example/vehicle-dynamics-example/etc/body_control_module_lola_config.json"
 [[ -f "$score_com_link_params" ]] || fail "S-CORE link params not found: ${score_com_link_params}"
+[[ -x "$body_control_binary" ]] || fail "BodyControl application was not built: ${body_control_binary}"
+[[ -f "$body_control_manifest" ]] || fail "BodyControl LoLa manifest not found: ${body_control_manifest}"
 
 export SCORE_COM_BAZEL_BIN="$score_com_bazel_bin"
 export SCORE_COM_LINK_PARAMS="$score_com_link_params"
@@ -77,19 +83,24 @@ printf '\n[4/6] Building mw_com_provider executable...\n'
 cargo +stable build --release --target "$target" \
     -p mw_com_provider --bin mw_com_provider
 
-printf '\n[5/6] Building databroker-mw-com-demo...\n'
-SCORE_COM_LINK_OWNER=databroker-mw-com-demo \
+printf '\n[5/6] Building databroker-mw-com...\n'
+SCORE_COM_LINK_OWNER=databroker-mw-com \
     cargo +stable build --release --target "$target" \
-        -p databroker-mw-com-demo
+        -p databroker-mw-com
 
 printf '\n[6/6] Verifying ARM64 executable outputs...\n'
-for binary in databroker databroker-cli mw_com_provider databroker-mw-com-demo; do
+for binary in databroker databroker-cli mw_com_provider databroker-mw-com; do
     path="${kuksa_root}/target/${target}/release/${binary}"
     [[ -x "$path" ]] || fail "Expected executable was not built: ${path}"
     description="$(file -b "$path")"
     printf '%-28s %s\n' "$binary" "$description"
     [[ "$description" == *"ARM aarch64"* ]] || fail "Not an ARM64 executable: ${path}"
 done
+body_control_description="$(file -b "$body_control_binary")"
+printf '%-28s %s\n' "body-control-module-example" "$body_control_description"
+[[ "$body_control_description" == *"ARM aarch64"* ]] || fail "Not an ARM64 executable: ${body_control_binary}"
 
 printf '\nAll requested Raspberry Pi targets built successfully.\n'
 printf 'Output directory: %s/target/%s/release\n' "$kuksa_root" "$target"
+printf 'BodyControl application: %s\n' "$body_control_binary"
+printf 'BodyControl LoLa manifest: %s\n' "$body_control_manifest"

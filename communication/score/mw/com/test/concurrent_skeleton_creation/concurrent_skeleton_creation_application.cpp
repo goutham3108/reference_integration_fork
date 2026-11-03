@@ -27,6 +27,8 @@
 #include <thread>
 #include <vector>
 
+namespace
+{
 void CreateAndOfferSkeleton(const score::mw::com::InstanceSpecifier& instance_specifier, std::atomic_bool& success_flag)
 {
     for (std::size_t j = 0; j < 10; ++j)
@@ -49,6 +51,7 @@ void CreateAndOfferSkeleton(const score::mw::com::InstanceSpecifier& instance_sp
         }
     }
 }
+}  // namespace
 
 /**
  * Test that checks that skeletons with different instance IDs of the same service type can be created and offered at
@@ -79,9 +82,9 @@ int main(int argc, const char** argv)
         std::cerr << "Invalid instance specifier, terminating." << std::endl;
         return EXIT_FAILURE;
     }
-    auto& instance_specifier_1 = instance_specifier_result_1.value();
-    auto& instance_specifier_2 = instance_specifier_result_2.value();
-    auto& instance_specifier_3 = instance_specifier_result_3.value();
+    const auto& instance_specifier_1 = instance_specifier_result_1.value();
+    const auto& instance_specifier_2 = instance_specifier_result_2.value();
+    const auto& instance_specifier_3 = instance_specifier_result_3.value();
 
     std::atomic_bool success_flag{true};
     score::cpp::jthread skeletion_creation_and_offer_instance_1{[&success_flag, &instance_specifier_1]() {

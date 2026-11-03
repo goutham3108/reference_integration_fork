@@ -43,8 +43,8 @@ auto ReadMaskSet(const os::InotifyEvent& event, const os::InotifyEvent::ReadMask
     return static_cast<underlying_type_readmask>(event.GetMask() & mask) != 0U;
 }
 
-std::vector<HandleType> GetKnownHandles(EnrichedInstanceIdentifier enriched_instance_identifier,
-                                        QualityAwareContainer<KnownInstancesContainer> known_instances)
+std::vector<HandleType> GetKnownHandles(const EnrichedInstanceIdentifier& enriched_instance_identifier,
+                                        const QualityAwareContainer<KnownInstancesContainer>& known_instances)
 {
     std::vector<HandleType> known_handles{};
     // Suppress "AUTOSAR C++14 M6-4-3" rule finding. This rule declares: "A switch statement shall be
@@ -110,7 +110,7 @@ ServiceDiscoveryClient::ServiceDiscoveryClient(concurrency::Executor& long_runni
     // noexcept, noexcept(true) or noexcept(<true condition>), then it shall not exit with an exception"
     // By design, if `long_running_threads_.Submit()` ever fails, we expect program termination.
     // coverity[autosar_cpp14_a15_4_2_violation]
-    worker_thread_result_ = long_running_threads_.Submit([this](const auto stop_token) noexcept {
+    worker_thread_result_ = long_running_threads_.Submit([this](const auto stop_token) {
         // Suppress "AUTOSAR C++14 M0-1-3" and "AUTOSAR C++14 M0-1-9" rule violations. The rule states
         // "A project shall not contain unused variables." and "There shall be no dead code.", respectively.
         // Tolerated, this is a stop callback.
@@ -281,7 +281,7 @@ auto ServiceDiscoveryClient::StopFindService(const FindServiceHandle find_servic
     return {};
 }
 
-auto ServiceDiscoveryClient::TransferSearchRequests() noexcept -> void
+auto ServiceDiscoveryClient::TransferSearchRequests() -> void
 {
     TransferObsoleteSearchRequests();
 }

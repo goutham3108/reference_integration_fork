@@ -33,40 +33,26 @@
 
 const score::mw::com::test::MapApiLanesStamped kEvent_sample{};
 
-void CreateAndOfferSkeleton(const score::mw::com::InstanceSpecifier& instance_specifier, std::atomic_bool& success_flag)
+namespace
 {
-    for (std::size_t j = 0; j < 10; ++j)
-    {
-        auto bigdata_result = score::mw::com::test::BigDataSkeleton::Create(instance_specifier);
-        if (!bigdata_result.has_value())
-        {
-            success_flag = false;
-            std::cerr << "Could not create skeleton with instance specifier" << instance_specifier.ToString()
-                      << "in index " << j << "of loop, terminating." << std::endl;
-            break;
-        }
-        const auto offer_service_result = bigdata_result->OfferService();
-        if (!offer_service_result.has_value())
-        {
-            success_flag = false;
-            std::cerr << "Could not offer service for skeleton with instance specifier" << instance_specifier.ToString()
-                      << "in index " << j << "of loop, terminating." << std::endl;
-            break;
-        }
-    }
-}
-
 score::Result<score::mw::com::test::BigDataProxy> CreateProxy(
     const score::mw::com::InstanceSpecifier& instance_specifier)
 {
     std::promise<std::vector<score::mw::com::test::BigDataProxy::HandleType>> service_discovery_promise{};
     auto service_discovery_future = service_discovery_promise.get_future();
     auto handles_result = score::mw::com::test::BigDataProxy::StartFindService(
-        [moved_service_discovery_promise = std::move(service_discovery_promise)](auto handles, auto handle) mutable {
+        [moved_service_discovery_promise = std::move(service_discovery_promise)](
+            // The enclosing FindServiceHandler is a type-erased callback whose call signature takes this
+            // parameter by value; the caller already copies it into that fixed signature before invoking this
+            // lambda, so taking it by const& here would not avoid any copy - it would only (misleadingly) hide
+            // the fact that one already happened.
+            // NOLINTNEXTLINE(performance-unnecessary-value-param)
+            auto handles,
+            auto handle) mutable {
             moved_service_discovery_promise.set_value(handles);
             score::cpp::ignore = score::mw::com::test::BigDataProxy::StopFindService(handle);
         },
-        std::move(instance_specifier));
+        instance_specifier);
     if (!handles_result.has_value())
     {
         std::cerr << "Error finding service for instance specifier" << instance_specifier.ToString() << ": "
@@ -79,12 +65,12 @@ score::Result<score::mw::com::test::BigDataProxy> CreateProxy(
     {
         std::cerr << "NO instance found for instance specifier" << instance_specifier.ToString()
                   << " although service instance has been successfully offered! Terminating!" << std::endl;
-        return score::MakeUnexpected<score::mw::com::test::BigDataProxy>(
-            score::mw::com::impl::MakeError(score::mw::com::ComErrc::kServiceNotAvailable));
+        return score::MakeUnexpected<score::mw::com::test::BigDataProxy>(score::mw::com::ComErrc::kServiceNotAvailable);
     }
 
     return score::mw::com::test::BigDataProxy::Create(handles.front());
 }
+}  // namespace
 
 /**
  * Test that checks that there is no deadlock in the following situation:

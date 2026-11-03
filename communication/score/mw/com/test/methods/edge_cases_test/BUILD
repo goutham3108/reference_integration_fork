@@ -11,6 +11,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
+load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 load("@score_baselibs//score/language/safecpp:toolchain_features.bzl", "COMPILER_WARNING_FEATURES")
 load("//score/mw/com/test:pkg_application.bzl", "pkg_application")
 
@@ -26,7 +27,7 @@ cc_binary(
         "//score/mw/com/test/common_test_resources:assert_handler",
         "//score/mw/com/test/common_test_resources:fail_test",
         "//score/mw/com/test/common_test_resources:proxy_container",
-        "//score/mw/com/test/methods/methods_test_resources:common_resources",
+        "//score/mw/com/test/common_test_resources:service_instance_manifest_parser",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_provider",
         "@score_baselibs//score/language/futurecpp",
@@ -44,7 +45,7 @@ cc_binary(
         "//score/mw/com",
         "//score/mw/com/test/common_test_resources:assert_handler",
         "//score/mw/com/test/common_test_resources:fail_test",
-        "//score/mw/com/test/methods/methods_test_resources:common_resources",
+        "//score/mw/com/test/common_test_resources:service_instance_manifest_parser",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_provider",
         "@score_baselibs//score/language/futurecpp",
     ],
@@ -60,7 +61,7 @@ cc_binary(
     deps = [
         "//score/mw/com",
         "//score/mw/com/test/common_test_resources:assert_handler",
-        "//score/mw/com/test/methods/methods_test_resources:common_resources",
+        "//score/mw/com/test/common_test_resources:service_instance_manifest_parser",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_consumer",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_provider",
         "@score_baselibs//score/language/futurecpp",
@@ -77,8 +78,8 @@ cc_binary(
     deps = [
         "//score/mw/com",
         "//score/mw/com/test/common_test_resources:assert_handler",
+        "//score/mw/com/test/common_test_resources:service_instance_manifest_parser",
         "//score/mw/com/test/common_test_resources:stop_token_sig_term_handler",
-        "//score/mw/com/test/methods/methods_test_resources:common_resources",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_consumer",
         "//score/mw/com/test/methods/methods_test_resources/all_signatures_datatype:all_signatures_method_provider",
         "@score_baselibs//score/language/futurecpp",

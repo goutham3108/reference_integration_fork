@@ -1,4 +1,10 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+
+cc_test(
+    name = "high_beam_command_test",
+    srcs = ["high_beam_command_test.cpp", "high_beam_udp_protocol.h"],
+)
 
 cc_binary(
     name = "vehicle_high_beam_remote_app",

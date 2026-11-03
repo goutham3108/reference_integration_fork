@@ -127,7 +127,7 @@ class MakeSharedEnabler final : public SharedMemoryResource
 };
 
 template <typename... Args>
-static std::shared_ptr<SharedMemoryResource> CreateInstance(Args&&... args)
+std::shared_ptr<SharedMemoryResource> CreateInstance(Args&&... args)
 {
     return std::make_shared<MakeSharedEnabler>(std::forward<Args>(args)...);
 }
@@ -261,6 +261,7 @@ void* do_allocation_algorithm(const void* const alloc_start,
     // (https://timsong-cpp.github.io/cppwp/n4659/ptr.align#lib:align) so the const_cast will not result in undefined
     // behaviour.
     // coverity[autosar_cpp14_a5_2_3_violation]
+    // Deviation of MISRA RULE-8-2-3: codeql::misra_deviation_next_line(shared-memory-align-const-cast)
     void* aligned_address = const_cast<void*>(alloc_start);
     auto buffer_space = static_cast<std::size_t>(SubtractPointersBytes(alloc_end, alloc_start));
     return std::align(alignment, bytes, aligned_address, buffer_space);
@@ -334,7 +335,7 @@ void SharedMemoryResource::UnlinkFilesystemEntry() const noexcept
             return;
         }
 
-        const auto unlink_result = typed_memory_ptr_->Unlink(path->c_str());
+        const auto unlink_result = typed_memory_ptr_->Unlink(*path);
         if (unlink_result.has_value())
         {
             score::mw::log::LogDebug("shm") << __func__ << "Shm " << *path << " unlinked";
@@ -421,7 +422,7 @@ score::cpp::expected<std::shared_ptr<SharedMemoryResource>, score::os::Error> Sh
     std::string input_path,
     const bool is_read_write,
     AccessControlListFactory acl_factory,
-    std::shared_ptr<score::memory::shared::TypedMemory> typed_memory_ptr) noexcept
+    std::shared_ptr<score::memory::shared::TypedMemory> typed_memory_ptr)
 {
     auto resource = CreateInstance(std::move(input_path), std::move(acl_factory), typed_memory_ptr);
     const auto result = resource->OpenImpl(is_read_write);
@@ -466,7 +467,7 @@ SharedMemoryResource::SharedMemoryResource(std::variant<std::string, std::uint64
                           ? std::optional{GetLockFilePath(std::get<std::string>(identifier))}
                           : std::nullopt},
       virtual_address_space_to_reserve_{},
-      typed_memory_ptr_{typed_memory_ptr},
+      typed_memory_ptr_{std::move(typed_memory_ptr)},
       opening_mode_{::score::os::Fcntl::Open::kReadOnly},
       map_mode_{::score::os::Mman::Protection::kRead},
       base_address_{nullptr},
@@ -530,7 +531,7 @@ score::cpp::expected_blank<Error> SharedMemoryResource::CreateImpl(const std::si
 
     SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(file_descriptor_ >= 0, "No valid file descriptor");
 
-    const auto typed_memory_ptr = (is_shm_in_typed_memory_ ? typed_memory_ptr_.get() : nullptr);
+    auto* const typed_memory_ptr = (is_shm_in_typed_memory_ ? typed_memory_ptr_.get() : nullptr);
     const auto stat_values = GetShmObjectStatInfo(file_descriptor_, (path != nullptr), path, typed_memory_ptr);
     file_owner_uid_ = stat_values.owner_uid;
 
@@ -977,6 +978,7 @@ auto SharedMemoryResource::initializeControlBlock() noexcept -> void
     // base_address_ is the address we got back from mmap() call and it is therefore guaranteed to be page aligned!
     // Proper usage of the operator new according to Autosar rule A18-5-10.
     // NOLINTNEXTLINE(score-no-dynamic-raw-memory): Placement new is used.
+    // Deviation of MISRA RULE-21-6-3: codeql::misra_deviation_next_line(shared-memory-placement-new)
     this->control_block_ = new (this->base_address_) ControlBlock(memory_identifier_);
     // we want the memory region, where later further allocations start from, to be "worst case aligned".
     // The main reason: Reproducibility of memory needs for a deterministic set of allocations.
@@ -1034,7 +1036,7 @@ void SharedMemoryResource::AllocateInTypedMemory(const UserPermissions& permissi
     if (path != nullptr)
     {
         const auto allocate_named_typed_memory_result =
-            typed_memory_ptr_->AllocateNamedTypedMemory(virtual_address_space_to_reserve_, path->c_str(), permissions);
+            typed_memory_ptr_->AllocateNamedTypedMemory(virtual_address_space_to_reserve_, *path, permissions);
         if (allocate_named_typed_memory_result.has_value())
         {
             score::mw::log::LogDebug("shm") << __func__ << "Shm is in TypedMemory. Set file open flags";

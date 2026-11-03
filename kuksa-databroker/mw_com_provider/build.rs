@@ -19,13 +19,7 @@ const DEFAULT_GENERATED_METADATA: &str = "generated/mw_com_provider_metadata.rs"
 
 fn main() {
     println!("cargo:rerun-if-env-changed=MW_COM_PROVIDER_METADATA_RS");
-    println!("cargo:rerun-if-env-changed=MW_COM_ROOT");
-    println!("cargo:rerun-if-env-changed=MW_COM_NATIVE_INCLUDE_DIRS");
-    println!("cargo:rerun-if-env-changed=MW_COM_NATIVE_LIB_DIR");
-    println!("cargo:rerun-if-env-changed=MW_COM_NATIVE_LIBS");
-    println!("cargo:rerun-if-env-changed=MW_COM_NATIVE_BUILD_BRIDGE");
 
-    configure_mw_com_native_bridge();
     copy_generated_metadata();
 }
 
@@ -109,45 +103,4 @@ pub fn find_generic_mw_com_element(
 }
 "#
     .to_string()
-}
-
-fn configure_mw_com_native_bridge() {
-    if env::var_os("CARGO_FEATURE_MW_COM_NATIVE").is_none() {
-        return;
-    }
-
-    if let Ok(lib_dir) = env::var("MW_COM_NATIVE_LIB_DIR") {
-        println!("cargo:rustc-link-search=native={lib_dir}");
-    }
-
-    if let Ok(libs) = env::var("MW_COM_NATIVE_LIBS") {
-        for lib in libs.split(',').map(str::trim).filter(|lib| !lib.is_empty()) {
-            println!("cargo:rustc-link-lib={lib}");
-        }
-    }
-
-    if env::var("MW_COM_NATIVE_BUILD_BRIDGE").as_deref() != Ok("1") {
-        return;
-    }
-
-    let mut build = cc::Build::new();
-    build.cpp(true).std("c++17");
-    build.file("native/mw_com_native_bridge.cpp");
-    build.include("native");
-
-    if let Ok(root) = env::var("MW_COM_ROOT") {
-        build.include(root);
-    }
-
-    if let Ok(include_dirs) = env::var("MW_COM_NATIVE_INCLUDE_DIRS") {
-        for include_dir in include_dirs
-            .split(':')
-            .map(str::trim)
-            .filter(|include_dir| !include_dir.is_empty())
-        {
-            build.include(include_dir);
-        }
-    }
-
-    build.compile("mw_com_provider_native_bridge");
 }

@@ -2,6 +2,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
 	"cargo_provider.sh",
+	"databroker_shim_lib.rs",
 	"mw_com_provider.bzl",
 ])
 

@@ -830,7 +830,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "databroker-mw-com-demo"
+name = "databroker-mw-com"
 version = "0.1.0"
 dependencies = [
  "databroker",
@@ -3060,7 +3060,6 @@ name = "mw_com_provider"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "cc",
  "databroker",
  "databroker-proto",
  "score_com",
@@ -3068,6 +3067,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -3310,10 +3310,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
+name = "pastey"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "peg"
@@ -3930,7 +3930,7 @@ version = "0.1.0"
 dependencies = [
  "containers",
  "futures",
- "paste",
+ "pastey",
  "score_com_macros",
  "score_log",
  "thiserror 2.0.20",

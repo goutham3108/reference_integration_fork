@@ -31,7 +31,7 @@ IRuntime* RuntimeMockHolder::runtime_mock_{nullptr};
 
 }
 
-score::Result<InstanceIdentifierContainer> ResolveInstanceIDs(const impl::InstanceSpecifier model_name)
+score::Result<InstanceIdentifierContainer> ResolveInstanceIDs(const impl::InstanceSpecifier& model_name)
 {
     if (auto* const runtime_mock_holder = detail::RuntimeMockHolder::GetRuntimeMock())
     {
@@ -47,8 +47,8 @@ score::Result<InstanceIdentifierContainer> ResolveInstanceIDs(const impl::Instan
     return instance_identifier_container;
 }
 
-// NOLINTNEXTLINE(modernize-avoid-c-arrays):C-style array tolerated for command line arguments. This API is deprecated
-// and it will be removed.
+// C-style array tolerated for command line arguments. This API is deprecated and it will be removed.
+// NOLINTNEXTLINE(modernize-avoid-c-arrays)
 void InitializeRuntime(const std::int32_t argc, const char* argv[])
 {
     if (auto* const runtime_mock_holder = detail::RuntimeMockHolder::GetRuntimeMock())
@@ -84,6 +84,16 @@ void InitializeRuntime(const RuntimeConfiguration& runtime_configuration)
     }
 
     impl::Runtime::Initialize(runtime_configuration);
+}
+
+Result<void> AddConfiguration(const RuntimeConfiguration& runtime_configuration)
+{
+    return impl::Runtime::AddConfiguration(runtime_configuration);
+}
+
+Result<void> AddConfiguration(score::json::Any json)
+{
+    return impl::Runtime::AddConfiguration(std::move(json));
 }
 
 }  // namespace score::mw::com::runtime

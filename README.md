@@ -17,11 +17,18 @@ gatewayd <- someipd <- vehicle_high_beam_bridge
                        remote app (Pi B)
 ```
 
-KUKSA receives `Vehicle.Speed` (`double`, km/h) from `/Vehicle/Service2/Instance`
+KUKSA receives `Vehicle.Speed` (`float`, km/h) from `/Vehicle/Service2/Instance`
 and `Vehicle.Body.Lights.Beam.High.IsOn` (`bool`) from
 `/vehicle_high_beam/network_rx`. The vehicle app subscribes to the same
 instances. Speed is not rescaled, so the value entered on the remote is shown
 unchanged.
+
+The provider now converts the LoLa double speed payload to the VSS float type.
+High.IsOn supports separate Rx input and Tx actuation bindings. In default
+combined mode the vehicle menu submits VAL v2 actuation commands to KUKSA,
+which owns the high-beam Tx instance. The remote app initializes its command
+LED on GPIO 27 at startup in either input mode; hardware input reads GPIO 17.
+See the hardware and command-mode instructions in [the demo guide](sdv-hack-demo/README.md).
 
 ## Current Status
 
@@ -117,19 +124,20 @@ The old vehicle app publishes a `high_beam_state` event from
 `vehicle_high_beam/local_tx`; `gatewayd`, `someipd`, and the bridge consume
 that event. KUKSA must replace that publisher, not the remote app.
 
-Configure the high-beam mapping for `databroker-mw-com-demo` as an actuator
-whose LoLa binding targets the same local transmit service and member. The
-mapping must be generated and validated against the S-CORE binding metadata.
-The current generated mapping points to the opposite receive-side service, so
-changing only `direction` is not enough; the service and instance binding must
-also be correct. The demo runner seeds the KUKSA metadata from this mapping.
+The high-beam mapping is bidirectional: its primary binding receives remote
+input, and `actuation_binding` sends commands through the local transmit service.
+The demo seeds one actuator entry, keeping input/current value independent of
+command delivery. The provider owns high-beam Tx in combined mode; the vehicle
+menu uses VAL v2 `Actuate` rather than offering another Tx skeleton. Use
+`HIGH_BEAM_COMMAND_MODE=direct` only for the legacy vehicle-publisher mode;
+the launcher disables KUKSA high-beam actuation in that mode.
 
 ## 5. Build ARM64 Artifacts on the Host
 
 The build command compiles these ARM64 outputs:
 
 - KUKSA `databroker`, `databroker-cli`, `mw_com_provider`, and
-  `databroker-mw-com-demo`.
+  `databroker-mw-com`.
 - The existing `gatewayd`, `someipd`, serializer, UDP bridge, remote
   application, and legacy `vehicle_high_beam_mw_com` app.
 - Communication vehicle-dynamics Bazel artifacts used while building the
@@ -150,20 +158,70 @@ ends with `All requested Raspberry Pi targets built successfully.` and exits
 with status 0; if a command fails, the script exits nonzero and reports the
 failed step.
 
+The gateway configuration is built from
+`sdv-hack-demo/config/mw_someip_config.json` using `//sdv-hack-demo:gateway_config`
+and packaged as `mw_someip_config.bin`; the generic window-control/echo example
+configuration is not used by this demo. The demo also ships its own
+`score_com_serializer.so` plugin (`sdv-hack-demo/serializer/`) alongside the
+gateway's serializer; see [sdv-hack-demo/README.md](sdv-hack-demo/README.md).
+
+### Communication (LoLa) version: one checkout for every process
+
+`communication/` is a copy of upstream `eclipse-score/communication`
+(currently `main` at `64c2b272`, 14 Oct 2026) plus a few local additions: the
+`vehicle-dynamics-example` that KUKSA links against, docs, and extra
+`[registry]`/`[rust]` log lines in `registry_bridge_macro.*` and `consumer.rs`.
+
+**Every process that uses LoLa must be built from this same folder**:
+`gatewayd`, the vehicle app (and the bridge and remote app, which share the
+workspace), and KUKSA. LoLa keeps its data in shared memory, and upstream
+changed the layout of those structures in PR #897 (14 Sep 2026). A KUKSA built
+on one side of that change and a `gatewayd` on the other abort with `SIGABRT`
+as soon as KUKSA opens the gateway's shared memory; with every process on the
+same checkout the full flow works. How that is wired:
+
+| Built by | Gets communication from |
+| --- | --- |
+| KUKSA (`kuksa-databroker/scripts/build-rpi-aarch64.sh`) | `communication/` directly (Cargo paths and the Bazel build in that folder) |
+| Demo apps (root workspace) | `local_path_override` in `bazel_common/score_modules_target_sw.MODULE.bazel` |
+| `gatewayd`/`someipd` (`inc_someip_gateway`) | `inc_someip_gateway/user.bazelrc` (git-ignored) with `--override_module=score_communication=<absolute path to communication/>`; its `MODULE.bazel` is untouched |
+
+`user.bazelrc` contains an absolute path (Bazel does not resolve `%workspace%/..`
+here) and `--lockfile_mode=off`, which keeps the tracked
+`inc_someip_gateway/MODULE.bazel.lock` from being rewritten. Recreate the file if
+the repository moves or is cloned elsewhere. Without it the gateway is built
+from its pinned upstream commit and the flow breaks as described above.
+`scripts/known_good/update_module_from_known_good.py` (and the matching VS Code
+tasks) regenerate the `bazel_common/score_modules_*.MODULE.bazel` files; re-check
+the `score_communication` entry after running it.
+
+Updating `communication/` again: copy upstream over it while keeping the local
+additions, then rebuild **all** targets (`bash sdv-hack-demo/build-aarch64.sh`
+and `bash sdv-hack-demo/package-aarch64.sh`) and redeploy **both** archives. Two
+things changed for KUKSA in the last update and are worth knowing if it breaks
+again: `score_com_concept` needs `pastey` (it replaced `paste`;
+`kuksa-databroker/.../score_com_concept/Cargo.toml`), and
+`databroker-mw-com/build.rs` now links archives whose file name occurs in
+more than one Bazel package (for example baselibs' two
+`libstring_comparison_adaptor.a`) by full path, because a bare `-l` finds only
+the first.
+
 The build outputs are left in their project build directories; this command
 does not package them or run `scp`:
 
 ```text
 inc_someip_gateway/bazel-bin/score/gatewayd/gatewayd
 inc_someip_gateway/bazel-bin/score/someipd/someipd
-inc_someip_gateway/bazel-bin/score/serializer/score_com_serializer.so
+bazel-bin/sdv-hack-demo/mw_someip_config.bin
+bazel-bin/sdv-hack-demo/serializer/score_com_serializer.so
+bazel-bin/sdv-hack-demo/serializer/score_com_serializer_base.so
 bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com
 bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge
 bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-cli
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/mw_com_provider
-kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com
 communication/bazel-bin/score/mw/com/example/vehicle-dynamics-example/
 ```
 
@@ -171,11 +229,11 @@ The Communication output is a build-time dependency, not an additional demo
 process to copy to a Pi. If Communication is outside this workspace, its
 Bazel outputs are under the configured `COMMUNICATION_ROOT` instead. The
 KUKSA helper itself runs `file` checks on `databroker`, `databroker-cli`,
-`mw_com_provider`, and `databroker-mw-com-demo`. You can also check the main
+`mw_com_provider`, and `databroker-mw-com`. You can also check the main
 demo and remote executables manually:
 
 ```sh
-file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com-demo
+file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com
 file bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
 ```
 
@@ -192,7 +250,7 @@ bash sdv-hack-demo/package-aarch64.sh
 
 The package step creates `vehicle-aarch64.tar.gz` and `remote-aarch64.tar.gz`.
 The vehicle archive includes the gateway daemons, bridge, KUKSA
-`databroker-mw-com-demo`, `databroker-cli`, both provider JSON configs, and the
+`databroker-mw-com`, `databroker-cli`, both provider JSON configs, and the
 legacy `vehicle_high_beam_mw_com` app with its runfiles. It excludes
 `kuksa_high_beam_udp_provider`, which is a separate adapter and is not needed
 for the KUKSA-to-mw::com bridge path. The remote archive and app are unchanged.

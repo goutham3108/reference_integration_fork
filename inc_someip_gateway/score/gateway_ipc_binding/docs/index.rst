@@ -12,8 +12,18 @@
    # SPDX-License-Identifier: Apache-2.0
    # *******************************************************************************
 
+.. _gateway_ipc_binding:
+
 Gateway IPC Binding
-===================
+###################
+
+.. comp:: Gateway IPC Binding
+   :id: comp__gateway_ipc_binding
+   :security: NO
+   :safety: QM
+   :status: valid
+   :version: 1
+   :belongs_to: feat__someip_gateway
 
 Gateway IPC Binding bridges SOCom service discovery and event transport across a local IPC link.
 It combines:
@@ -114,6 +124,15 @@ The implementation is not yet feature-complete. Important gaps to keep in mind:
 
 These limitations are design constraints of the current code, not documentation omissions.
 
+Alternative implementation
+--------------------------
+
+An alternative implementation of the same public interfaces, built on ``mw::com`` instead of
+``score::message_passing`` and hand-rolled shared memory, is described in :doc:`mw_com_binding`. It lives in
+the separate Bazel target ``//score/gateway_ipc_binding:gateway_ipc_binding_mw_com`` and is constructed
+through its own factory functions, so it is only used by a daemon that asks for it. Everything described
+above refers to the current, default implementation.
+
 Further details
 ---------------
 
@@ -122,3 +141,4 @@ Further details
 
    shared_memory
    ipc_protocol
+   mw_com_binding

@@ -56,7 +56,7 @@ static std::atomic<bool> shutdown_requested{false};
 /// events to safely shrink the slot.
 static std::size_t event_slot_size(const mw_someip_config::ServiceType& service_type) {
     const auto* const events = service_type.events();
-    if (events == nullptr || events->size() == 0) {
+    if (events == nullptr || events->empty()) {
         return someip::kMaxMessageSize;
     }
 
@@ -89,22 +89,25 @@ static std::size_t event_slot_size(const mw_someip_config::ServiceType& service_
 }
 
 // Signal handler for graceful shutdown
-void termination_handler(int /*signal*/) {
-    score::mw::log::LogInfo() << "Received termination signal. Initiating graceful shutdown...";
+static void termination_handler(int /*signal*/) {
+    std::cout << "Received termination signal. Initiating graceful shutdown..." << std::endl;
     shutdown_requested.store(true);
 }
 
 // Help text, showing usage syntax and available options
-void print_help() {
+static void print_help() {
     std::cout << "Syntax: gatewayd -h/--help\n"
               << "        gatewayd -c/--configuration <config.bin> "
-              << "-s/--service_instance_manifest <manifest.json>\n"
+              << "-s/--service_instance_manifest <manifest.json> "
+              << "[-i/--ipc_channel <name>]\n"
               << "\n";
 
     std::cout << "Options:\n"
               << " -h/--help Displays this help\n"
               << " -c/--configuration Specifies the configuration file\n"
               << " -s/--service_instance_manifest Specifies the service instance manifest file\n"
+              << " -i/--ipc_channel Name of the IPC channel to someipd (default: "
+              << score::someip::kDefaultIpcChannelName << ")\n"
               << "\n";
 }
 
@@ -113,14 +116,16 @@ int main(int argc, char* argv[]) {
     std::signal(SIGTERM, termination_handler);
     std::signal(SIGINT, termination_handler);
 
-    const char* const short_opts = "hc:s:";
+    const char* const short_opts = "hc:s:i:";
     const option long_opts[] = {{"help", no_argument, nullptr, 'h'},
                                 {"configuration", required_argument, nullptr, 'c'},
                                 {"service_instance_manifest", required_argument, nullptr, 's'},
+                                {"ipc_channel", required_argument, nullptr, 'i'},
                                 {nullptr, no_argument, nullptr, 0}};
 
     score::filesystem::Path service_instance_manifest_path{};
     score::filesystem::Path configuration_path{};
+    std::string ipc_channel_name{score::someip::kDefaultIpcChannelName};
 
     while (true) {
         const int opt{getopt_long(argc, argv, short_opts, long_opts, nullptr)};
@@ -139,6 +144,10 @@ int main(int argc, char* argv[]) {
             }
             case 's': {
                 service_instance_manifest_path = score::filesystem::Path{optarg};
+                break;
+            }
+            case 'i': {
+                ipc_channel_name = optarg;
                 break;
             }
             // Unknown option
@@ -203,13 +212,9 @@ int main(int argc, char* argv[]) {
     // Create the SOCom runtime
     auto socom_runtime = socom::create_runtime();
 
-    // "Connect" is the largest IPC message due to the embedded SHM metadata
-    static_assert(sizeof(gateway_ipc_binding::Connect{}) <= score::someip::kMaxIpcMessageSize,
-                  "Connect message exceeds max_send_size");
-
     message_passing::ServiceProtocolConfig proto_config{
-        "someipd_gatewayd_ipc", score::someip::kMaxIpcMessageSize,
-        score::someip::kMaxIpcMessageSize, score::someip::kMaxIpcMessageSize};
+        ipc_channel_name, score::someip::kMaxIpcMessageSize, score::someip::kMaxIpcMessageSize,
+        score::someip::kMaxIpcMessageSize};
 
     auto ipc_connection =
         message_passing::ClientFactory{}.Create(proto_config, {10, 10, false, false, false});
@@ -219,62 +224,49 @@ int main(int argc, char* argv[]) {
     gateway_ipc_binding::Shared_memory_manager_factory::Shared_memory_configuration shm_config;
     gateway_ipc_binding::Shared_memory_manager_factory::Shared_memory_configuration
         server_shm_config;
-    for (auto service_type_config : *config->service_types()) {
+    for (const auto* service_type_config : *config->service_types()) {
         socom::Service_interface_identifier const iface{
             service_type_config->service_type_name()->string_view(),
             {service_type_config->service_version_major(),
              static_cast<uint16_t>(service_type_config->service_version_minor())}};
+        // TODO: Handle multiple instances. Needs to be converted from integer ID to string.
+        // For initial impl, just use service name again.
+        socom::Service_instance const inst{service_type_config->service_type_name()->string_view()};
+
         auto const service_id = service_type_config->service_id();
 
         auto const service_type_name = service_type_config->service_type_name()->string_view();
 
-        // Paths must be unique per instance: a process asserts if it creates the same shm twice.
-        auto const make_instance_paths = [&](std::uint16_t instance_id)
-            -> std::optional<std::pair<gateway_ipc_binding::Shared_memory_path,
-                                       gateway_ipc_binding::Shared_memory_path>> {
-            std::string const instance_name =
-                std::string{service_type_name} + "_i" + std::to_string(instance_id);
-            auto const path = gateway_ipc_binding::make_shared_memory_path(instance_name, service_id);
-            auto const counterpart =
-                gateway_ipc_binding::make_counterpart_shared_memory_path(instance_name, service_id);
-            if (!path.has_value() || !counterpart.has_value()) {
-                score::mw::log::LogError() << "[gatewayd] shm path too long for service_id "
-                                           << service_id << " instance " << instance_id;
-                return std::nullopt;
-            }
-            return std::make_pair(*path, *counterpart);
-        };
+        auto const shm_path_result =
+            gateway_ipc_binding::make_shared_memory_path(service_type_name, service_id);
+        if (!shm_path_result.has_value()) {
+            score::mw::log::LogError()
+                << "[gatewayd] shm path too long for service_id " << service_id;
+            continue;
+        }
+
+        auto const counterpart_shm_path_result =
+            gateway_ipc_binding::make_counterpart_shared_memory_path(service_type_name, service_id);
+        if (!counterpart_shm_path_result.has_value()) {
+            score::mw::log::LogError()
+                << "[gatewayd] counterpart shm path too long for service_id " << service_id;
+            continue;
+        }
 
         const std::size_t slot_size = event_slot_size(*service_type_config);
-        if (service_type_config->local_service_instances()) {
-            for (const auto& service_instance_config : *service_type_config->local_service_instances()) {
-                auto const paths = make_instance_paths(service_instance_config->instance_id());
-                if (!paths) {
-                    continue;
-                }
-                socom::Service_instance const inst{std::to_string(service_instance_config->instance_id())};
-                shm_config[iface][inst] = {paths->first, slot_size, someip::kMaxSampleCount};
-                // TODO: Needed by the ipc binding for future use of method calls. Set to the smallest
-                // possible size for now.
-                server_shm_config[iface][inst] = {paths->second, 1, 1};
-            }
-        }
-        if (service_type_config->remote_service_instances()) {
-            for (const auto& service_instance_config : *service_type_config->remote_service_instances()) {
-                auto const paths = make_instance_paths(service_instance_config->instance_id());
-                if (!paths) {
-                    continue;
-                }
-                socom::Service_instance const inst{std::to_string(service_instance_config->instance_id())};
-                server_shm_config[iface][inst] = {paths->second, slot_size,
-                                                  someip::kMaxSampleCount};
-                // TODO: Needed by the ipc binding for future use of method calls. Set to the smallest
-                // possible size for now.
-                shm_config[iface][inst] = {paths->first, 1, 1};
-            }
-        }
-        if (!service_type_config->local_service_instances() &&
-            !service_type_config->remote_service_instances()) {
+        if (service_type_config->local_service_instances() != nullptr &&
+            !service_type_config->local_service_instances()->empty()) {
+            shm_config[iface][inst] = {*shm_path_result, slot_size, someip::kMaxSampleCount};
+            // TODO: Needed by the ipc binding for future use of method calls. Set to the smallest
+            // possible size for now.
+            server_shm_config[iface][inst] = {*counterpart_shm_path_result, 1, 1};
+        } else if (service_type_config->remote_service_instances() != nullptr &&
+                   !service_type_config->remote_service_instances()->empty()) {
+            server_shm_config[iface][inst] = {*shm_path_result, slot_size, someip::kMaxSampleCount};
+            // TODO: Needed by the ipc binding for future use of method calls. Set to the smallest
+            // possible size for now.
+            shm_config[iface][inst] = {*counterpart_shm_path_result, 1, 1};
+        } else {
             score::mw::log::LogError()
                 << "[gatewayd] Service " << service_type_config->service_type_name()->string_view()
                 << " has no local or remote instances, skipping shared memory config";
@@ -297,53 +289,71 @@ int main(int argc, char* argv[]) {
             << "[gatewayd] Shutdown requested during IPC handshake with someipd, exiting...";
         return 0;
     }
-    score::mw::log::LogInfo() << "[gatewayd] IPC connection to someipd established";
-
-    // start-vehicle.sh launches the vehicle app immediately after gatewayd;
-    // allow its local GenericSkeletons to offer their SHM services before
-    // performing the one-shot local service discovery below.
-    std::this_thread::sleep_for(std::chrono::seconds{8});
+    std::cout << "[gatewayd] IPC connection to someipd established" << std::endl;
 
     // Create local service instances from configuration
     std::vector<std::unique_ptr<LocalServiceInstance>> local_service_instances;
-    for (auto service_type_config : *config->service_types()) {
-        auto service_instances = service_type_config->local_service_instances();
-        if (service_instances) {
+    for (const auto* service_type_config : *config->service_types()) {
+        const auto* service_instances = service_type_config->local_service_instances();
+        if (service_instances != nullptr) {
             for (auto const& service_instance_config : *service_instances) {
-                score::mw::log::LogInfo()
-                    << "Creating local service instance: "
-                    << service_type_config->service_type_name()->string_view();
+                std::cout << "Creating local service instance: "
+                          << service_type_config->service_type_name()->string_view()
+                          << " (service_id=0x" << std::hex << service_type_config->service_id()
+                          << std::dec << ", instance_id=0x" << std::hex
+                          << service_instance_config->instance_id() << std::dec << ", specifier="
+                          << service_instance_config->instance_specifier()->string_view() << ")"
+                          << std::endl;
 
-                LocalServiceInstance::CreateAsyncLocalServices(
-                    std::shared_ptr<const score::mw_someip_config::ServiceInstance>(
-                        config, service_instance_config),
-                    std::shared_ptr<const score::mw_someip_config::ServiceType>(
-                        config, service_type_config),
-                    *socom_runtime, local_service_instances);
+                if (const auto create_local_result = LocalServiceInstance::CreateAsyncLocalServices(
+                        std::shared_ptr<const score::mw_someip_config::ServiceInstance>(
+                            config, service_instance_config),
+                        std::shared_ptr<const score::mw_someip_config::ServiceType>(
+                            config, service_type_config),
+                        *socom_runtime, local_service_instances);
+                    !create_local_result) {
+                    score::mw::log::LogError()
+                        << "[gatewayd] Failed to start local service discovery for "
+                        << service_type_config->service_type_name()->string_view() << " (specifier="
+                        << service_instance_config->instance_specifier()->string_view()
+                        << "): " << create_local_result.error().Message();
+                }
             }
         }
     }
 
     // Create remote service instances from configuration
     std::vector<std::unique_ptr<RemoteServiceInstance>> remote_service_instances;
-    for (auto service_type_config : *config->service_types()) {
-        auto service_instances = service_type_config->remote_service_instances();
-        if (service_instances) {
+    for (const auto* service_type_config : *config->service_types()) {
+        const auto* service_instances = service_type_config->remote_service_instances();
+        if (service_instances != nullptr) {
             for (auto const& service_instance_config : *service_instances) {
-                score::mw::log::LogInfo()
-                    << "Creating remote service instance: "
-                    << service_type_config->service_type_name()->string_view();
-                RemoteServiceInstance::CreateAsyncRemoteService(
-                    std::shared_ptr<const score::mw_someip_config::ServiceInstance>(
-                        config, service_instance_config),
-                    std::shared_ptr<const score::mw_someip_config::ServiceType>(
-                        config, service_type_config),
-                    *socom_runtime, remote_service_instances);
+                std::cout << "Creating remote service instance: "
+                          << service_type_config->service_type_name()->string_view()
+                          << " (service_id=0x" << std::hex << service_type_config->service_id()
+                          << std::dec << ", instance_id=0x" << std::hex
+                          << service_instance_config->instance_id() << std::dec << ", specifier="
+                          << service_instance_config->instance_specifier()->string_view() << ")"
+                          << std::endl;
+                if (const auto create_remote_result =
+                        RemoteServiceInstance::CreateAsyncRemoteService(
+                            std::shared_ptr<const score::mw_someip_config::ServiceInstance>(
+                                config, service_instance_config),
+                            std::shared_ptr<const score::mw_someip_config::ServiceType>(
+                                config, service_type_config),
+                            *socom_runtime, remote_service_instances);
+                    !create_remote_result) {
+                    score::mw::log::LogError()
+                        << "[gatewayd] Failed to start remote service discovery for "
+                        << service_type_config->service_type_name()->string_view() << " (specifier="
+                        << service_instance_config->instance_specifier()->string_view()
+                        << "): " << create_remote_result.error().Message();
+                }
             }
         }
     }
 
-    score::mw::log::LogInfo() << "Gateway started, waiting for shutdown signal...";
+    std::cout << "Gateway started, waiting for shutdown signal..." << std::endl;
     if (std::getenv("PROCESSIDENTIFIER") != nullptr) {
         score::mw::lifecycle::report_running();
     }
@@ -353,7 +363,7 @@ int main(int argc, char* argv[]) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    score::mw::log::LogInfo() << "Shutting down gateway...";
+    std::cout << "Shutting down gateway..." << std::endl;
 
     return 0;
 }

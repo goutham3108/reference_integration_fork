@@ -1,0 +1,4 @@
+.venv-handbook/
+_handbook_site/
+__pycache__/
+node_modules/

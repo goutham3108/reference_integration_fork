@@ -52,7 +52,7 @@ You can see that cut in the consumer application:
 
 .. literalinclude:: consumer/consumer.cpp
    :language: cpp
-   :lines: 44-67
+   :lines: 47-70
    :caption: consumer/consumer.cpp
 
 
@@ -60,7 +60,7 @@ You can see that cut in the consumer application:
 
 .. literalinclude:: provider/provider.cpp
    :language: cpp
-   :lines: 36-43
+   :lines: 39-46
    :caption: provider/provider.cpp
 
 
@@ -131,7 +131,7 @@ The `SkeletonComponent` implementation encapsulates offer/allocate/send behavior
 
 .. literalinclude:: provider/skeleton_component.cpp
    :language: cpp
-   :lines: 27-69
+   :lines: 26-64
    :caption: provider/skeleton_component.cpp
 
 

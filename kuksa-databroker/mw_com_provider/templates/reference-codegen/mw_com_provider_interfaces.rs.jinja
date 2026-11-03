@@ -15,7 +15,13 @@
 
 {% macro event_type(ns, event) -%}
 {%- if macros.is_builtin_json_type(event.datatype) == "true" -%}
+{%- set sample_types = {"bool": "BoolSample", "u8": "U8Sample", "f32": "F32Sample", "String": "String16Sample"} -%}
+{%- set rust_type = macros.to_rust_type(event.datatype) -%}
+{%- if rust_type in sample_types -%}
+crate::mw_com_provider_types::{{ ns.name }}::{{ sample_types[rust_type] }}
+{%- else -%}
 {{ macros.to_rust_type(event.datatype) }}
+{%- endif -%}
 {%- else -%}
 crate::mw_com_provider_types::{{ ns.name }}::{{ macros.to_rust_type(event.datatype) }}
 {%- endif -%}

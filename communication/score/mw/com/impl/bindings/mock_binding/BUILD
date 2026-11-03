@@ -12,20 +12,10 @@
 # *******************************************************************************
 
 load("@rules_cc//cc:defs.bzl", "cc_library")
-load("@score_tooling//bazel/rules/rules_score:rules_score.bzl", "component")
 load("//score/mw:common_features.bzl", "COMPILER_WARNING_FEATURES")
 
-component(
-    name = "mock_component",
-    components = [],
-    requirements = [],
-    target_compatible_with = ["@platforms//os:linux"],
-    tests = [],
-    visibility = ["//score/mw/com/impl/bindings:__pkg__"],
-)
-
 cc_library(
-    name = "mock_binding",
+    name = "mock_binding_lib",
     testonly = True,
     srcs = [
         "generic_proxy_event.cpp",
@@ -64,19 +54,6 @@ cc_library(
         "//score/mw/com/impl/plumbing:sample_allocatee_ptr",
         "@googletest//:gtest",
         "@score_baselibs//score/language/futurecpp",
-    ],
-)
-
-cc_library(
-    name = "generic_skeleton_event",
-    testonly = True,
-    srcs = ["generic_skeleton_event.cpp"],
-    hdrs = ["generic_skeleton_event.h"],
-    features = COMPILER_WARNING_FEATURES,
-    visibility = ["//score/mw/com:__subpackages__"],
-    deps = [
-        "//score/mw/com/impl:generic_skeleton_event_binding",
-        "@googletest//:gtest",
     ],
 )
 

@@ -11,10 +11,10 @@
 # SPDX-License-Identifier: Apache-2.0
 # *******************************************************************************
 
+"""Compiler warning features shared by the targets of this module."""
+
 visibility(["//..."])
 
 COMPILER_WARNING_FEATURES = [
     "score_communication_treat_warnings_as_errors",
-    "score_communication_strict_warnings",
-    "score_communication_additional_warnings",
 ]

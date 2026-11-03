@@ -74,6 +74,8 @@ build:linux-x86_64 --config=_common
 build:linux-x86_64 --extra_toolchains=@score_gcc_x86_64_toolchain//:x86_64-linux-gcc_12.2.0
 build:linux-x86_64 --platforms=@score_bazel_platforms//:x86_64-linux-gcc_12.2.0-posix
 
+build:sdv-demo --host_conlyopt=-std=gnu11
+
 # Linux aarch64 cross-compilation for Raspberry Pi deployment.
 build:aarch64-linux --config=_common
 build:aarch64-linux --platforms=@score_bazel_platforms//:aarch64-linux-gcc_12.2.0-posix

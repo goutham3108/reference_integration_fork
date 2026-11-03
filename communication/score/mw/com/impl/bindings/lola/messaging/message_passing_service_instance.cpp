@@ -77,7 +77,7 @@ struct UnsubscribeServiceMethodUnserializedPayload
 struct MethodCallUnserializedPayload
 {
     ProxyMethodInstanceIdentifier proxy_method_instance_identifier;
-    std::size_t queue_position;
+    std::size_t queue_position{};
 };
 
 using MethodUnserializedReply = score::Result<void>;
@@ -151,9 +151,10 @@ auto SerializeToMessage(const std::uint8_t message_id, const T& t) noexcept -> s
     // of T with the size argument of another instantiation, producing a false-positive size mismatch. Deriving the
     // source range directly from the same pointer (source_begin / source_end) that is copied keeps the range
     // trivially self-consistent for every instantiation of T.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): byte-wise view of a trivially copyable object
     const auto* const source_begin = reinterpret_cast<const std::uint8_t*>(&t);
     const auto* const source_end = source_begin + sizeof(T);
-    std::copy(source_begin, source_end, std::next(out.begin()));
+    std::ignore = std::copy(source_begin, source_end, std::next(out.begin()));
     return out;
 }
 
@@ -208,7 +209,7 @@ bool IsMethodErrorRecoverable(const score::result::Error error)
 
 MessagePassingServiceInstance::MessagePassingServiceInstance(
     const ClientQualityType asil_level,
-    AsilSpecificCfg /*config*/,
+    const AsilSpecificCfg& /*config*/,
     score::message_passing::IServerFactory& server_factory,
     score::message_passing::IClientFactory& client_factory,
     score::concurrency::Executor& local_event_executor) noexcept
@@ -378,23 +379,28 @@ message_passing::MessageCallback MessagePassingServiceInstance::CreateSendMessag
 void MessagePassingServiceInstance::MessageCallback(const pid_t sender_pid,
                                                     const score::cpp::span<const std::uint8_t> message) noexcept
 {
-    if (message.size() < 1U)
+    if (message.empty())
     {
         score::mw::log::LogError("lola") << "MessagePassingService: Empty message received from " << sender_pid;
         return;
     }
     const auto payload = message.subspan(1U);
+    // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
     switch (message.front())
     {
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageType::kRegisterEventNotifier):
             HandleRegisterNotificationMsg(payload, sender_pid);
             break;
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageType::kUnregisterEventNotifier):
             HandleUnregisterNotificationMsg(payload, sender_pid);
             break;
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageType::kNotifyEvent):
             HandleNotifyEventMsg(payload, sender_pid);
             break;
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageType::kOutdatedNodeId):
             HandleOutdatedNodeIdMsg(payload, sender_pid);
             break;
@@ -410,22 +416,26 @@ score::Result<void> MessagePassingServiceInstance::MessageCallbackWithReply(
     const pid_t sender_pid,
     const score::cpp::span<const std::uint8_t> message)
 {
-    if (message.size() < 1U)
+    if (message.empty())
     {
         score::mw::log::LogError("lola") << "MessagePassingService: Empty message received from " << sender_pid;
         return MakeUnexpected(MethodErrc::kUnexpectedMessageSize);
     }
     const auto payload = message.subspan(1U);
+    // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
     switch (message.front())
     {
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageWithReplyType::kSubscribeServiceMethod):
         {
             return HandleSubscribeServiceMethodMsg(payload, sender_uid, sender_pid);
         }
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageWithReplyType::kUnsubscribeServiceMethod):
         {
             return HandleUnsubscribeServiceMethodMsg(payload, sender_pid);
         }
+        // Deviation of MISRA RULE-7-0-5: codeql::misra_deviation_next_line(switch-enum-underlying-type-discriminant)
         case score::cpp::to_underlying(MessageWithReplyType::kCallMethod):
         {
             return HandleCallMethodMsg(payload, sender_uid);
@@ -486,7 +496,7 @@ void MessagePassingServiceInstance::HandleRegisterNotificationMsg(const score::c
     if (search != event_update_interested_nodes_.end())
     {
         auto inserted = search->second.insert(sender_node_id);
-        already_registered = (inserted.second == false);
+        already_registered = (!inserted.second);
         notify_status_change = !already_registered && (search->second.size() == 1U);
     }
     else
@@ -876,7 +886,7 @@ void MessagePassingServiceInstance::NotifyEventRemote(const ElementFqId event_id
     NodeIdTmpBufferType nodeIdentifiersTmp;
     pid_t start_node_id{0};
     const auto message = SerializeToMessage(score::cpp::to_underlying(MessageType::kNotifyEvent), event_id);
-    std::pair<std::uint8_t, bool> num_ids_copied;
+    std::pair<std::uint32_t, bool> num_ids_copied;
     std::uint8_t loop_count{0U};
     do
     {
@@ -899,7 +909,7 @@ void MessagePassingServiceInstance::NotifyEventRemote(const ElementFqId event_id
                                              nodeIdentifiersTmp,
                                              start_node_id);
         // send NotifyEventUpdateMessage to each node_id in nodeIdentifiersTmp
-        for (std::uint8_t i = 0U; i < num_ids_copied.first; i++)
+        for (std::uint32_t i = 0U; i < num_ids_copied.first; i++)
         {
             // Suppress "AUTOSAR C++14 M5-0-3" rule findings. This rule states: "A cvalue expression shall
             // not be implicitly converted to a different underlying type"
@@ -918,7 +928,7 @@ void MessagePassingServiceInstance::NotifyEventRemote(const ElementFqId event_id
                     << " failed with error: " << result.error();
             }
         }
-        if (num_ids_copied.second == true)
+        if (num_ids_copied.second)
         {
             // Suppress "AUTOSAR C++14 A4-7-1" rule finding. This rule states: "An integer expression shall not lead to
             // data loss". std::set is a sorted set of unique objects so the biggest element is the last one, and the
@@ -937,7 +947,7 @@ void MessagePassingServiceInstance::NotifyEventRemote(const ElementFqId event_id
                 break;
             }
         }
-    } while (num_ids_copied.second == true);
+    } while (num_ids_copied.second);
 
     if (loop_count > 1U)
     {
@@ -962,7 +972,7 @@ std::uint32_t MessagePassingServiceInstance::NotifyEventLocally(const ElementFqI
     // tmp-storage for all handlers (weak_ptrs), which will get filled under read-lock
     std::array<std::weak_ptr<ScopedEventReceiveHandler>, kMaxReceiveHandlersPerEvent> handler_weak_ptrs{
         {{}, {}, {}, {}, {}}};
-    std::uint8_t number_weak_ptrs_copied{0U};
+    std::uint32_t number_weak_ptrs_copied{0U};
     auto& handlers_for_event = search->second;
     auto handler_it = handlers_for_event.cbegin();
     // LCOV_EXCL_START: decision couldn't be analyzed; considered normal under 100% line coverage
@@ -988,7 +998,7 @@ std::uint32_t MessagePassingServiceInstance::NotifyEventLocally(const ElementFqI
     }
 
     // Call the handlers outside the read-lock
-    for (std::uint8_t i = 0U; i < number_weak_ptrs_copied; i++)
+    for (std::uint32_t i = 0U; i < number_weak_ptrs_copied; i++)
     {
         // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index): "i" is assured to be within array bounds.
         if (auto current_handler = handler_weak_ptrs[i].lock())
@@ -1018,7 +1028,7 @@ void MessagePassingServiceInstance::NotifyEvent(const ElementFqId event_id) noex
     // handlers may have an unknown/non-deterministic long runtime.
     std::shared_lock<std::shared_mutex> read_lock(event_update_handlers_mutex_);
     auto search = event_update_handlers_.find(event_id);
-    if ((search != event_update_handlers_.end()) && (search->second.empty() == false))
+    if ((search != event_update_handlers_.end()) && (!search->second.empty()))
     {
         read_lock.unlock();
         // Suppress "AUTOSAR C++14 A15-4-2" rule finding. This rule states: "If a function is declared to be noexcept,
@@ -1335,7 +1345,7 @@ void MessagePassingServiceInstance::RegisterEventNotificationRemote(const Elemen
         event_update_remote_registrations_.emplace(std::piecewise_construct,
                                                    std::forward_as_tuple(event_id),
                                                    std::forward_as_tuple(NodeCounter{target_node_id, 1U}));
-    if (registration_count_inserted.second == false)
+    if (!registration_count_inserted.second)
     {
         if (registration_count_inserted.first->second.node_id != target_node_id)
         {

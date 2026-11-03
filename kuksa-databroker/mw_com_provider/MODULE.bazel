@@ -3,15 +3,10 @@ module(
     version = "0.1.0",
 )
 
-bazel_dep(name = "rules_rust", version = "0.64.0")
+bazel_dep(name = "rules_rust", version = "0.68.2-score")
 bazel_dep(name = "rules_shell", version = "0.6.1")
 bazel_dep(name = "rules_python", version = "1.8.5")
 bazel_dep(name = "score_communication", version = "0.0.0")
-
-local_path_override(
-    module_name = "score_communication",
-    path = "/mnt/c/Shares/ToRutuja/ToPrashanth/communication",
-)
 
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
@@ -28,3 +23,14 @@ crate.from_cargo(
     manifests = ["//bazel/cargo:third_party.Cargo.toml"],
 )
 use_repo(crate, "crates")
+
+new_local_repository = use_repo_rule(
+    "@bazel_tools//tools/build_defs/repo:local.bzl",
+    "new_local_repository",
+)
+
+new_local_repository(
+    name = "kuksa_databroker_workspace",
+    build_file = "//bazel:databroker_overlay.BUILD.bazel",
+    path = "..",
+)

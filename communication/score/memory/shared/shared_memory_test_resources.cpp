@@ -15,6 +15,7 @@
 #include "score/memory/shared/shared_memory_factory.h"
 #include "score/os/utils/acl/i_access_control_list.h"
 
+// NOLINTNEXTLINE(bugprone-reserved-identifier): GoogleMock wildcard matcher, the name is fixed by GoogleMock
 using ::testing::_;
 using ::testing::AtMost;
 using ::testing::DoAll;
@@ -68,19 +69,13 @@ class IAccessControlListMockWrapper : public score::os::IAccessControlList
 
 }  // namespace
 
-constexpr const char* const TestValues::sharedMemorySegmentPath;
-constexpr const std::uint64_t TestValues::sharedMemoryResourceIdentifier;
-constexpr const char* const TestValues::secondSharedMemorySegmentPath;
-constexpr const char* const TestValues::sharedMemorySegmentLockPath;
-constexpr const char* const TestValues::secondSharedMemorySegmentLockPath;
-constexpr std::size_t TestValues::some_share_memory_size;
-constexpr uid_t TestValues::our_uid;
 constexpr auto kTypedmemdUserName = "typed_memory_daemon";
 constexpr auto kTSHMDeviceName = "/dev/typedshm";
 constexpr std::uint32_t kMaxBufferSize = 16384U;
 
 bool is_aligned(const volatile void* const p, const std::size_t n) noexcept
 {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast): address-to-integer conversion is inherent here
     return reinterpret_cast<std::uintptr_t>(p) % n == 0;
 }
 
@@ -305,7 +300,7 @@ void SharedMemoryResourceTest::expectShmOpenWithCreateFlagReturns(
     const score::cpp::expected_blank<score::os::Error> typed_memory_allocation_ret_value)
 {
     auto oflag = Fcntl::Open::kReadWrite | Fcntl::Open::kCreate | Fcntl::Open::kExclusive;
-    if (prefer_typed_memory == true)
+    if (prefer_typed_memory)
     {
         if (typed_memory_allocation_ret_value.has_value())
         {
@@ -448,7 +443,7 @@ void SharedMemoryResourceTest::expectSharedMemorySuccessfullyCreated(
     expectCreateLockFileReturns(TestValues::sharedMemorySegmentLockPath, lock_file_descriptor);
 
     // Then we can create the shared memory and initialize it
-    if (prefer_typed_memory == false)
+    if (!prefer_typed_memory)
     {
         expectShmOpenWithCreateFlagReturns(TestValues::sharedMemorySegmentPath, file_descriptor);
         expectFstatReturns(file_descriptor);

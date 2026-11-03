@@ -36,14 +36,13 @@ auto ParseForwardedServices(const score::json::Any& json) noexcept -> std::vecto
     std::vector<std::string> forwarded_services{};
     if (json.As<score::json::Object>().has_value())
     {
-        const auto& forwarded_services_entry =
-            json.As<score::json::Object>().value().get().find(kForwardedServicesKey.data());
+        const auto& forwarded_services_entry = json.As<score::json::Object>().value().get().find(kForwardedServicesKey);
 
         if (forwarded_services_entry != json.As<score::json::Object>().value().get().cend())
         {
             for (const auto& forwarded_service : forwarded_services_entry->second.As<score::json::List>().value().get())
             {
-                forwarded_services.push_back(std::move(forwarded_service.As<std::string>().value().get()));
+                forwarded_services.push_back(forwarded_service.As<std::string>().value().get());
             }
         }
     }
@@ -56,14 +55,13 @@ auto ParseReceivedServices(const score::json::Any& json) noexcept -> std::vector
 
     if (json.As<score::json::Object>().has_value())
     {
-        const auto& received_services_entry =
-            json.As<score::json::Object>().value().get().find(kReceivedServicesKey.data());
+        const auto& received_services_entry = json.As<score::json::Object>().value().get().find(kReceivedServicesKey);
 
         if (received_services_entry != json.As<score::json::Object>().value().get().cend())
         {
             for (const auto& received_service : received_services_entry->second.As<score::json::List>().value().get())
             {
-                received_services.push_back(std::move(received_service.As<std::string>().value().get()));
+                received_services.push_back(received_service.As<std::string>().value().get());
             }
         }
     }
@@ -77,21 +75,20 @@ auto ParseTransportLayerRef(const score::json::Any& json) noexcept -> std::pair<
 
     if (json.As<score::json::Object>().has_value())
     {
-        const auto& transport_layer_entry =
-            json.As<score::json::Object>().value().get().find(kTransportLayerKey.data());
+        const auto& transport_layer_entry = json.As<score::json::Object>().value().get().find(kTransportLayerKey);
 
         if (transport_layer_entry != json.As<score::json::Object>().value().get().cend())
         {
             const auto& tl_obj = transport_layer_entry->second.As<score::json::Object>();
             if (tl_obj.has_value())
             {
-                const auto& id_entry = tl_obj.value().get().find(kTransportLayerIdKey.data());
+                const auto& id_entry = tl_obj.value().get().find(kTransportLayerIdKey);
                 if (id_entry != tl_obj.value().get().cend())
                 {
                     transport_layer_id = id_entry->second.As<std::string>().value().get();
                 }
 
-                const auto& path_entry = tl_obj.value().get().find(kTransportConfigPathKey.data());
+                const auto& path_entry = tl_obj.value().get().find(kTransportConfigPathKey);
                 if (path_entry != tl_obj.value().get().cend())
                 {
                     transport_config_path = path_entry->second.As<std::string>().value().get();

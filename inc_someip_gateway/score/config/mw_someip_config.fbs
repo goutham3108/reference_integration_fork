@@ -52,15 +52,17 @@ union SerializationConfig {
     // Add more serialization config types here as needed
 }
 
-table VehicleDynamicsSerializerConfig {}
-
-table BooleanSerializerConfig {}
-
 /// Configuration for the null serializer, which does not perform actual serialization but
 /// instead uses pre-serialized message buffers.
 table NullSerializerConfig {
     /// Size of the pre-serialized message buffers.
     max_message_size: uint32;
+}
+
+table VehicleDynamicsSerializerConfig {
+}
+
+table BooleanSerializerConfig {
 }
 
 /// Describes a single event within a service.

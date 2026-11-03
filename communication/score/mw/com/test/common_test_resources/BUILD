@@ -32,7 +32,10 @@ cc_library(
     srcs = ["skeleton_container.cpp"],
     hdrs = ["skeleton_container.h"],
     features = COMPILER_WARNING_FEATURES,
-    visibility = ["//score/mw/com/test:__subpackages__"],
+    visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
+        "//score/mw/com/test:__subpackages__",
+    ],
     deps = [
         "//score/mw/com",
         "//score/mw/com/test/common_test_resources:fail_test",
@@ -49,9 +52,11 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
+        "//score/memory/shared:string",
         "//score/mw/com",
     ],
 )
@@ -66,10 +71,12 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
         ":bigdata_type",
+        "//score/memory/shared:vector",
         "//score/mw/com",
         "@score_baselibs//score/mw/log",
         "@score_baselibs//score/os/utils/interprocess:interprocess_notification",
@@ -89,6 +96,7 @@ cc_library(
         "@score_baselibs//score/language/futurecpp",
     ],
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
@@ -106,6 +114,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/performance_benchmarks:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
@@ -124,6 +133,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/performance_benchmarks:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
@@ -142,7 +152,10 @@ cc_library(
     srcs = ["process_synchronizer.cpp"],
     hdrs = ["process_synchronizer.h"],
     features = COMPILER_WARNING_FEATURES,
-    visibility = ["//score/mw/com/test:__subpackages__"],
+    visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
+        "//score/mw/com/test:__subpackages__",
+    ],
     deps = [
         "//score/mw/com/test/common_test_resources:fail_test",
         "//score/mw/com/test/common_test_resources:shared_memory_object_creator",
@@ -163,6 +176,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/performance_benchmarks:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
@@ -182,6 +196,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
@@ -200,6 +215,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
@@ -221,6 +237,23 @@ cc_unit_test(
 )
 
 cc_library(
+    name = "service_instance_manifest_parser",
+    srcs = [
+        "service_instance_manifest_parser.cpp",
+    ],
+    hdrs = [
+        "service_instance_manifest_parser.h",
+    ],
+    features = COMPILER_WARNING_FEATURES,
+    visibility = [
+        "//score/mw/com/test:__subpackages__",
+    ],
+    deps = [
+        ":command_line_parser",
+    ],
+)
+
+cc_library(
     name = "sctf_test_runner",
     srcs = [
         "sctf_test_runner.cpp",
@@ -230,6 +263,7 @@ cc_library(
     ],
     features = COMPILER_WARNING_FEATURES,
     visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
         "//score/mw/com/test:__subpackages__",
     ],
     deps = [
@@ -406,7 +440,10 @@ cc_library(
     srcs = ["general_resources.cpp"],
     hdrs = ["general_resources.h"],
     features = COMPILER_WARNING_FEATURES,
-    visibility = ["//score/mw/com/test:__subpackages__"],
+    visibility = [
+        "//score/mw/com/impl/test:__subpackages__",
+        "//score/mw/com/test:__subpackages__",
+    ],
     deps = [
         ":check_point_control",
         ":child_process_guard",

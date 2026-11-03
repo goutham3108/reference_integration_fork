@@ -18,7 +18,8 @@
 
 #include <fcntl.h>
 #include <unistd.h>
-#include <signal.h>
+#include <array>
+#include <csignal>
 #include <cstring>
 #include <iostream>
 #include <string>
@@ -39,6 +40,11 @@ namespace score::mw::com::test
 
 namespace
 {
+
+using score::memory::shared::ExclusiveFlockMutex;
+using score::memory::shared::LockFile;
+using score::memory::shared::SharedFlockMutex;
+
 const char kChildDone = 'Z';
 
 /// \brief Action the forked child process does.
@@ -48,10 +54,8 @@ const char kChildDone = 'Z';
 /// \param fd_to_write_to
 void DoChildActions(int fd_to_write_to)
 {
-    using namespace score::memory::shared;
 
-    FILE* stream;
-    stream = fdopen(fd_to_write_to, "w");
+    FILE* stream = fdopen(fd_to_write_to, "w");
     if (stream == nullptr)
     {
         std::cerr << "Child: Can't open pipe fd!" << std::endl;
@@ -118,7 +122,6 @@ void DoChildActions(int fd_to_write_to)
 /// \return EXIT_SUCCESS, if the checks are ok, EXIT_FAILURE otherwise.
 int CheckSharedLockedFile()
 {
-    using namespace score::memory::shared;
 
     auto shared_lock_file = LockFile::Open(kTestDir + "/" + kSharedLockFileName);
     if (!shared_lock_file.has_value())
@@ -155,7 +158,6 @@ int CheckSharedLockedFile()
 /// \return EXIT_SUCCESS, if the checks are ok, EXIT_FAILURE otherwise.
 int CheckExclusiveLockedFile()
 {
-    using namespace score::memory::shared;
 
     auto exclusive_lock_file = LockFile::Open(kTestDir + "/" + kExclusiveLockFileName);
     if (!exclusive_lock_file.has_value())
@@ -191,7 +193,6 @@ int CheckExclusiveLockedFile()
 /// \return EXIT_SUCCESS, if the checks are ok, EXIT_FAILURE otherwise.
 int LockBothFilesExclusively()
 {
-    using namespace score::memory::shared;
 
     auto exclusive_lock_file = LockFile::Open(kTestDir + "/" + kExclusiveLockFileName);
     if (!exclusive_lock_file.has_value())
@@ -232,6 +233,8 @@ int LockBothFilesExclusively()
 bool WaitForChildFinished(int fd_to_read_from)
 {
     // we set our pipe/fd to non-blocking.
+    // fcntl is a POSIX variadic function with int-based flags that are non-negative constants.
+    // NOLINTNEXTLINE(hicpp-signed-bitwise,cppcoreguidelines-pro-type-vararg)
     auto fcntl_result = fcntl(fd_to_read_from, F_SETFL, fcntl(fd_to_read_from, F_GETFL) | O_NONBLOCK);
     if (fcntl_result == -1)
     {
@@ -240,9 +243,8 @@ bool WaitForChildFinished(int fd_to_read_from)
         return false;
     }
     bool child_is_done{false};
-    FILE* stream;
-    int c;
-    stream = fdopen(fd_to_read_from, "r");
+    FILE* stream = fdopen(fd_to_read_from, "r");
+    int c = 0;
     if (stream == nullptr)
     {
         std::cerr << "Controller: Can't open pipe fd!" << std::endl;
@@ -289,8 +291,8 @@ bool WaitForChildFinished(int fd_to_read_from)
 int main()
 {
     // We use a simple pipe to communicate with a child, we will fork.
-    int client_pipe_fds[2];
-    if (pipe(client_pipe_fds) != 0)
+    std::array<int, 2> client_pipe_fds{};
+    if (pipe(client_pipe_fds.data()) != 0)
     {
         std::cerr << "Controller: Error creating pipe: " << strerror(errno) << ", terminating.";
         return EXIT_FAILURE;
@@ -306,13 +308,13 @@ int main()
 
         case 0:
             // this is the case of the child process
-            close(client_pipe_fds[0]);
-            score::mw::com::test::DoChildActions(client_pipe_fds[1]);
+            close(client_pipe_fds.at(0));
+            score::mw::com::test::DoChildActions(client_pipe_fds.at(1));
             return EXIT_SUCCESS;
 
         default:
             std::cout << "Controller: Child process forked successfully." << std::endl;
-            auto child_is_done = score::mw::com::test::WaitForChildFinished(client_pipe_fds[0]);
+            auto child_is_done = score::mw::com::test::WaitForChildFinished(client_pipe_fds.at(0));
             if (!child_is_done)
             {
                 std::cerr << "Controller: Didn't get child notification in time, terminating." << std::endl;

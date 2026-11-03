@@ -38,8 +38,8 @@ cc_binary(
         "//score/serializer",
         "//score/socom",
         "@score_baselibs//score/filesystem",
-        "@score_lifecycle//score/launch_manager:lifecycle_cc",
-        "@score_logging//score/mw/log:log",
+	"@score_lifecycle//score/launch_manager:lifecycle_cc",
+        "@score_baselibs//score/mw/log",
         "@score_communication//score/message_passing",
         "@score_communication//score/mw/com",
     ],
@@ -54,7 +54,7 @@ cc_library(
         "//score/serializer",
         "//score/socom",
         "//score/someip",
-        "@score_logging//score/mw/log:log",
+        "@score_baselibs//score/mw/log",
         "@score_communication//score/mw/com",
     ],
 )
@@ -69,7 +69,7 @@ cc_library(
         "//score/socom",
         "//score/someip",
         "@score_baselibs//score/containers:non_relocatable_vector",
-        "@score_logging//score/mw/log:log",
+        "@score_baselibs//score/mw/log",
         "@score_communication//score/mw/com",
     ],
 )

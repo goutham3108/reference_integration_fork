@@ -79,8 +79,6 @@ Module / Feature Documentation
    :maxdepth: 1
 
    requirements/index
-   current_status.rst
-   aarch64_local_toolchain.rst
    architecture/index.rst
    tc8_conformance/index.rst
 

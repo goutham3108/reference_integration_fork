@@ -17,11 +17,13 @@
 
 #include "score/mw/com/impl/bindings/lola/sample_ptr.h"
 #include "score/mw/com/impl/bindings/mock_binding/sample_ptr.h"
+#include "score/mw/com/impl/plumbing/sample_allocatee_ptr.h"
 
 #include <score/blank.hpp>
 #include <score/overload.hpp>
 
 #include <memory>
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -78,6 +80,25 @@ class SamplePtr final
     SamplePtr& operator=(const SamplePtr<SampleType>&) = delete;
     SamplePtr& operator=(SamplePtr<SampleType>&& other) & noexcept = default;
 
+    /// \brief Rebind ctor converting a SamplePtr<OtherSampleType> into a SamplePtr<SampleType>.
+    ///
+    /// \details Since the binding layer is fully type-erased, all bindings' underlying sample pointer types
+    /// (lola::SamplePtr, mock_binding::SamplePtr) are identical across all SamplePtr<X> instantiations. This allows a
+    /// simple whole-variant Swap() to be used to implement the rebind, analogous to SampleAllocateePtr's rebind ctor.
+    ///
+    /// \tparam OtherSampleType source SampleType; only one of SampleType/OtherSampleType may be non-void, as the
+    ///                         rebind is only meaningful between the type-erased (void) binding layer and the typed
+    ///                         (non-void) binding independent layer.
+    /// \param other SamplePtr to rebind from. Left in an invalid (blank) state afterwards.
+    template <typename OtherSampleType>
+    SamplePtr(SamplePtr<OtherSampleType>&& other) noexcept : SamplePtr()
+    {
+        static_assert(std::is_void<SampleType>::value || std::is_void<OtherSampleType>::value,
+                      "SamplePtr rebind is only supported between SamplePtr<void> (used on binding layer) and "
+                      "SamplePtr<NonVoidType> (used on binding independent layer), not between two non-void types.");
+        this->Swap(other);
+    }
+
     SamplePtr& operator=(std::nullptr_t) noexcept
     {
         Reset();
@@ -101,8 +122,13 @@ class SamplePtr final
             // separate line.". Following line statement is fine, this happens due to
             // clang formatting.
             // coverity[autosar_cpp14_a7_1_7_violation]
-            [](const lola::SamplePtr<SampleType>& lola_ptr) noexcept -> pointer {
-                return lola_ptr.get();
+            [](const lola::SamplePtr& lola_ptr) noexcept -> pointer {
+                // Suppress "AUTOSAR C++14 M5-2-8" rule finding: "An object with integer type or pointer to void
+                // type shall not be converted to an object with pointer type". The binding layer is fully
+                // type-erased, so this cast from the type-erased binding pointer to the typed SamplePtr::pointer is
+                // an inherent part of "un-erasing" the type on the binding independent layer.
+                // coverity[autosar_cpp14_m5_2_8_violation]
+                return static_cast<pointer>(lola_ptr.get());
             },
             // Suppress "AUTOSAR C++14 A8-4-12" rule finding. This rule states: "A std::unique_ptr shall be passed to a
             // function as: (1) a copy to express the function assumes ownership (2) an lvalue reference to express that
@@ -110,8 +136,9 @@ class SamplePtr final
             // This is a false positive, we here using lvalue reference.
             // coverity[autosar_cpp14_a8_4_12_violation : FALSE]
             // coverity[autosar_cpp14_a7_1_7_violation]
-            [](const mock_binding::SamplePtr<SampleType>& mock_ptr) noexcept -> pointer {
-                return mock_ptr.get();
+            [](const mock_binding::SamplePtr& mock_ptr) noexcept -> pointer {
+                // coverity[autosar_cpp14_m5_2_8_violation]
+                return static_cast<pointer>(mock_ptr.get());
             },
             // coverity[autosar_cpp14_a7_1_7_violation]
             [](const score::cpp::blank&) noexcept -> pointer {
@@ -145,30 +172,28 @@ class SamplePtr final
 
     bool operator<(const SamplePtr& other) const noexcept
     {
-        return std::visit(
-            score::cpp::overload(
-                [](const lola::SamplePtr<SampleType>& lhs, const lola::SamplePtr<SampleType>& rhs) noexcept -> bool {
-                    return lhs < rhs;
-                },
-                [](const auto&, const auto&) noexcept -> bool {
-                    return false;
-                }),
-            binding_sample_ptr_,
-            other.binding_sample_ptr_);
+        return std::visit(score::cpp::overload(
+                              [](const lola::SamplePtr& lhs, const lola::SamplePtr& rhs) noexcept -> bool {
+                                  return lhs < rhs;
+                              },
+                              [](const auto&, const auto&) noexcept -> bool {
+                                  return false;
+                              }),
+                          binding_sample_ptr_,
+                          other.binding_sample_ptr_);
     }
 
     bool operator>(const SamplePtr& other) const noexcept
     {
-        return std::visit(
-            score::cpp::overload(
-                [](const lola::SamplePtr<SampleType>& lhs, const lola::SamplePtr<SampleType>& rhs) noexcept -> bool {
-                    return lhs > rhs;
-                },
-                [](const auto&, const auto&) noexcept -> bool {
-                    return false;
-                }),
-            binding_sample_ptr_,
-            other.binding_sample_ptr_);
+        return std::visit(score::cpp::overload(
+                              [](const lola::SamplePtr& lhs, const lola::SamplePtr& rhs) noexcept -> bool {
+                                  return lhs > rhs;
+                              },
+                              [](const auto&, const auto&) noexcept -> bool {
+                                  return false;
+                              }),
+                          binding_sample_ptr_,
+                          other.binding_sample_ptr_);
     }
     explicit operator bool() const noexcept
     {
@@ -180,6 +205,18 @@ class SamplePtr final
         // Search for custom swap functions via ADL, and use std::swap if none are found.
         using std::swap;
 
+        swap(binding_sample_ptr_, other.binding_sample_ptr_);
+        swap(reference_guard_, other.reference_guard_);
+    }
+
+    /// \brief Swaps the managed objects of *this and another SamplePtr object other, even if other has a
+    /// different SampleType. This is safe because the underlying binding_sample_ptr_/reference_guard_ members have
+    /// identical types across all SamplePtr<X> instantiations (the binding layer is fully type-erased).
+    template <typename OtherSampleType>
+    void Swap(SamplePtr<OtherSampleType>& other) noexcept
+    {
+        // Search for custom swap functions via ADL, and use std::swap if none are found.
+        using std::swap;
         swap(binding_sample_ptr_, other.binding_sample_ptr_);
         swap(reference_guard_, other.reference_guard_);
     }
@@ -196,9 +233,15 @@ class SamplePtr final
     {
     }
 
-    std::variant<score::cpp::blank, lola::SamplePtr<SampleType>, mock_binding::SamplePtr<SampleType>>
-        binding_sample_ptr_;
+    std::variant<score::cpp::blank, lola::SamplePtr, mock_binding::SamplePtr> binding_sample_ptr_;
     SampleReferenceGuard reference_guard_;
+
+    // Suppress "AUTOSAR C++14 A11-3-1", The rule states: "Friend declarations shall not be used".
+    // Design decision: needed so that the interim rebind ctor above can access the private members of a
+    // differently-instantiated SamplePtr<OtherSampleType>. See the rebind ctor's doxygen comment for context.
+    // coverity[autosar_cpp14_a11_3_1_violation]
+    template <typename OtherSampleType>
+    friend class SamplePtr;
 
     template <typename SamplePtrType>
     // Suppress "AUTOSAR C++14 A11-3-1", The rule states: "Friend declarations shall not be used".
@@ -244,6 +287,21 @@ void swap(SamplePtr<SampleType>& lhs, SamplePtr<SampleType>& rhs) noexcept
 {
     lhs.Swap(rhs);
 }
+
+/// \brief Creates a binding agnostic, type-erased SamplePtr<void> referencing the same underlying sample as the
+/// given SampleAllocateePtr<void>.
+///
+/// \details This is used on the skeleton side (e.g. by tracing) to obtain a read-only, type-erased handle to a
+/// sample that is currently being sent via a SampleAllocateePtr, without transferring ownership of the
+/// SampleAllocateePtr itself. Such a SamplePtr gets then "freed" from a trace-done-callback of the trace library (GTL).
+/// For the LoLa binding, this additionally references the underlying event slot
+/// (mirroring what happens for samples received via a proxy) so that the slot remains valid for as long as the
+/// returned SamplePtr<void> is alive.
+///
+/// \param sample_allocatee_ptr The SampleAllocateePtr from which the type-erased SamplePtr shall be created. Must not
+///                             be blank/default constructed, otherwise this function will terminate.
+/// \return type-erased SamplePtr<void> referencing the same underlying sample as \p sample_allocatee_ptr.
+SamplePtr<void> CreateSamplePtrFromSampleAllocateePtr(SampleAllocateePtr<void>& sample_allocatee_ptr);
 
 }  // namespace score::mw::com::impl
 

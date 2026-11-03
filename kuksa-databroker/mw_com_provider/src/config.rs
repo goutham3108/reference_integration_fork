@@ -43,12 +43,14 @@ pub enum VssDataType {
     Bool,
     String,
     Int8,
+    Int16,
     Int32,
     Int64,
     Uint8,
     Uint32,
     Uint64,
     Float,
+    FloatArray,
     Double,
 }
 
@@ -93,6 +95,8 @@ impl ProviderConfig {
         let mut signal_ids = HashSet::new();
         let mut mw_com_bindings = HashSet::new();
         for mapping in &self.mappings {
+            // Validate the config before any middleware connection is opened so
+            // startup failures point to the mapping file rather than LoLa state.
             if mapping.vss_path.trim().is_empty() {
                 return Err(MwComProviderError::Config(
                     "mapping has an empty VSS path".into(),
@@ -123,9 +127,29 @@ impl ProviderConfig {
                     mapping.service, mapping.instance, mapping.member
                 )));
             }
+            if let Some(binding) = &mapping.actuation_binding {
+                if !mapping.direction.accepts_actuation()
+                    || binding.service.trim().is_empty()
+                    || binding.instance.trim().is_empty()
+                    || binding.member.trim().is_empty()
+                {
+                    return Err(MwComProviderError::Config(format!(
+                        "invalid actuation binding for {}",
+                        mapping.vss_path
+                    )));
+                }
+            }
             if mapping.cycle_time_ms == 0 {
                 return Err(MwComProviderError::Config(format!(
                     "mapping for {} must use a non-zero cycle_time_ms",
+                    mapping.vss_path
+                )));
+            }
+            if mapping.datatype == VssDataType::FloatArray
+                && !mapping.max_elements.is_some_and(|count| (1..=8).contains(&count))
+            {
+                return Err(MwComProviderError::Config(format!(
+                    "mapping for {} must set max_elements between 1 and 8",
                     mapping.vss_path
                 )));
             }
@@ -157,13 +181,25 @@ impl ProviderConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct SignalMapping {
-    pub signal_id: i32,
-    pub vss_path: String,
-    pub datatype: VssDataType,
+pub struct ActuationBinding {
     pub service: String,
     pub instance: String,
     pub member: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SignalMapping {
+    // The generated config contains stable IDs. The composition binary rewrites
+    // them to Databroker runtime IDs after seeding metadata.
+    pub signal_id: i32,
+    pub vss_path: String,
+    pub datatype: VssDataType,
+    // service/instance/member identify the exact generated S-Core binding.
+    pub service: String,
+    pub instance: String,
+    pub member: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actuation_binding: Option<ActuationBinding>,
     #[serde(default)]
     pub field: Option<String>,
     #[serde(default)]
@@ -176,6 +212,8 @@ pub struct SignalMapping {
     pub min: Option<f64>,
     #[serde(default)]
     pub max: Option<f64>,
+    #[serde(default)]
+    pub max_elements: Option<usize>,
     #[serde(default)]
     pub required_quality: SignalQuality,
     #[serde(default = "default_direction")]
@@ -220,12 +258,14 @@ mod tests {
             service: "VehicleSpeedService".into(),
             instance: "front".into(),
             member: "speed".into(),
+            actuation_binding: None,
             field: None,
             unit: Some("km/h".into()),
             scale: 1.0,
             offset: 0.0,
             min: Some(0.0),
             max: Some(300.0),
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction: Direction::Datapoint,
             cycle_time_ms: 100,
@@ -296,6 +336,15 @@ mod tests {
         let error = config(vec![mapping]).validate().unwrap_err();
 
         assert!(error.to_string().contains("non-zero cycle_time_ms"));
+    }
+
+    #[test]
+    fn requires_bounded_float_array_mapping() {
+        let mut array = mapping(1);
+        array.datatype = VssDataType::FloatArray;
+        assert!(config(vec![array.clone()]).validate().is_err());
+        array.max_elements = Some(8);
+        assert!(config(vec![array]).validate().is_ok());
     }
 
     #[test]

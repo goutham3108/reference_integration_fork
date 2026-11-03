@@ -91,6 +91,7 @@ cc_library(
     features = COMPILER_WARNING_FEATURES,
     implementation_deps = [
         "@score_baselibs//score/mw/log",
+        "@score_baselibs//score/string_manipulation/arguments",
     ],
     tags = ["FFI"],
     visibility = [
@@ -124,6 +125,12 @@ cc_library(
 alias(
     name = "config_schema",
     actual = "//score/mw/com/impl/configuration:mw_com_config_schema",
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "config_fbs_schema",
+    actual = "//score/mw/com/impl/configuration:mw_com_config.fbs",
     visibility = ["//visibility:public"],
 )
 

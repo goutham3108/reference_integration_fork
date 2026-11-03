@@ -10,5 +10,4 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  ********************************************************************************/
-
 #include "score/mw/com/impl/generic_skeleton_event_binding.h"

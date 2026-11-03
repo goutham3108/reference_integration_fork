@@ -76,6 +76,22 @@ class Runtime final : public IRuntime
     /// \param runtime_configuration object containing configuration needed to initialize the Runtime
     static void Initialize(const runtime::RuntimeConfiguration& runtime_configuration);
 
+    /// \brief Extends mw::com subsystem with the given add-on configuration.
+    /// \details This call is optional and shall allow loading additional mw::com configuration files in order to extend
+    /// already loaded configurations.
+    /// \attention This function will call std::terminate() in case no initial configuration has been loaded yet, or
+    /// that the configuration is incompatible to the previously loaded one.
+    /// \param runtime_configuration object containing service definitions which should be added to existing set
+    static Result<void> AddConfiguration(const runtime::RuntimeConfiguration& runtime_configuration);
+
+    /// \brief Extends mw::com subsystem with the given add-on configuration provided as a JSON object.
+    /// \details This call is optional and shall allow loading additional mw::com configuration as an in-memory JSON
+    /// object in order to extend already loaded configurations.
+    /// \attention This function will call std::terminate() in case no initial configuration has been loaded yet, or
+    /// that the configuration is incompatible to the previously loaded one.
+    /// \param json object containing service definitions which should be added to existing set
+    static Result<void> AddConfiguration(score::json::Any json);
+
     /// \brief get singleton.
     /// \details Might return either reference to a real Runtime instance or to a mock.
     /// \return singleton ref.
@@ -108,28 +124,36 @@ class Runtime final : public IRuntime
     // three specifiers: (1) virtual, (2) override, (3) final. Gcc compiler bug leads to a compiler warning if
     // override is not added, even if final keyword is there. (https://gcc.gnu.org/bugzilla/show_bug.cgi?id=78010)
     // coverity[autosar_cpp14_a10_3_1_violation]
-    std::vector<InstanceIdentifier> resolve(const InstanceSpecifier& specifier) const override final;
+    std::vector<InstanceIdentifier> resolve(const InstanceSpecifier& specifier) const final;
 
     /// \brief see IRuntime::GetBindingRuntime
     // coverity[autosar_cpp14_a10_3_1_violation]
-    IBindingRuntime* GetBindingRuntime(const BindingType binding) const noexcept override final;
+    IBindingRuntime* GetBindingRuntime(const BindingType binding) const noexcept final;
 
     // coverity[autosar_cpp14_a10_3_1_violation]
-    IServiceDiscovery& GetServiceDiscovery() & noexcept override final;
+    IServiceDiscovery& GetServiceDiscovery() & noexcept final;
 
     /// \brief see IRuntime::GetTracingFilterConfig
     // coverity[autosar_cpp14_a10_3_1_violation]
-    const tracing::ITracingFilterConfig* GetTracingFilterConfig() const override final;
+    const tracing::ITracingFilterConfig* GetTracingFilterConfig() const final;
 
     /// \brief see IRuntime::GetTracingRuntime
     // coverity[autosar_cpp14_a10_3_1_violation]
-    tracing::ITracingRuntime* GetTracingRuntime() const noexcept override final;
+    tracing::ITracingRuntime* GetTracingRuntime() const noexcept final;
 
   private:
     /// \return static Runtime (the real one - not a mock!) configured based on the configuration set by one of the
     ///         static Initialize() overloads.
     /// \pre the internal static initialization_config_ has to be initialized with a Configuration.
     static Runtime& getInstanceInternal();
+
+    /// \brief Extend loaded configuration with the Configuration provided as a parameter. Returns an error if
+    /// configurations are incompatible or there is no regular (complete) configuration loaded yet.
+    static Result<void> HandleAddonConfiguration(const Configuration& config);
+
+    /// \brief Merges the service types and instances into the already loaded configuration. Returns an error if one of
+    /// those entries in the given configuration already exists in this configuration.
+    Result<void> MergeAdditionalConfiguration(const Configuration& additional_configuration) noexcept;
 
     /// \brief pointer to a mock to be used (set via InjectMock())
     static score::mw::com::impl::IRuntime* mock_;

@@ -43,7 +43,7 @@ namespace score::mw::com::impl
 namespace detail
 {
 
-LolaMethodInstanceDeployment::QueueSize GetQueueSize(HandleType parent_handle,
+LolaMethodInstanceDeployment::QueueSize GetQueueSize(const HandleType& parent_handle,
                                                      const std::string& method_name_str,
                                                      MethodType method_type);
 
@@ -52,7 +52,7 @@ bool IsMethodOrFieldEnabled(const LolaServiceInstanceDeployment& lola_service_in
                             MethodType method_type);
 
 template <typename ReturnType, typename... ArgTypes>
-lola::TypeErasedCallQueue::TypeErasedElementInfo GetTypeErasedElementInfo(HandleType parent_handle,
+lola::TypeErasedCallQueue::TypeErasedElementInfo GetTypeErasedElementInfo(const HandleType& parent_handle,
                                                                           const std::string& method_name_str,
                                                                           MethodType method_type)
 {
@@ -157,6 +157,13 @@ Result<std::unique_ptr<ProxyMethodBinding>> ProxyMethodBindingFactoryImpl<Return
 
             return std::make_unique<lola::ProxyMethod>(
                 *lola_proxy, proxy_method_instance_identifier, type_erased_element_info);
+        },
+        // The SOME/IP binding does not support this service element (yet). It is listed explicitly (instead of
+        // being served by the score::cpp::blank arm) because std::visit requires an arm for every variant
+        // alternative.
+        [](const SomeIpServiceTypeDeployment&) noexcept -> LambdaReturnType {
+            // TODO(someip-proxy-method): Create the SOME/IP proxy method binding.
+            return MakeUnexpected(BindingFactoryErrorCode::kUnsupportedBindingType);
         },
         [](const score::cpp::blank&) noexcept -> LambdaReturnType {
             return MakeUnexpected(BindingFactoryErrorCode::kUnsupportedBindingType);

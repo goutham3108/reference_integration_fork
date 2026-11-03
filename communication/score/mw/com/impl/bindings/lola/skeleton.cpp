@@ -240,7 +240,7 @@ std::unique_ptr<Skeleton> Skeleton::Create(const InstanceIdentifier& identifier,
                                             std::move(service_instance_existence_mutex_and_lock));
 }
 
-Skeleton::Skeleton(const InstanceIdentifier& identifier,
+Skeleton::Skeleton(InstanceIdentifier identifier,
                    const LolaServiceInstanceDeployment& lola_service_instance_deployment,
                    const LolaServiceTypeDeployment& lola_service_type_deployment,
                    score::filesystem::Filesystem filesystem,
@@ -250,7 +250,7 @@ Skeleton::Skeleton(const InstanceIdentifier& identifier,
                    std::unique_ptr<memory::shared::FlockMutexAndLock<memory::shared::ExclusiveFlockMutex>>
                        service_instance_existence_flock_mutex_and_lock)
     : SkeletonBinding{},
-      identifier_{identifier},
+      identifier_{std::move(identifier)},
       quality_type_{InstanceIdentifierView{identifier_}.GetServiceInstanceDeployment().asilLevel_},
       lola_instance_id_{lola_service_instance_deployment.instance_id_.value().GetId()},
       lola_service_id_{lola_service_type_deployment.service_id_},
@@ -571,10 +571,10 @@ bool Skeleton::VerifyAllMethodHandlersRegistered() const
     });
 }
 
-auto Skeleton::RegisterGeneric(const ElementFqId element_fq_id,
-                               const SkeletonEventProperties& element_properties,
-                               const size_t sample_size,
-                               const size_t sample_alignment) -> GenericRegistrationResult
+auto Skeleton::Register(const ElementFqId element_fq_id,
+                        const SkeletonEventProperties& element_properties,
+                        const memory::DataTypeSizeInfo data_type_size_info,
+                        const std::optional<InitializeSampleCallback>& initialize_sample_callback) -> RegistrationResult
 {
     if (use_gateway_forwarded_shm_ || was_old_shm_region_reopened_)
     {
@@ -597,17 +597,16 @@ auto Skeleton::RegisterGeneric(const ElementFqId element_fq_id,
             }
         }
 
-        auto* const event_data_storage =
-            memory_manager_.RetrieveGenericEventDataFromOpenedSharedMemory(element_fq_id, element_properties);
+        auto& event_data_storage = memory_manager_.RetrieveEventDataFromOpenedSharedMemory(element_fq_id);
         return {event_data_storage, event_data_control_qm, event_data_control_asil_b};
     }
 
-    auto* const type_erased_event_data_storage = memory_manager_.CreateGenericEventDataInCreatedSharedMemory(
-        element_fq_id, element_properties, sample_size, sample_alignment);
+    auto& event_data_storage = memory_manager_.CreateEventDataInCreatedSharedMemory(
+        element_fq_id, element_properties, data_type_size_info, initialize_sample_callback);
     auto [event_data_control_qm, event_data_control_asil_b] =
         memory_manager_.CreateEventControlsInCreatedSharedMemory(element_fq_id, element_properties);
 
-    return GenericRegistrationResult{type_erased_event_data_storage, event_data_control_qm, event_data_control_asil_b};
+    return {event_data_storage, event_data_control_qm, event_data_control_asil_b};
 }
 
 auto Skeleton::RegisterMethodHandlers(const QualityType asil_level,
@@ -719,7 +718,10 @@ Result<void> Skeleton::OnServiceMethodsUnsubscribed(const ProxyInstanceIdentifie
     for (auto& [method_id, skeleton_method_ref] : skeleton_methods_)
     {
         const ProxyMethodInstanceIdentifier proxy_method_instance_identifier{proxy_instance_identifier, method_id};
-        skeleton_method_ref.get().OnProxyMethodUnsubscribeFinished(proxy_method_instance_identifier);
+        // We are looping over all SkeletonMethods, not just the ones corresponding to the ProxyMethod which is
+        // unsubscribing. Therefore, it's expected that some of the calls to OnProxyMethodUnsubscribe will not
+        // unregister anything so we don't assert on the return.
+        std::ignore = skeleton_method_ref.get().OnProxyMethodUnsubscribe(proxy_method_instance_identifier);
     }
 
     return {};
@@ -734,7 +736,7 @@ auto Skeleton::SubscribeMethods(const MethodData& method_data,
     const auto& method_call_queues = method_data.method_call_queues_;
     for (std::size_t method_idx = 0U; method_idx != method_call_queues.size(); method_idx++)
     {
-        auto& [unique_method_identifier, type_erased_call_queue] = method_call_queues[method_idx];
+        const auto& [unique_method_identifier, type_erased_call_queue] = method_call_queues[method_idx];
 
         // Defensive check for skeleton method population.
         // The skeleton_methods_ map is populated at skeleton construction time
@@ -767,6 +769,7 @@ auto Skeleton::SubscribeMethods(const MethodData& method_data,
             // If subscription failed for any of the methods, then subscription fails for the entire Proxy. Therefore,
             // we can unsubscribe the methods that were already successfully subscribed.
             std::vector<UniqueMethodIdentifier> method_ids_to_unsubscribe{};
+            method_ids_to_unsubscribe.reserve(method_idx);
             for (std::size_t registered_method_idx = 0U; registered_method_idx < method_idx; ++registered_method_idx)
             {
                 method_ids_to_unsubscribe.push_back(method_call_queues[registered_method_idx].first);
@@ -785,7 +788,9 @@ void Skeleton::UnsubscribeMethods(const std::vector<UniqueMethodIdentifier>& met
     {
         auto& skeleton_method = skeleton_methods_.at(method_id);
         const ProxyMethodInstanceIdentifier proxy_method_instance_identifier{proxy_instance_identifier, method_id};
-        skeleton_method.get().OnProxyMethodUnsubscribe(proxy_method_instance_identifier);
+        // A precondition of this function is that all provided method_ids were successfully registered.
+        const bool element_erased = skeleton_method.get().OnProxyMethodUnsubscribe(proxy_method_instance_identifier);
+        SCORE_LANGUAGE_FUTURECPP_PRECONDITION_PRD(element_erased);
     }
 }
 

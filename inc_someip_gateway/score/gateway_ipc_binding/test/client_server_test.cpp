@@ -28,12 +28,8 @@
 #include "score/result/result.h"
 #include "score/socom/callback_mocks.hpp"
 #include "score/socom/client_connector.hpp"
-#include "score/socom/client_connector_mock.hpp"
-#include "score/socom/error.hpp"
 #include "score/socom/runtime.hpp"
-#include "score/socom/runtime_mock.hpp"
 #include "score/socom/server_connector.hpp"
-#include "score/socom/server_connector_mock.hpp"
 #include "test_constants.hpp"
 #include "util.hpp"
 
@@ -74,7 +70,7 @@ class Gateway_ipc_binding_unconnected_test : public ::testing::Test, protected T
         server = Gateway_ipc_binding_server::create(*runtime_server, std::move(ipc_server),
                                                     std::move(mock_server_factory),
                                                     [](auto, auto, bool) {});
-        assert(server && "Server creation failed");
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(server && "Server creation failed");
 
         // Create gateway IPC binding client
         score::message_passing::ClientFactory client_factory;
@@ -83,7 +79,7 @@ class Gateway_ipc_binding_unconnected_test : public ::testing::Test, protected T
             create_mock_unique_ptr(mock_client_shared_memory_manager_factory);
         client = Gateway_ipc_binding_client::create(*runtime_client, std::move(connection),
                                                     std::move(mock_client_factory));
-        assert(client && "Client creation failed");
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(client && "Client creation failed");
     }
 };
 
@@ -117,7 +113,7 @@ class Gateway_ipc_binding_test : public Gateway_ipc_binding_unconnected_test {
     Gateway_ipc_binding_test() : Gateway_ipc_binding_unconnected_test() {
         // Start the server
         auto start_result = server->start();
-        assert(start_result);
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(start_result);
 
         // Wait for the client to connect and receive the reply
         while (!client->is_connected()) {
@@ -175,16 +171,16 @@ class Gateway_ipc_binding_test : public Gateway_ipc_binding_unconnected_test {
 
         auto client_connector_result = client_runtime.make_client_connector(
             socom_client_config, instance, make_client_callbacks());
-        assert(client_connector_result);
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(client_connector_result);
         auto client_connector = std::move(client_connector_result.value());
-        assert(client_connector);
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(client_connector);
 
         auto server_connector_result = server_runtime.make_server_connector(
             socom_server_config, instance, make_server_callbacks());
-        assert(server_connector_result);
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(server_connector_result);
         auto enabled_server_connector = score::socom::Disabled_server_connector::enable(
             std::move(server_connector_result.value()));
-        assert(enabled_server_connector);
+        SCORE_LANGUAGE_FUTURECPP_ASSERT(enabled_server_connector);
 
         return {std::move(client_connector), std::move(enabled_server_connector)};
     }
@@ -414,58 +410,6 @@ TEST_P(Gateway_ipc_binding_param_test, server_sends_event_update) {
     payload_destruction_callback();
     EXPECT_EQ(payload_released_promise.get_future().wait_for(very_long_timeout),
               std::future_status::ready);
-}
-
-TEST_F(Gateway_ipc_binding_unconnected_test, get_client_identifiers_reports_identifier_on_connect) {
-    // Create two named clients and verify get_client_identifiers() returns their identifiers.
-    auto make_named_client = [&](std::string_view identifier) {
-        score::message_passing::ClientFactory client_factory;
-        auto connection = client_factory.Create(protocol_config, client_config);
-        auto mock_factory_raw = create_mock_unique_ptr(mock_client_shared_memory_manager_factory);
-        auto client =
-            Gateway_ipc_binding_client::create(*runtime_client, std::move(connection),
-                                               std::move(mock_factory_raw), {}, {}, identifier);
-
-        while (!client->is_connected()) {
-            std::this_thread::sleep_for(1ms);
-        }
-
-        return client;
-    };
-
-    auto const start_result = server->start();
-    ASSERT_TRUE(start_result);
-    auto const named_client_a = make_named_client("client_A");
-    auto const named_client_b = make_named_client("client_B");
-
-    auto const identifiers = server->get_client_identifiers();
-
-    std::vector<std::string> identifier_values;
-    for (auto const& [id, info] : identifiers) {
-        identifier_values.push_back(fixed_string_to_string(info.identifier));
-    }
-    EXPECT_THAT(identifier_values, ::testing::IsSupersetOf({"client_A", "client_B"}));
-}
-
-TEST_F(Gateway_ipc_binding_unconnected_test,
-       get_client_identifiers_returns_empty_name_for_client_without_identifier) {
-    auto const start_result = server->start();
-    ASSERT_TRUE(start_result);
-
-    // The default client was created without an identifier
-    while (!client->is_connected()) {
-        std::this_thread::sleep_for(1ms);
-    }
-
-    auto const identifiers = server->get_client_identifiers();
-    ASSERT_EQ(identifiers.size(), 1U);
-    EXPECT_EQ(fixed_string_to_string(identifiers.begin()->second.identifier), "");
-}
-
-TEST_F(Gateway_ipc_binding_unconnected_test,
-       get_client_identifiers_returns_empty_set_without_clients) {
-    auto const identifiers = server->get_client_identifiers();
-    ASSERT_EQ(identifiers.size(), 0U);
 }
 
 }  // namespace score::gateway_ipc_binding

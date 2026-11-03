@@ -24,6 +24,9 @@ pub enum MwComProviderError {
     #[error("transport error: {0}")]
     Transport(String),
 
+    #[error("SCORE service {service} at {instance} is not available")]
+    ServiceUnavailable { service: String, instance: String },
+
     #[error("databroker registration failed: {0}")]
     Registration(String),
 

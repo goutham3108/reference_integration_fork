@@ -20,14 +20,13 @@
 namespace score::mw::com::impl
 {
 
-template <typename SampleType>
-class SkeletonEventBindingFactoryMock : public ISkeletonEventBindingFactory<SampleType>
+class SkeletonEventBindingFactoryMock : public ISkeletonEventBindingFactory
 {
   public:
-    MOCK_METHOD(std::unique_ptr<SkeletonEventBinding<SampleType>>,
+    MOCK_METHOD(std::unique_ptr<SkeletonEventBinding>,
                 Create,
-                (const InstanceIdentifier&, SkeletonBinding&, std::string_view),
-                (noexcept, override));
+                (const InstanceIdentifier&, SkeletonBinding&, std::string_view, memory::DataTypeSizeInfo),
+                (override));
 };
 
 }  // namespace score::mw::com::impl

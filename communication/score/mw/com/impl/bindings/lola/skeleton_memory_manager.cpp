@@ -24,7 +24,7 @@
 #include "score/mw/com/impl/configuration/lola_service_instance_deployment.h"
 #include "score/mw/com/impl/configuration/lola_service_type_deployment.h"
 #include "score/mw/com/impl/configuration/quality_type.h"
-#include "score/mw/com/impl/generic_skeleton_event_binding.h"
+
 #include "score/mw/com/impl/runtime.h"
 #include "score/mw/com/impl/skeleton_event_binding.h"
 
@@ -45,6 +45,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -105,25 +106,6 @@ std::uint64_t CalculateMemoryResourceId(const LolaServiceTypeDeployment::Service
 {
     return ((static_cast<std::uint64_t>(lola_service_id) << 24U) +
             (static_cast<std::uint64_t>(lola_instance_id) << 8U) + static_cast<std::uint8_t>(object_type));
-}
-
-/// \brief Determines whether the given event/field bindings are generic (type-erased) or typed bindings.
-/// \details Within a single Skeleton instance, event/field bindings are homogeneously either all generic
-/// (GenericSkeletonEventBinding, used exclusively by a GenericSkeleton) or all typed (SkeletonEventBinding<SampleType>,
-/// used exclusively by a code-generated, typed Skeleton<SampleType>) - a single skeleton instance never mixes both
-/// kinds. It is therefore sufficient to inspect a single (arbitrary) binding to determine which kind ALL of them are.
-/// \return true if the bindings are generic, false if they are typed. If both events and fields are empty, false is
-/// returned (the value is irrelevant in that case, as there is nothing to size).
-bool AreServiceElementBindingsGeneric(const SkeletonBinding::SkeletonEventBindings& events,
-                                      const SkeletonBinding::SkeletonFieldBindings& fields)
-{
-    const auto* const first_binding_map = !events.empty() ? &events : (!fields.empty() ? &fields : nullptr);
-    if (first_binding_map == nullptr)
-    {
-        return false;
-    }
-    const SkeletonEventBindingBase& first_binding = first_binding_map->begin()->second.get();
-    return dynamic_cast<const GenericSkeletonEventBinding*>(&first_binding) != nullptr;
 }
 
 }  // namespace
@@ -226,79 +208,30 @@ auto SkeletonMemoryManager::CreateEventControlsInCreatedSharedMemory(const Eleme
     return {provider_event_control_qm, &provider_event_control_asil_b};
 }
 
-void* SkeletonMemoryManager::CreateGenericEventDataInCreatedSharedMemory(
+EventDataStorage& SkeletonMemoryManager::CreateEventDataInCreatedSharedMemory(
     const ElementFqId element_fq_id,
     const SkeletonEventProperties& element_properties,
-    size_t sample_size,
-    size_t sample_alignment)
+    memory::DataTypeSizeInfo sample_size_info,
+    const std::optional<InitializeSampleCallback>& initialize_sample_callback)
 {
-    // Guard against over-aligned types (Short-term solution protection)
-    if (sample_alignment > alignof(std::max_align_t))
-    {
-        score::mw::log::LogFatal("Skeleton")
-            << "Requested sample alignment (" << sample_alignment << ") exceeds max_align_t ("
-            << alignof(std::max_align_t) << "). Safe shared memory layout cannot be guaranteed.";
-
-        SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(sample_alignment <= alignof(std::max_align_t),
-                                                    "Requested sample alignment exceeds maximum supported alignment.");
-    }
-
-    // Calculate the aligned size for a single sample to ensure proper padding between slots
-    const auto aligned_sample_size = memory::shared::CalculateAlignedSize(sample_size, sample_alignment);
-    const auto total_data_size_bytes = aligned_sample_size * element_properties.GetTotalNumberOfSlots();
-
-    // Convert total bytes to the number of std::max_align_t elements needed (round up)
-    const size_t num_max_align_elements =
-        (total_data_size_bytes + sizeof(std::max_align_t) - 1) / sizeof(std::max_align_t);
-
-    auto* data_storage = storage_resource_->construct<EventDataStorage<std::max_align_t>>(
-        num_max_align_elements, memory::shared::PolymorphicOffsetPtrAllocator<std::max_align_t>(*storage_resource_));
-
-    auto inserted_data_slots = storage_->events_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(element_fq_id), std::forward_as_tuple(data_storage));
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(inserted_data_slots.second,
-                                                "Couldn't register/emplace event-storage in data-section.");
-
-    const memory::DataTypeSizeInfo sample_meta_info{sample_size, sample_alignment};
-    void* const event_data_raw_array = data_storage->data();
-
-    auto inserted_meta_info =
-        storage_->events_metainfo_.emplace(std::piecewise_construct,
-                                           std::forward_as_tuple(element_fq_id),
-                                           std::forward_as_tuple(sample_meta_info, event_data_raw_array));
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(inserted_meta_info.second,
-                                                "Couldn't register/emplace event-meta-info in data-section.");
-
-    return event_data_raw_array;
+    return storage_->AddEvent(element_fq_id,
+                              static_cast<SlotIndexType>(element_properties.GetTotalNumberOfSlots()),
+                              sample_size_info,
+                              initialize_sample_callback);
 }
 
-void* SkeletonMemoryManager::RetrieveGenericEventDataFromOpenedSharedMemory(
-    const ElementFqId element_fq_id,
-    const SkeletonEventProperties& element_properties)
+auto SkeletonMemoryManager::RetrieveEventDataFromOpenedSharedMemory(const ElementFqId element_fq_id)
+    -> EventDataStorage&
 {
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(storage_ != nullptr, "Service data storage is not available.");
+    score::cpp::ignore = storage_->GetEventMetaInfo(element_fq_id);
 
-    const auto event_meta_info_it = storage_->events_metainfo_.find(element_fq_id);
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(event_meta_info_it != storage_->events_metainfo_.cend(),
-                                                "Could not find element fq id in meta info map");
-
-    const auto sample_size = event_meta_info_it->second.data_type_info_.Size();
-    const auto sample_alignment = event_meta_info_it->second.data_type_info_.Alignment();
-    const auto aligned_sample_size =
-        memory::shared::CalculateAlignedSize(sample_size, static_cast<std::size_t>(sample_alignment));
-    const auto total_event_slots_size = safe_math::Multiply<safe_math::ReturnMode::kAbortOnError>(
-        aligned_sample_size, element_properties.GetTotalNumberOfSlots());
-
-    void* const event_slots_raw_array = event_meta_info_it->second.event_slots_raw_array_.get(total_event_slots_size);
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(event_slots_raw_array != nullptr,
-                                                "Could not get generic EventDataStorage raw array");
-    return event_slots_raw_array;
+    return storage_->GetEventDataStorage(element_fq_id);
 }
 
 auto SkeletonMemoryManager::RetrieveEventControlsFromOpenedSharedMemory(const ElementFqId element_fq_id)
     -> std::pair<std::reference_wrapper<EventControl>, EventControl*>
 {
-    const auto event_control_qm_it = control_qm_->event_controls_.find(element_fq_id);
+    auto* const event_control_qm_it = control_qm_->event_controls_.find(element_fq_id);
     SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(event_control_qm_it != control_qm_->event_controls_.cend(),
                                                 "Could not find element fq id in map");
     EventControl& event_control_qm = event_control_qm_it->second;
@@ -307,7 +240,7 @@ auto SkeletonMemoryManager::RetrieveEventControlsFromOpenedSharedMemory(const El
         return {event_control_qm, nullptr};
     }
 
-    const auto event_control_asil_b_it = control_asil_b_->event_controls_.find(element_fq_id);
+    auto* const event_control_asil_b_it = control_asil_b_->event_controls_.find(element_fq_id);
     SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(event_control_asil_b_it != control_asil_b_->event_controls_.cend(),
                                                 "Could not find asil b element fq id in map");
     EventControl& event_control_asil_b = event_control_asil_b_it->second;
@@ -529,14 +462,17 @@ SkeletonMemoryManager::ShmResourceStorageSizes SkeletonMemoryManager::CalculateS
     }
     InitializeSharedMemoryForData(storage_resource_);
 
-    // Offer events to calculate the shared memory allocated for the control and data segments for each event
+    // Offer events to calculate the shared memory allocated for the control and data segments for each event.
+    // We hand over an empty optional for the initialize_sample_callback, since this simulation-only PrepareOffer()
+    // call is solely used to calculate the required shared-memory size and does not need type-correct
+    // initialization of the (type-erased) storage slots.
     for (auto& event : events)
     {
-        score::cpp::ignore = event.second.get().PrepareOffer();
+        score::cpp::ignore = event.second.get().PrepareOffer(std::nullopt);
     }
     for (auto& field : fields)
     {
-        score::cpp::ignore = field.second.get().PrepareOffer();
+        score::cpp::ignore = field.second.get().PrepareOffer(std::nullopt);
     }
 
     const auto control_qm_size = control_qm_resource_->GetUserAllocatedBytes();
@@ -563,50 +499,23 @@ std::size_t SkeletonMemoryManager::CalculateDataShmResourceStorageSize(
     SkeletonBinding::SkeletonEventBindings& events,
     SkeletonBinding::SkeletonFieldBindings& fields) const
 {
-    // Whether the event/field bindings are generic or typed is determined once, upfront (a skeleton instance never
-    // mixes both kinds - see AreServiceElementBindingsGeneric() for details). This distinction between generic/typed
-    // bindings is necessary as the memory allocation taking place is slightly different currently. When we switch to
-    // complete type-erasure at some point for the binding layer, this distinction will go away!
-    const bool are_bindings_generic = AreServiceElementBindingsGeneric(events, fields);
-
     // Collect the per service-element sizing information from the deployment configuration and the (typed/generic)
     // event bindings. The layout-dependent size algorithm itself lives next to ServiceDataStorage
     // (CalculateServiceDataStorageShmSize), so that the data-structure and the algorithm reasoning about its memory
     // footprint stay closely coupled.
-    const auto collect_service_elements =
-        [this, are_bindings_generic](std::vector<score::memory::DataTypeSizeInfo>& events_and_fields_size_infos,
-                                     auto& bindings,
-                                     const bool are_fields) {
-            for (const auto& binding : bindings)
-            {
-                const std::size_t number_of_slots = GetNumberOfSampleSlotsFromConfig(binding.first, are_fields);
-                SkeletonEventBindingBase& event_binding = binding.second.get();
+    const auto collect_service_elements = [this](std::vector<EventDataStorageSizeInfo>& events_and_fields_size_infos,
+                                                 auto& bindings,
+                                                 const bool are_fields) {
+        for (const auto& binding : bindings)
+        {
+            const std::size_t number_of_slots = GetNumberOfSampleSlotsFromConfig(binding.first, are_fields);
+            SkeletonEventBinding& event_binding = binding.second.get();
 
-                // A generic (type-erased) event/field allocates its slot-array as an EventDataStorage<std::max_align_t>
-                // (see SkeletonMemoryManager::CreateGenericEventDataInCreatedSharedMemory()): the raw byte count gets
-                // rounded up to a whole number of std::max_align_t elements and the array is aligned to
-                // alignof(std::max_align_t). A typed event/field allocates its slot-array as an
-                // EventDataStorage<SampleType> (see SkeletonMemoryManager::CreateEventDataInCreatedSharedMemory()):
-                // exactly number_of_slots * sizeof(SampleType) bytes, aligned to alignof(SampleType) - no rounding.
-                if (are_bindings_generic)
-                {
-                    const auto& generic_event_binding = static_cast<const GenericSkeletonEventBinding&>(event_binding);
-                    const auto [sample_size, sample_alignment] = generic_event_binding.GetSizeInfo();
-                    const std::size_t total_data_size_bytes = number_of_slots * sample_size;
-                    const std::size_t num_max_align_elements =
-                        (total_data_size_bytes + sizeof(std::max_align_t) - 1U) / sizeof(std::max_align_t);
-                    const std::size_t slot_array_size = num_max_align_elements * sizeof(std::max_align_t);
-
-                    events_and_fields_size_infos.emplace_back(slot_array_size, alignof(std::max_align_t));
-                }
-                else
-                {
-                    const std::size_t slot_array_size = number_of_slots * event_binding.GetMaxSize();
-                    events_and_fields_size_infos.emplace_back(slot_array_size, event_binding.GetAlignment());
-                }
-            }
-        };
-    std::vector<score::memory::DataTypeSizeInfo> events_and_fields_size_infos{};
+            std::ignore = events_and_fields_size_infos.emplace_back(
+                EventDataStorageSizeInfo{number_of_slots, event_binding.GetEventDataTypeSizeInfo()});
+        }
+    };
+    std::vector<EventDataStorageSizeInfo> events_and_fields_size_infos{};
     collect_service_elements(events_and_fields_size_infos, events, false);
     collect_service_elements(events_and_fields_size_infos, fields, true);
 
@@ -704,7 +613,7 @@ bool SkeletonMemoryManager::CreateSharedMemoryForData(
     const auto path = shm_path_builder_.GetDataChannelShmName(lola_instance_id_);
     const bool use_typed_memory = register_shm_object_trace_callback.has_value();
     const memory::shared::SharedMemoryFactory::UserPermissions user_permissions =
-        ((permissions.empty()) && (lola_service_instance_deployment.strict_permissions_ == false))
+        ((permissions.empty()) && (!lola_service_instance_deployment.strict_permissions_))
             ? memory::shared::SharedMemoryFactory::WorldReadable{}
             : memory::shared::SharedMemoryFactory::UserPermissions{permissions};
     const auto memory_resource = score::memory::shared::SharedMemoryFactory::Create(
@@ -771,7 +680,7 @@ bool SkeletonMemoryManager::CreateSharedMemoryForControl(
     }
 
     const memory::shared::SharedMemoryFactory::UserPermissions user_permissions =
-        ((permissions.empty()) && (lola_service_instance_deployment.strict_permissions_ == false))
+        ((permissions.empty()) && (!lola_service_instance_deployment.strict_permissions_))
             ? memory::shared::SharedMemoryFactory::WorldWritable{}
             : memory::shared::SharedMemoryFactory::UserPermissions{permissions};
     control_resource = score::memory::shared::SharedMemoryFactory::Create(
@@ -815,7 +724,7 @@ bool SkeletonMemoryManager::OpenSharedMemoryForData(
     const auto pid = GetBindingRuntime<lola::IRuntime>(BindingType::kLoLa).GetPid();
     score::mw::log::LogDebug("lola") << "Updating PID of Skeleton (S: " << lola_service_id_
                                      << " I:" << lola_instance_id_ << ") with:" << pid;
-    storage_->skeleton_pid_ = pid;
+    storage_->UpdateSkeletonPid(pid);
 
     if (register_shm_object_trace_callback.has_value() && memory_resource->IsShmInTypedMemory())
     {
@@ -923,19 +832,6 @@ EventControl& SkeletonMemoryManager::EmplaceEventControl(const QualityType asil_
                                                 "Couldn't register/emplace EventControl in control-section.");
 
     return control_qm.first->second;
-}
-
-EventMetaInfo& SkeletonMemoryManager::EmplaceEventMetaInfo(const ElementFqId element_fq_id,
-                                                           const memory::DataTypeSizeInfo& sample_meta_info,
-                                                           void* type_erased_event_data_storage)
-{
-    auto inserted_meta_info =
-        storage_->events_metainfo_.emplace(std::piecewise_construct,
-                                           std::forward_as_tuple(element_fq_id),
-                                           std::forward_as_tuple(sample_meta_info, type_erased_event_data_storage));
-    SCORE_LANGUAGE_FUTURECPP_ASSERT_PRD_MESSAGE(inserted_meta_info.second,
-                                                "Couldn't register/emplace event-meta-info in data-section.");
-    return inserted_meta_info.first->second;
 }
 
 }  // namespace score::mw::com::impl::lola

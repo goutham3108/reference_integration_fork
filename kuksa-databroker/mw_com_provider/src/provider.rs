@@ -15,20 +15,21 @@ use crate::config::ProviderConfig;
 use crate::config::{Direction, SignalMapping, VssDataType};
 use crate::error::MwComProviderError;
 use crate::mapper::MwComMapper;
+use crate::transport::MwComMessage;
 use crate::transport::MwComTransport;
-use crate::transport::{MwComMessage, MwComValue};
 use async_trait::async_trait;
 use databroker::broker::{
-    ActuationChange, ActuationError, ActuationProvider, DataBroker, DataType, EntryType,
+    ActuationChange, ActuationError, ActuationProvider, DataBroker, DataType, EntryType, Field,
     GetValuesProviderResponse, Metadata, RegisterSignalError, SignalProvider,
 };
 use databroker::permissions::Permissions;
 use databroker::types::{SignalId, TimeInterval};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, RwLock};
 use tokio::time::sleep;
+use tokio_stream::StreamExt;
 use tracing::{debug, info, warn};
 
 #[derive(Clone)]
@@ -105,9 +106,18 @@ impl MwComProvider {
         let mut transport = self.transport.write().await;
         transport.connect().await?;
         for mapping in self.mapper.subscriptions() {
-            transport
+            if let Err(error) = transport
                 .subscribe(&mapping.service, &mapping.instance, &mapping.member)
-                .await?;
+                .await
+            {
+                if matches!(error, MwComProviderError::ServiceUnavailable { .. }) {
+                    return Err(error);
+                }
+                if let Err(shutdown_error) = transport.disconnect().await {
+                    warn!(%shutdown_error, "mw::com provider cleanup after subscribe failure failed");
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -128,11 +138,21 @@ impl MwComProvider {
                     reconnect_delay = self.mapper.config().reconnect.initial_delay();
                     info!(provider = %self.mapper.config().provider_name, "mw::com provider connected");
                 }
+                Err(MwComProviderError::ServiceUnavailable { service, instance }) => {
+                    warn!(%service, %instance, ?reconnect_delay, "mw::com provider service unavailable; retrying");
+                    tokio::select! {
+                        _ = sleep(reconnect_delay) => {
+                            reconnect_delay = self.mapper.config().reconnect.next_delay(reconnect_delay);
+                            continue;
+                        }
+                        _ = &mut shutdown => {
+                            self.shutdown().await?;
+                            return Ok(());
+                        }
+                    }
+                }
                 Err(error) => {
                     warn!(%error, ?reconnect_delay, "mw::com provider connect failed; retrying");
-                    if let Err(shutdown_error) = self.shutdown().await {
-                        warn!(%shutdown_error, "mw::com provider cleanup after connect failure failed");
-                    }
                     tokio::select! {
                         _ = sleep(reconnect_delay) => {
                             reconnect_delay = self.mapper.config().reconnect.next_delay(reconnect_delay);
@@ -155,7 +175,7 @@ impl MwComProvider {
                                 warn!(%error, "mw::com sample rejected");
                             }
                             Err(MwComProviderError::NoData) => {
-                                tokio::task::yield_now().await;
+                                sleep(std::time::Duration::from_millis(1)).await;
                             }
                             Err(MwComProviderError::Shutdown) => {
                                 info!("mw::com transport shut down");
@@ -186,7 +206,7 @@ impl MwComProvider {
         let (signal_id, update) = self.mapper.message_to_update(&message)?;
         let broker = self.broker.authorized_access(&self.permissions);
         broker
-            .update_entries(vec![(signal_id, update)])
+            .update_entries_from_provider(vec![(signal_id, update)])
             .await
             .map_err(|errors| MwComProviderError::BrokerUpdate(format!("{errors:?}")))?;
         debug!(signal_id, "mw::com sample written to Databroker");
@@ -206,6 +226,9 @@ where
     actuation_rx: mpsc::Receiver<MwComMessage>,
 }
 
+// The worker owns the middleware transport and runs all mw::com I/O from one
+// async context. Databroker callbacks enqueue actuation messages instead of
+// touching LoLa directly, which keeps transport ownership simple and bounded.
 impl<T> MwComProviderWorker<T>
 where
     T: MwComTransport + 'static,
@@ -250,6 +273,9 @@ where
         let actuator_signal_ids = self.mapper.actuator_signal_ids();
         let actuator_count = actuator_signal_ids.len();
         if !actuator_signal_ids.is_empty() {
+            // val.v2 actuation reaches this provider callback directly. val.v1
+            // CLI writes targets or current values; the forwarder below
+            // feeds both into the same middleware send queue.
             broker
                 .provide_actuation(
                     actuator_signal_ids,
@@ -260,6 +286,7 @@ where
                 )
                 .await
                 .map_err(|error| MwComProviderError::Registration(error.1))?;
+            self.start_command_forwarder().await?;
         }
 
         info!(
@@ -271,12 +298,104 @@ where
         Ok(())
     }
 
+    async fn start_command_forwarder(&self) -> Result<(), MwComProviderError> {
+        let mut target_filters = HashMap::new();
+        for signal_id in self.mapper.actuator_signal_ids() {
+            target_filters.insert(signal_id, HashSet::from([Field::ActuatorTarget, Field::Datapoint]));
+        }
+
+        if target_filters.is_empty() {
+            return Ok(());
+        }
+
+        let broker = self.broker.authorized_access(&self.permissions);
+        let mut target_updates =
+            broker
+                .subscribe(target_filters, None, None)
+                .await
+                .map_err(|error| {
+                    MwComProviderError::Registration(format!(
+                        "failed to subscribe to command updates: {error:?}"
+                    ))
+                })?;
+        // Existing broker values are state, not commands issued at startup.
+        let _ = target_updates.next().await;
+        debug!("mw::com command initial snapshot ignored");
+        let mapper = Arc::clone(&self.mapper);
+        let actuation_tx = self.actuation_tx.clone();
+
+        tokio::spawn(async move {
+            while let Some(entry_updates) = target_updates.next().await {
+                let Some(entry_updates) = entry_updates else {
+                    warn!("mw::com command subscription lagged; command updates may have been lost");
+                    continue;
+                };
+
+                for notification in entry_updates.updates {
+                    if notification.provider_feedback {
+                        continue;
+                    }
+
+                    // A combined write is one command; an explicit target wins.
+                    let datapoint = if notification.fields.contains(&Field::ActuatorTarget) {
+                        notification.update.actuator_target.flatten()
+                    } else if notification.fields.contains(&Field::Datapoint) {
+                        notification.update.datapoint
+                    } else {
+                        None
+                    };
+                    let Some(datapoint) = datapoint else {
+                        continue;
+                    };
+
+                    let change = ActuationChange {
+                        id: notification.id,
+                        data_value: datapoint.value,
+                    };
+                    let message = match mapper.actuation_to_message(&change) {
+                        Ok(message) => message,
+                        Err(error) => {
+                            warn!(%error, "mw::com command update rejected");
+                            continue;
+                        }
+                    };
+
+                    debug!(
+                        signal_id = notification.id,
+                        service = %message.service,
+                        instance = %message.instance,
+                        member = %message.member,
+                        "mw::com command update queued"
+                    );
+
+                    if actuation_tx.send(message).await.is_err() {
+                        warn!("mw::com command forwarder stopped: worker unavailable");
+                        return;
+                    }
+                }
+            }
+            warn!("mw::com command subscription ended");
+        });
+
+        Ok(())
+    }
+
     async fn connect_and_subscribe(&mut self) -> Result<(), MwComProviderError> {
         self.transport.connect().await?;
         for mapping in self.mapper.subscriptions() {
-            self.transport
+            if let Err(error) = self
+                .transport
                 .subscribe(&mapping.service, &mapping.instance, &mapping.member)
-                .await?;
+                .await
+            {
+                if matches!(error, MwComProviderError::ServiceUnavailable { .. }) {
+                    return Err(error);
+                }
+                if let Err(shutdown_error) = self.transport.disconnect().await {
+                    warn!(%shutdown_error, "mw::com provider worker cleanup after subscribe failure failed");
+                }
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -292,10 +411,25 @@ where
         let mut reconnect_delay = self.mapper.config().reconnect.initial_delay();
 
         loop {
+            // S-Core service discovery can race with the producer process
+            // startup. Keep retrying instead of failing the Databroker process.
             match self.connect_and_subscribe().await {
                 Ok(()) => {
                     reconnect_delay = self.mapper.config().reconnect.initial_delay();
                     info!(provider = %self.mapper.config().provider_name, "mw::com provider worker connected");
+                }
+                Err(MwComProviderError::ServiceUnavailable { service, instance }) => {
+                    warn!(%service, %instance, ?reconnect_delay, "mw::com provider worker service unavailable; retrying");
+                    tokio::select! {
+                        _ = sleep(reconnect_delay) => {
+                            reconnect_delay = self.mapper.config().reconnect.next_delay(reconnect_delay);
+                            continue;
+                        }
+                        _ = &mut shutdown => {
+                            self.shutdown().await?;
+                            return Ok(());
+                        }
+                    }
                 }
                 Err(error) => {
                     warn!(%error, ?reconnect_delay, "mw::com provider worker connect failed; retrying");
@@ -313,16 +447,20 @@ where
             }
 
             loop {
+                // Give queued actuation requests low latency even if the receive
+                // side is busy or temporarily returns no sample.
                 self.drain_actuation_queue().await?;
                 tokio::select! {
-                    result = self.recv_and_publish_one() => {
+                    result = self.transport.recv() => {
                         match result {
-                            Ok(()) => {}
+                            Ok(message) => {
+                                self.publish_or_reject_message(message).await?;
+                            }
                             Err(MwComProviderError::Quality(error)) | Err(MwComProviderError::Mapping(error)) => {
                                 warn!(%error, "mw::com sample rejected");
                             }
                             Err(MwComProviderError::NoData) => {
-                                tokio::task::yield_now().await;
+                                sleep(std::time::Duration::from_millis(1)).await;
                             }
                             Err(MwComProviderError::Shutdown) => {
                                 info!("mw::com transport shut down");
@@ -334,6 +472,21 @@ where
                                 let _ = self.shutdown().await;
                                 break;
                             }
+                        }
+                    }
+                    message = self.actuation_rx.recv() => {
+                        if let Some(message) = message {
+                            debug!(
+                                service = %message.service,
+                                instance = %message.instance,
+                                member = %message.member,
+                                "mw::com actuation request sent"
+                            );
+                            self.transport.send_actuation(message).await?;
+                        } else {
+                            warn!("mw::com actuation channel closed");
+                            self.shutdown().await?;
+                            return Ok(());
                         }
                     }
                     _ = &mut shutdown => {
@@ -348,22 +501,43 @@ where
         }
     }
 
-    async fn drain_actuation_queue(&mut self) -> Result<(), MwComProviderError> {
-        while let Ok(message) = self.actuation_rx.try_recv() {
-            self.transport.send_actuation(message).await?;
-        }
-        Ok(())
-    }
-
-    async fn recv_and_publish_one(&mut self) -> Result<(), MwComProviderError> {
-        let message = self.transport.recv().await?;
+    async fn publish_message(&self, message: MwComMessage) -> Result<(), MwComProviderError> {
         let (signal_id, update) = self.mapper.message_to_update(&message)?;
         let broker = self.broker.authorized_access(&self.permissions);
         broker
-            .update_entries(vec![(signal_id, update)])
+            .update_entries_from_provider(vec![(signal_id, update)])
             .await
             .map_err(|errors| MwComProviderError::BrokerUpdate(format!("{errors:?}")))?;
         debug!(signal_id, "mw::com sample written to Databroker");
+        Ok(())
+    }
+
+    async fn publish_or_reject_message(
+        &self,
+        message: MwComMessage,
+    ) -> Result<(), MwComProviderError> {
+        // Bad samples should not tear down the LoLa session. Reject them and
+        // continue receiving later middleware updates.
+        match self.publish_message(message).await {
+            Ok(()) => Ok(()),
+            Err(MwComProviderError::Quality(error)) | Err(MwComProviderError::Mapping(error)) => {
+                warn!(%error, "mw::com sample rejected");
+                Ok(())
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    async fn drain_actuation_queue(&mut self) -> Result<(), MwComProviderError> {
+        while let Ok(message) = self.actuation_rx.try_recv() {
+            debug!(
+                service = %message.service,
+                instance = %message.instance,
+                member = %message.member,
+                "mw::com queued actuation request sent"
+            );
+            self.transport.send_actuation(message).await?;
+        }
         Ok(())
     }
 }
@@ -391,7 +565,7 @@ impl SignalProvider for QueuedSignalProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &mut self,
+        &self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())
@@ -410,10 +584,23 @@ impl ActuationProvider for QueuedActuationProvider {
         actuation_changes: Vec<ActuationChange>,
     ) -> Result<(), (ActuationError, String)> {
         for change in actuation_changes {
+            debug!(
+                signal_id = change.id,
+                value = ?change.data_value,
+                "mw::com actuation request received"
+            );
             let message = self
                 .mapper
                 .actuation_to_message(&change)
                 .map_err(|error| (ActuationError::WrongType, error.to_string()))?;
+            debug!(
+                service = %message.service,
+                instance = %message.instance,
+                member = %message.member,
+                "mw::com actuation request queued"
+            );
+            // Queueing keeps the Databroker callback non-blocking and avoids
+            // sharing the LoLa transport across runtime boundaries.
             self.actuation_tx.send(message).await.map_err(|error| {
                 (
                     ActuationError::TransmissionFailure,
@@ -434,6 +621,8 @@ async fn validate_mappings_against_broker(
     broker: &databroker::broker::AuthorizedAccess<'_, '_>,
 ) -> Result<(), MwComProviderError> {
     for mapping in &mapper.config().mappings {
+        // Registration is only safe after the composition binary has seeded the
+        // matching Databroker metadata and rewritten generated IDs to runtime IDs.
         let metadata = broker
             .get_metadata_by_path(&mapping.vss_path)
             .await
@@ -484,12 +673,14 @@ fn datatype_matches(mapping_type: VssDataType, broker_type: &DataType) -> bool {
         (VssDataType::Bool, DataType::Bool)
             | (VssDataType::String, DataType::String)
             | (VssDataType::Int8, DataType::Int8)
+            | (VssDataType::Int16, DataType::Int16)
             | (VssDataType::Int32, DataType::Int32)
             | (VssDataType::Int64, DataType::Int64)
             | (VssDataType::Uint8, DataType::Uint8)
             | (VssDataType::Uint32, DataType::Uint32)
             | (VssDataType::Uint64, DataType::Uint64)
             | (VssDataType::Float, DataType::Float)
+            | (VssDataType::FloatArray, DataType::FloatArray)
             | (VssDataType::Double, DataType::Double)
     )
 }
@@ -519,7 +710,7 @@ impl SignalProvider for MwComProvider {
     }
 
     async fn get_signals_values_from_provider(
-        &mut self,
+        &self,
         _signals_ids: Vec<SignalId>,
     ) -> Result<GetValuesProviderResponse, ()> {
         Err(())
@@ -557,9 +748,73 @@ mod tests {
     use super::*;
     use crate::quality::SignalQuality;
     use crate::transport::mock::MockMwComTransport;
-    use databroker::broker::ChangeType;
+    use crate::transport::MwComValue;
+    use async_trait::async_trait;
+    use databroker::broker::{ChangeType, DataValue};
     use databroker::permissions::ALLOW_ALL;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime};
     use tokio::sync::mpsc;
+    use tokio::time::timeout;
+
+    #[derive(Clone, Default)]
+    struct TransportState {
+        subscribed: Arc<Mutex<Vec<String>>>,
+        disconnects: Arc<Mutex<usize>>,
+    }
+
+    struct FailingSubscribeTransport {
+        state: TransportState,
+    }
+
+    impl FailingSubscribeTransport {
+        fn new(state: TransportState) -> Self {
+            Self { state }
+        }
+    }
+
+    #[async_trait]
+    impl MwComTransport for FailingSubscribeTransport {
+        async fn connect(&mut self) -> Result<(), MwComProviderError> {
+            Ok(())
+        }
+
+        async fn disconnect(&mut self) -> Result<(), MwComProviderError> {
+            self.state.subscribed.lock().unwrap().clear();
+            *self.state.disconnects.lock().unwrap() += 1;
+            Ok(())
+        }
+
+        async fn subscribe(
+            &mut self,
+            _service: &str,
+            _instance: &str,
+            member: &str,
+        ) -> Result<(), MwComProviderError> {
+            if member == "target_speed" {
+                return Err(MwComProviderError::Transport(
+                    "target_speed subscribe failed".into(),
+                ));
+            }
+            self.state
+                .subscribed
+                .lock()
+                .unwrap()
+                .push(member.to_string());
+            Ok(())
+        }
+
+        async fn recv(&mut self) -> Result<MwComMessage, MwComProviderError> {
+            Err(MwComProviderError::NoData)
+        }
+
+        async fn send_actuation(
+            &mut self,
+            _message: MwComMessage,
+        ) -> Result<(), MwComProviderError> {
+            Ok(())
+        }
+    }
 
     fn mapping(direction: Direction, datatype: VssDataType) -> SignalMapping {
         SignalMapping {
@@ -569,12 +824,14 @@ mod tests {
             service: "VehicleDynamicsService".into(),
             instance: "front_vehicle".into(),
             member: "speed".into(),
+            actuation_binding: None,
             field: None,
             unit: Some("km/h".into()),
             scale: 1.0,
             offset: 0.0,
             min: Some(0.0),
             max: Some(300.0),
+            max_elements: None,
             required_quality: SignalQuality::Valid,
             direction,
             cycle_time_ms: 100,
@@ -604,6 +861,16 @@ mod tests {
             queue_capacity: 4,
             stale_after_ms: 1_000,
             mappings: vec![mapping],
+        }
+    }
+
+    fn config_with_mappings(mappings: Vec<SignalMapping>) -> ProviderConfig {
+        ProviderConfig {
+            provider_name: "test".into(),
+            reconnect: Default::default(),
+            queue_capacity: 4,
+            stale_after_ms: 1_000,
+            mappings,
         }
     }
 
@@ -694,12 +961,14 @@ mod tests {
             (VssDataType::Bool, DataType::Bool),
             (VssDataType::String, DataType::String),
             (VssDataType::Int8, DataType::Int8),
+            (VssDataType::Int16, DataType::Int16),
             (VssDataType::Int32, DataType::Int32),
             (VssDataType::Int64, DataType::Int64),
             (VssDataType::Uint8, DataType::Uint8),
             (VssDataType::Uint32, DataType::Uint32),
             (VssDataType::Uint64, DataType::Uint64),
             (VssDataType::Float, DataType::Float),
+            (VssDataType::FloatArray, DataType::FloatArray),
             (VssDataType::Double, DataType::Double),
         ];
 
@@ -736,6 +1005,254 @@ mod tests {
         assert!(error
             .to_string()
             .contains("references a VSS path that is not registered"));
+    }
+
+    #[tokio::test]
+    async fn worker_disconnects_partial_subscriptions_after_subscribe_failure() {
+        let broker = DataBroker::new("test", "test");
+        let mut speed_mapping = mapping(Direction::Datapoint, VssDataType::Double);
+        speed_mapping.signal_id = 42;
+        let mut target_speed_mapping = mapping(Direction::Bidirectional, VssDataType::Double);
+        target_speed_mapping.signal_id = 43;
+        target_speed_mapping.vss_path = "Vehicle.ADAS.CruiseControl.TargetSpeed".into();
+        target_speed_mapping.member = "target_speed".into();
+        let state = TransportState::default();
+        let mut provider = MwComProviderWorker::new(
+            broker,
+            ALLOW_ALL.clone(),
+            config_with_mappings(vec![speed_mapping, target_speed_mapping]),
+            FailingSubscribeTransport::new(state.clone()),
+        )
+        .unwrap();
+
+        let error = provider.connect_and_subscribe().await.unwrap_err();
+
+        assert!(error.to_string().contains("target_speed subscribe failed"));
+        assert_eq!(*state.disconnects.lock().unwrap(), 1);
+        assert!(state.subscribed.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn worker_rejects_out_of_range_sample_without_failing() {
+        let (broker, signal_id) = broker_with_entry(EntryType::Sensor, DataType::Double).await;
+        let mut speed_mapping = mapping(Direction::Datapoint, VssDataType::Double);
+        speed_mapping.signal_id = signal_id;
+        let provider = MwComProviderWorker::new(
+            broker,
+            ALLOW_ALL.clone(),
+            config(speed_mapping),
+            mock_transport(),
+        )
+        .unwrap();
+
+        provider
+            .publish_or_reject_message(MwComMessage {
+                service: "VehicleDynamicsService".into(),
+                instance: "front_vehicle".into(),
+                member: "speed".into(),
+                value: MwComValue::F64(302.4),
+                source_timestamp: Some(SystemTime::now()),
+                quality: SignalQuality::Valid,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn worker_forwards_actuator_target_updates_to_transport() {
+        let (broker, signal_id) = broker_with_entry(EntryType::Actuator, DataType::Double).await;
+        let mut target_speed_mapping = mapping(Direction::Actuator, VssDataType::Double);
+        target_speed_mapping.signal_id = signal_id;
+        target_speed_mapping.member = "target_speed".into();
+        let (_inbound_tx, inbound_rx) = mpsc::channel(1);
+        let (outbound_tx, mut outbound_rx) = mpsc::channel(1);
+        let mut provider = MwComProviderWorker::new(
+            broker.clone(),
+            ALLOW_ALL.clone(),
+            config(target_speed_mapping),
+            MockMwComTransport::new(inbound_rx, outbound_tx),
+        )
+        .unwrap();
+        provider.register_with_broker().await.unwrap();
+
+        broker
+            .authorized_access(&ALLOW_ALL)
+            .update_entries(vec![(
+                signal_id,
+                databroker::broker::EntryUpdate {
+                    actuator_target: Some(Some(databroker::broker::Datapoint {
+                        ts: SystemTime::now(),
+                        source_ts: Some(SystemTime::now()),
+                        value: databroker::broker::DataValue::Double(88.0),
+                    })),
+                    ..Default::default()
+                },
+            )])
+            .await
+            .unwrap();
+
+        let message = timeout(Duration::from_secs(1), async {
+            loop {
+                provider.drain_actuation_queue().await.unwrap();
+                if let Ok(message) = outbound_rx.try_recv() {
+                    break message;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(message.member, "target_speed");
+        assert_eq!(message.value, MwComValue::F64(88.0));
+    }
+
+    #[tokio::test]
+    async fn worker_forwards_publishes_for_all_command_mappings_without_echoing_feedback() {
+        for direction in [Direction::Actuator, Direction::Bidirectional, Direction::Datapoint] {
+            for (datatype, broker_type, value, wire_value) in [
+                (VssDataType::Bool, DataType::Bool, DataValue::Bool(true), MwComValue::Bool(true)),
+                (VssDataType::String, DataType::String, DataValue::String("ECONOMY".into()),
+                 MwComValue::String("ECONOMY".into())),
+                (VssDataType::Double, DataType::Double, DataValue::Double(88.0), MwComValue::F64(88.0)),
+                (VssDataType::Float, DataType::Float, DataValue::Float(12.0), MwComValue::F64(12.0)),
+                (VssDataType::Int8, DataType::Int8, DataValue::Int32(12), MwComValue::I64(12)),
+                (VssDataType::Int16, DataType::Int16, DataValue::Int32(12), MwComValue::I64(12)),
+                (VssDataType::Int32, DataType::Int32, DataValue::Int32(12), MwComValue::I64(12)),
+                (VssDataType::Int64, DataType::Int64, DataValue::Int64(12), MwComValue::I64(12)),
+                (VssDataType::Uint8, DataType::Uint8, DataValue::Uint32(12), MwComValue::U64(12)),
+                (VssDataType::Uint32, DataType::Uint32, DataValue::Uint32(12), MwComValue::U64(12)),
+                (VssDataType::Uint64, DataType::Uint64, DataValue::Uint64(12), MwComValue::U64(12)),
+                (VssDataType::FloatArray, DataType::FloatArray, DataValue::FloatArray(vec![1.0, 2.0]),
+                 MwComValue::FloatArray(vec![1.0, 2.0])),
+            ] {
+                let entry_type = if direction.accepts_actuation() {
+                    EntryType::Actuator
+                } else {
+                    EntryType::Sensor
+                };
+                let (broker, signal_id) = broker_with_entry(entry_type, broker_type).await;
+                let mut signal_mapping = mapping(direction, datatype);
+                signal_mapping.signal_id = signal_id;
+                signal_mapping.min = None;
+                signal_mapping.max = None;
+                if matches!(datatype, VssDataType::FloatArray) {
+                    signal_mapping.max_elements = Some(8);
+                }
+                let (_inbound_tx, inbound_rx) = mpsc::channel(1);
+                let (outbound_tx, mut outbound_rx) = mpsc::channel(4);
+                let mut provider = MwComProviderWorker::new(
+                    broker.clone(), ALLOW_ALL.clone(), config(signal_mapping),
+                    MockMwComTransport::new(inbound_rx, outbound_tx),
+                ).unwrap();
+                provider.register_with_broker().await.unwrap();
+
+                // Repeated publishes must remain commands for continuous mappings.
+                for _ in 0..2 {
+                    broker.authorized_access(&ALLOW_ALL).update_entries(vec![(
+                        signal_id,
+                        databroker::broker::EntryUpdate {
+                            datapoint: Some(databroker::broker::Datapoint {
+                                ts: SystemTime::now(), source_ts: None, value: value.clone(),
+                            }),
+                            ..Default::default()
+                        },
+                    )]).await.unwrap();
+                    if direction.accepts_actuation() {
+                        let message = timeout(Duration::from_secs(1), async {
+                            loop {
+                                provider.drain_actuation_queue().await.unwrap();
+                                if let Ok(message) = outbound_rx.try_recv() { break message; }
+                                tokio::task::yield_now().await;
+                            }
+                        }).await.unwrap();
+                        assert_eq!(message.value, wire_value);
+                    }
+                }
+                let expected_current = if direction.receives_datapoints() {
+                    let (feedback, expected) = match &value {
+                        DataValue::Bool(_) => (MwComValue::Bool(false), DataValue::Bool(false)),
+                        DataValue::String(_) => (MwComValue::String("NORMAL".into()),
+                            DataValue::String("NORMAL".into())),
+                        DataValue::Double(_) => (MwComValue::F64(7.0), DataValue::Double(7.0)),
+                        DataValue::Float(_) => (MwComValue::F64(7.0), DataValue::Float(7.0)),
+                        DataValue::Int32(_) => (MwComValue::I64(7), DataValue::Int32(7)),
+                        DataValue::Int64(_) => (MwComValue::I64(7), DataValue::Int64(7)),
+                        DataValue::Uint32(_) => (MwComValue::U64(7), DataValue::Uint32(7)),
+                        DataValue::Uint64(_) => (MwComValue::U64(7), DataValue::Uint64(7)),
+                        DataValue::FloatArray(_) => (MwComValue::FloatArray(vec![7.0]),
+                            DataValue::FloatArray(vec![7.0])),
+                        _ => panic!("missing feedback test case"),
+                    };
+                    provider.publish_message(MwComMessage {
+                        service: "VehicleDynamicsService".into(),
+                        instance: "front_vehicle".into(),
+                        member: "speed".into(),
+                        value: feedback,
+                        source_timestamp: Some(SystemTime::now()),
+                        quality: SignalQuality::Valid,
+                    }).await.unwrap();
+                    expected
+                } else {
+                    value
+                };
+                assert!(timeout(Duration::from_millis(30), async {
+                    loop {
+                        provider.drain_actuation_queue().await.unwrap();
+                        if let Ok(message) = outbound_rx.try_recv() { break message; }
+                        tokio::task::yield_now().await;
+                    }
+                }).await.is_err(), "sensor publish or middleware feedback was echoed as a command");
+                let current = broker.authorized_access(&ALLOW_ALL)
+                    .get_datapoint_by_path("Vehicle.Speed").await.unwrap();
+                assert_eq!(current.value, expected_current);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn worker_ignores_startup_snapshot_and_prefers_explicit_target() {
+        let (broker, signal_id) = broker_with_entry(EntryType::Actuator, DataType::Double).await;
+        let mut signal_mapping = mapping(Direction::Bidirectional, VssDataType::Double);
+        signal_mapping.signal_id = signal_id;
+        let point = |value| databroker::broker::Datapoint {
+            ts: SystemTime::now(), source_ts: None, value: DataValue::Double(value),
+        };
+        broker.authorized_access(&ALLOW_ALL).update_entries(vec![(
+            signal_id, databroker::broker::EntryUpdate {
+                datapoint: Some(point(20.0)),
+                actuator_target: Some(Some(point(30.0))),
+                ..Default::default()
+            },
+        )]).await.unwrap();
+        let (_inbound_tx, inbound_rx) = mpsc::channel(1);
+        let (outbound_tx, mut outbound_rx) = mpsc::channel(4);
+        let mut provider = MwComProviderWorker::new(
+            broker.clone(), ALLOW_ALL.clone(), config(signal_mapping),
+            MockMwComTransport::new(inbound_rx, outbound_tx),
+        ).unwrap();
+        provider.register_with_broker().await.unwrap();
+        tokio::task::yield_now().await;
+        provider.drain_actuation_queue().await.unwrap();
+        assert!(outbound_rx.try_recv().is_err(), "startup snapshot was sent as a command");
+        broker.authorized_access(&ALLOW_ALL).update_entries(vec![(
+            signal_id, databroker::broker::EntryUpdate {
+                datapoint: Some(point(40.0)),
+                actuator_target: Some(Some(point(50.0))),
+                ..Default::default()
+            },
+        )]).await.unwrap();
+        let message = timeout(Duration::from_secs(1), async {
+            loop {
+                provider.drain_actuation_queue().await.unwrap();
+                if let Ok(message) = outbound_rx.try_recv() { break message; }
+                tokio::task::yield_now().await;
+            }
+        }).await.unwrap();
+        assert_eq!(message.value, MwComValue::F64(50.0));
+        tokio::task::yield_now().await;
+        provider.drain_actuation_queue().await.unwrap();
+        assert!(outbound_rx.try_recv().is_err(), "combined update sent duplicate commands");
     }
 
     #[tokio::test]

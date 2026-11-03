@@ -15,8 +15,8 @@
 
 #include <cstddef>
 #include <cstring>
+#include <iostream>
 #include <memory>
-#include <string>
 
 #include "score/containers/non_relocatable_vector.h"
 #include "score/mw/com/com_error_domain.h"
@@ -58,7 +58,7 @@ Result<std::unique_ptr<RemoteServiceInstance>> RemoteServiceInstance::Create(
     std::unordered_map<std::uint16_t, EventContext> event_contexts;
     socom::Event_id socom_event_id{0U};
     auto service_type_name = service_type_config->service_type_name()->string_view();
-    for (auto event_config : *service_type_config->events()) {
+    for (const auto* event_config : *service_type_config->events()) {
         auto event_name = event_config->event_name()->string_view();
 
         auto events_it = ipc_skeleton.GetEvents().find(*event_config->event_name());
@@ -68,7 +68,7 @@ Result<std::unique_ptr<RemoteServiceInstance>> RemoteServiceInstance::Create(
             ++socom_event_id;
             continue;
         }
-        auto& ipc_event = const_cast<score::mw::com::GenericSkeletonEvent&>(events_it->second);
+        auto& ipc_event = events_it->second;
 
         const score_com_serializer* serializer = nullptr;
         auto get_result =
@@ -91,7 +91,7 @@ Result<std::unique_ptr<RemoteServiceInstance>> RemoteServiceInstance::Create(
         {service_type_config->service_version_major(),
          static_cast<uint16_t>(service_type_config->service_version_minor())}};
 
-    socom::Service_instance const inst{std::to_string(service_instance_config->instance_id())};
+    socom::Service_instance const inst{service_type_config->service_type_name()->string_view()};
 
     socom::Service_interface_definition const client_config{
         iface, socom::to_num_of_methods(0),
@@ -106,21 +106,23 @@ Result<std::unique_ptr<RemoteServiceInstance>> RemoteServiceInstance::Create(
         client_config, inst,
         {
             .on_service_state_change =
-                [instance_ptr = instance.get()](socom::Client_connector const&,
+                [instance_ptr = instance.get()](socom::Client_connector const& connector,
                                                 socom::Service_state state,
                                                 socom::Server_service_interface_definition const&) {
-                    score::mw::log::LogInfo()
-                        << "[gatewayd] RemoteServiceInstance - client_connector on_service_state_change: "
-                        << "new state=" << static_cast<int>(state);
+                    std::cout << "[gatewayd] RemoteServiceInstance - client_connector "
+                                 "on_service_state_change: "
+                              << "new state=" << static_cast<int>(state) << std::endl;
                     if (state != socom::Service_state::available) {
                         return;
                     }
-                    score::mw::log::LogInfo()
-                        << "[gatewayd] RemoteServiceInstance - service is now available, subscribing to events";
+
+                    std::cout << "[gatewayd] RemoteServiceInstance - client_connector "
+                                 "on_service_state_change: service is now available, subscribing "
+                                 "to events\n";
                     for (std::size_t i = 0;
                          i < instance_ptr->service_type_config_->events()->size(); ++i) {
-                        (void)instance_ptr->client_connector_->subscribe_event(
-                            static_cast<socom::Event_id>(i), socom::Event_mode::update);
+                        (void)connector.subscribe_event(static_cast<socom::Event_id>(i),
+                                                        socom::Event_mode::update);
                     }
                 },
             .on_event_update =
@@ -134,8 +136,9 @@ Result<std::unique_ptr<RemoteServiceInstance>> RemoteServiceInstance::Create(
                 -> score::Result<socom::Writable_payload> {
                 // Payload allocation is handled by the IPC binding (read-only SHM slot from
                 // someipd). This callback is never called in normal operation.
-                assert(false &&
-                       "on_event_payload_allocate must not be called on RemoteServiceInstance");
+                SCORE_LANGUAGE_FUTURECPP_ASSERT(
+                    false &&
+                    "on_event_payload_allocate must not be called on RemoteServiceInstance");
                 return MakeUnexpected(socom::Error::runtime_error_request_rejected);
             },
         });
@@ -163,7 +166,7 @@ void RemoteServiceInstance::forward_event(socom::Event_id event_id, socom::Paylo
             << "' not found in IPC skeleton, dropping";
         return;
     }
-    auto& ipc_event = const_cast<score::mw::com::GenericSkeletonEvent&>(events_it->second);
+    auto& ipc_event = events_it->second;
 
     // Extract payload
     auto const message = payload.data().subspan(someip::kSomeipFullHeaderSize);
@@ -186,14 +189,11 @@ void RemoteServiceInstance::forward_event(socom::Event_id event_id, socom::Paylo
         return;
     }
 
-    auto&& trace = score::mw::log::LogWarn();
-    trace << "[gatewayd] SOME/IP->App: event=" << event_context.config->event_name()->string_view()
-          << " payload_size=" << message.size();
-    if (message.size() == 1U) {
-        trace << " value=" << (message[0] != std::byte{0x00} ? "true" : "false");
+    if (const auto result = ipc_event.Send(std::move(sample)); !result) {
+        score::mw::log::LogError()
+            << "[gatewayd] RemoteServiceInstance - Failed to send IPC event: "
+            << result.error().Message();
     }
-
-    ipc_event.Send(std::move(sample));
 };
 
 Result<void> RemoteServiceInstance::CreateAsyncRemoteService(
@@ -264,9 +264,8 @@ Result<void> RemoteServiceInstance::CreateAsyncRemoteService(
 
     instances.push_back(std::move(create_result).value());
 
-    score::mw::log::LogInfo()
-        << "[gatewayd] RemoteServiceInstance created for instance specifier: "
-        << service_instance_config->instance_specifier()->string_view();
+    std::cout << "[gatewayd] RemoteServiceInstance created for instance specifier: "
+              << service_instance_config->instance_specifier()->string_view() << "\n";
     return {};
 }
 }  // namespace score::someip_gateway::gatewayd

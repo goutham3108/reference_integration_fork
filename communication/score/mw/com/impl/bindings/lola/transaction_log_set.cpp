@@ -12,6 +12,7 @@
  ********************************************************************************/
 #include "score/mw/com/impl/bindings/lola/transaction_log_set.h"
 
+#include "score/language/safecpp/safe_math/safe_math.h"
 #include "score/mw/com/impl/bindings/lola/transaction_log_registration_guard.h"
 #include "score/mw/com/impl/com_error.h"
 #include "score/mw/log/logging.h"
@@ -57,7 +58,7 @@ TransactionLogSet::TransactionLogSet(const TransactionLogIndex max_number_of_log
       skeleton_tracing_transaction_log_{number_of_slots, resource}
 {
     SCORE_LANGUAGE_FUTURECPP_PRECONDITION_PRD_MESSAGE(
-        max_number_of_logs != kSkeletonIndexSentinel,
+        safe_math::CmpNotEqual(max_number_of_logs, kSkeletonIndexSentinel),
         "kSkeletonIndexSentinel is a reserved sentinel value so the max_number_of_logs must be reduced.");
 }
 
@@ -91,7 +92,7 @@ Result<void> TransactionLogSet::RollbackProxyTransactions(
     // the next TransactionLog. If there are only TransactionLogs remaining which cannot be rolled back, return an
     // error.
     Result<void> rollback_result{};
-    for (const auto transaction_log_node_it : transaction_log_node_iterators_to_be_rolled_back)
+    for (auto* const transaction_log_node_it : transaction_log_node_iterators_to_be_rolled_back)
     {
         rollback_result = transaction_log_node_it->GetTransactionLogLocalView().RollbackProxyElementLog(
             dereference_slot_callback, unsubscribe_callback);
@@ -205,7 +206,7 @@ TransactionLogSet::FindTransactionLogNodesToBeRolledBack(const TransactionLogId&
     //
     // coverity[autosar_cpp14_m5_0_15_violation]
     // coverity[autosar_cpp14_a5_3_2_violation : FALSE]
-    for (auto it = proxy_transaction_logs_.begin(); it != proxy_transaction_logs_.end(); it++)
+    for (auto* it = proxy_transaction_logs_.begin(); it != proxy_transaction_logs_.end(); it++)
     {
         // LCOV_EXCL_BR_STOP
         // coverity[autosar_cpp14_a5_3_2_violation : FALSE]
@@ -247,7 +248,7 @@ TransactionLogSet::AcquireNextAvailableSlot(TransactionLogId transaction_log_id)
         //
         // coverity[autosar_cpp14_m5_0_15_violation]
         // coverity[autosar_cpp14_a5_3_2_violation : FALSE]
-        for (auto it = proxy_transaction_logs_.begin(); it != proxy_transaction_logs_.end(); it++)
+        for (auto* it = proxy_transaction_logs_.begin(); it != proxy_transaction_logs_.end(); it++)
         {
             // LCOV_EXCL_BR_STOP
             auto& transaction_log_node = *it;
@@ -271,7 +272,7 @@ TransactionLogSet::AcquireNextAvailableSlot(TransactionLogId transaction_log_id)
 
 bool TransactionLogSet::IsSkeletonElementTransactionLogIndex(const TransactionLogIndex transaction_log_index)
 {
-    return transaction_log_index == TransactionLogSet::kSkeletonIndexSentinel;
+    return safe_math::CmpEqual(transaction_log_index, TransactionLogSet::kSkeletonIndexSentinel);
 }
 
 }  // namespace score::mw::com::impl::lola

@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <string>
 
@@ -39,8 +40,10 @@ Result<std::unique_ptr<LocalNetworkService>> LocalNetworkService::Create(
     std::shared_ptr<const mw_someip_config::ServiceType> service_type_config,
     std::shared_ptr<vsomeip::application> vsomeip_app, socom::Runtime& socom_runtime) {
     // Create instance first with null connector - needed because callbacks capture the instance
-    // pointer. Callbacks are not invoked until after make_client_connector returns (initial state
-    // is always not_available), so this is safe.
+    // pointer. SOCom may invoke on_service_state_change before client_connector_ is assigned:
+    // from the IPC thread when the service becomes available, or synchronously inside
+    // make_client_connector() if a matching server is already registered (as in the unit test).
+    // Callbacks must therefore use the connector passed to them.
     auto instance = std::unique_ptr<LocalNetworkService>(new LocalNetworkService(
         service_instance_config, service_type_config, std::move(vsomeip_app), nullptr));
 
@@ -50,7 +53,7 @@ Result<std::unique_ptr<LocalNetworkService>> LocalNetworkService::Create(
          static_cast<uint16_t>(service_type_config->service_version_minor())}};
 
     // TODO: handle multiple instances. For now just expect one instance per service.
-    socom::Service_instance const inst{std::to_string(service_instance_config->instance_id())};
+    socom::Service_instance const inst{service_type_config->service_type_name()->string_view()};
 
     socom::Service_interface_definition const client_connector_config{
         iface, socom::to_num_of_methods(0),
@@ -60,24 +63,24 @@ Result<std::unique_ptr<LocalNetworkService>> LocalNetworkService::Create(
         client_connector_config, inst,
         {
             .on_service_state_change =
-                [instance_ptr = instance.get()](socom::Client_connector const&,
+                [instance_ptr = instance.get()](socom::Client_connector const& connector,
                                                 socom::Service_state state,
                                                 socom::Server_service_interface_definition const&) {
-                    score::mw::log::LogInfo()
-                        << "[someipd] LocalNetworkService - on_service_state_change called";
+                    std::cout << "[someipd] LocalNetworkService - on_service_state_change called"
+                              << std::endl;
                     if (state != socom::Service_state::available) {
                         return;
                     }
                     // Subscribe to all events
                     socom::Event_id socom_event_id{0};
-                    for (auto event : *instance_ptr->service_type_config_->events()) {
-                        score::mw::log::LogInfo()
-                            << "[someipd] LocalNetworkService - Subscribing to event "
-                            << event->event_name()->string_view() << " (socom_id " << socom_event_id
-                            << ") for service "
-                            << instance_ptr->service_type_config_->service_type_name()->string_view();
-                        (void)instance_ptr->client_connector_->subscribe_event(
-                            socom_event_id, socom::Event_mode::update);
+                    for (const auto* event : *instance_ptr->service_type_config_->events()) {
+                        std::cout << "[someipd] LocalNetworkService - Subscribing to event "
+                                  << event->event_name()->string_view() << " (socom_id "
+                                  << socom_event_id << ") for service "
+                                  << instance_ptr->service_type_config_->service_type_name()
+                                         ->string_view()
+                                  << std::endl;
+                        (void)connector.subscribe_event(socom_event_id, socom::Event_mode::update);
                         ++socom_event_id;
                     }
                 },
@@ -94,8 +97,8 @@ Result<std::unique_ptr<LocalNetworkService>> LocalNetworkService::Create(
                 -> score::Result<socom::Writable_payload> {
                 // Payload allocation is handled by the IPC binding (read-only SHM slot from
                 // gatewayd). This callback is never called in normal operation.
-                assert(false &&
-                       "on_event_payload_allocate must not be called on LocalNetworkService");
+                SCORE_LANGUAGE_FUTURECPP_ASSERT(
+                    false && "on_event_payload_allocate must not be called on LocalNetworkService");
                 return MakeUnexpected(socom::Error::logic_error_id_out_of_range);
             },
         });

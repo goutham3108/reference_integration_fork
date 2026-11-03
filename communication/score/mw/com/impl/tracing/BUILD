@@ -22,18 +22,6 @@ package(
 )
 
 cc_library(
-    name = "type_erased_sample_ptr",
-    srcs = ["type_erased_sample_ptr.cpp"],
-    hdrs = ["type_erased_sample_ptr.h"],
-    features = COMPILER_WARNING_FEATURES,
-    tags = ["FFI"],
-    visibility = ["//score/mw/com/impl:__subpackages__"],
-    deps = [
-        "@score_baselibs//score/language/futurecpp",
-    ],
-)
-
-cc_library(
     name = "i_binding_tracing_runtime",
     srcs = ["i_binding_tracing_runtime.cpp"],
     hdrs = ["i_binding_tracing_runtime.h"],
@@ -42,8 +30,8 @@ cc_library(
     visibility = ["//score/mw/com/impl:__subpackages__"],
     deps = [
         ":service_element_tracing_data",
-        ":type_erased_sample_ptr",
         "//score/memory/shared",
+        "//score/mw/com/impl/plumbing:sample_ptr",
         "//score/mw/com/impl/tracing/configuration:service_element_instance_identifier_view",
         "@score_baselibs//score/analysis/tracing/generic_trace_library:api",
         "@score_baselibs//score/language/futurecpp",
@@ -72,6 +60,7 @@ cc_library(
     visibility = ["//score/mw/com/impl:__subpackages__"],
     deps = [
         "//score/mw/com/impl/configuration:lola_event_instance_deployment",
+        "@score_baselibs//score/language/safecpp/safe_math",
     ],
 )
 
@@ -197,9 +186,9 @@ cc_library(
     deps = [
         ":i_binding_tracing_runtime",
         ":service_element_tracing_data",
-        ":type_erased_sample_ptr",
         "//score/memory/shared:i_shared_memory_resource",
         "//score/mw/com/impl:binding_type",
+        "//score/mw/com/impl/plumbing:sample_ptr",
         "//score/mw/com/impl/tracing/configuration:proxy_event_trace_point_type",
         "//score/mw/com/impl/tracing/configuration:proxy_field_trace_point_type",
         "//score/mw/com/impl/tracing/configuration:service_element_instance_identifier_view",
@@ -290,16 +279,6 @@ cc_unit_test(
 )
 
 cc_unit_test(
-    name = "type_erased_sample_ptr_test",
-    srcs = ["type_erased_sample_ptr_test.cpp"],
-    features = COMPILER_WARNING_FEATURES,
-    deps = [
-        ":type_erased_sample_ptr",
-        "@score_baselibs//score/language/futurecpp",
-    ],
-)
-
-cc_unit_test(
     name = "service_element_tracing_data_test",
     srcs = ["service_element_tracing_data_test.cpp"],
     features = COMPILER_WARNING_FEATURES,
@@ -316,7 +295,7 @@ cc_unit_test(
         ":skeleton_tracing",
         ":tracing_runtime_mock",
         "//score/mw/com/impl",
-        "//score/mw/com/impl/bindings/mock_binding",
+        "//score/mw/com/impl/bindings/mock_binding:mock_binding_lib",
         "//score/mw/com/impl/configuration/test:configuration_store",
         "//score/mw/com/impl/test:runtime_mock_guard",
     ],
@@ -359,8 +338,9 @@ cc_unit_test(
     deps = [
         ":skeleton_event_tracing",
         ":tracing_runtime_mock",
-        "//score/mw/com/impl/bindings/mock_binding",
+        "//score/mw/com/impl/bindings/mock_binding:mock_binding_lib",
         "//score/mw/com/impl/configuration/test:configuration_store",
+        "//score/mw/com/impl/mocking:test_type_utilities",
         "//score/mw/com/impl/test:runtime_mock_guard",
         "//score/mw/com/impl/tracing/configuration:tracing_filter_config_mock",
     ],
@@ -373,7 +353,7 @@ cc_unit_test(
     deps = [
         ":proxy_event_tracing",
         ":tracing_runtime_mock",
-        "//score/mw/com/impl/bindings/mock_binding",
+        "//score/mw/com/impl/bindings/mock_binding:mock_binding_lib",
         "//score/mw/com/impl/test:runtime_mock_guard",
     ],
 )
