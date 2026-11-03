@@ -1,0 +1,78 @@
+site_name: S-CORE SDV Integration Handbook
+site_description: Code-grounded guide to the sdv-hackathon integration workspace
+docs_dir: handbook
+site_dir: _handbook_site
+use_directory_urls: false
+theme:
+  name: material
+  custom_dir: handbook_theme
+  font: false
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+  palette:
+    scheme: default
+    primary: indigo
+    accent: teal
+plugins:
+  - search
+hooks:
+  - tools/site_hooks.py
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+extra_css:
+  - assets/handbook.css
+extra_javascript:
+  - assets/navigation.js
+extra:
+  source_revision: 0842972
+  source_repository: https://github.com/goutham3108/reference_integration_fork
+validation:
+  links:
+    anchors: warn
+nav:
+  - Start:
+      - Component Map: index.md
+      - Overview: overview.md
+      - Architecture: architecture.md
+      - Repository Tour: repository-tour.md
+  - Workspace: workspace.md
+  - Signals: signals.md
+  - Vehicle Apps: vehicle.md
+  - Gateway: gateway.md
+  - Serializer: serializer.md
+  - UDP Bridge: bridge.md
+  - Remote App: remote.md
+  - S-CORE: score.md
+  - KUKSA: kuksa.md
+  - SDV Runtime: runtime.md
+  - Platforms: platforms.md
+  - Engineering:
+      - Build, Run and Deploy: build-run-deploy.md
+      - Configuration Reference: configuration.md
+      - Testing and CI: testing-ci.md
+      - Changes in this Fork: fork-changes.md
+      - Contributing and Debugging: contributing-debugging.md
+      - Glossary: glossary.md
+      - FAQ and Gotchas: faq.md
+      - Verification and Improvements: verification.md
+      - Complete Branch File Changes: changed-files.md
+      - Configuration File Inventory: configuration-files.md
+      - Static Environment and Flag Inventory: environment-flags.md
