@@ -30,6 +30,8 @@ ubproject.toml
 /build
 artifacts
 /sdv-hack-demo/dist/
+/sdv-hack-demo/sdv-runtime/sdv-runtime/
+/sdv-runtime-fork/
 
 #Macos
 .DS_Store
