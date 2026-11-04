@@ -19,8 +19,18 @@ if [[ "$arch" != "aarch64" ]]; then
     exit 1
 fi
 
-scp "$archive" "$target:/tmp/pi-deployment-server.tar.gz"
-ssh -t "$target" 'cd /tmp && rm -rf pi-deployment-server && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server && sudo bash deploy/install.sh && systemctl is-active sdv-deployer.service'
+remote_dir="$(ssh "$target" 'mktemp -d /tmp/sdv-deployer.XXXXXXXXXX')"
+if [[ ! "$remote_dir" =~ ^/tmp/sdv-deployer\.[A-Za-z0-9]+$ ]]; then
+    echo "Target returned an invalid temporary directory." >&2
+    exit 1
+fi
+cleanup() {
+    ssh "$target" "rm -rf -- '$remote_dir'" ||
+        echo "Could not remove remote temporary directory: $remote_dir" >&2
+}
+trap cleanup EXIT
+scp "$archive" "$target:$remote_dir/pi-deployment-server.tar.gz"
+ssh -t "$target" "cd '$remote_dir' && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server && sudo bash deploy/install.sh && systemctl is-active sdv-deployer.service"
 
 cat <<'EOF'
 

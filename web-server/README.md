@@ -66,11 +66,13 @@ sudo SDV_MEMORY_MAX=768M SDV_CPU_QUOTA=150% bash deploy/install.sh
 Manual install, without the script:
 
 ```bash
-scp web-server/pi-server/dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:/tmp/
-ssh <pi-user>@<pi-ip>
-cd /tmp && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server
-sudo bash deploy/install.sh
+target="<pi-user>@<pi-ip>"
+work="$(ssh "$target" 'mktemp -d /tmp/sdv-deployer.XXXXXXXXXX')"
+scp web-server/pi-server/dist/pi-deployment-server.tar.gz "$target:$work/"
+ssh -t "$target" "cd '$work' && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server && sudo bash deploy/install.sh"
 ```
+
+The archive and extracted installer stay in a new private remote directory. After installation, remove that specific directory on the Pi; the automated `install_on_pi.sh` does this cleanup automatically.
 
 ## 3. Launch the UI (laptop)
 
@@ -130,7 +132,7 @@ sha256sum pi_heartbeat.py                       # put the value in manifest.json
 tar -czf pi-heartbeat-monitor-1.0.0.tar.gz manifest.json pi_heartbeat.py
 ```
 
-Samples: `examples/hello-app` (Python heartbeat), `examples/sample_sdv_python_app` (KUKSA demo), `examples/sample_score_app` (native, x86-64 only; it fails the Pi's architecture check).
+Samples: `examples/hello-app` (Python heartbeat), `examples/sample_sdv_python_app` (local high-beam simulation with a TCP reachability probe), `examples/sample_score_app` (AArch64 native speed simulation). The high-beam sample does not subscribe to or write KUKSA signals; the speed sample generates local values and does not establish a LoLa connection. To rebuild the native bundle for the Pi, set `AARCH64_CC=aarch64-linux-gnu-gcc` when running its build script.
 
 ## Validation (done by the Pi, shown by the UI)
 
@@ -161,7 +163,7 @@ sudo systemctl restart sdv-deployer.service
 | Item | Location |
 |---|---|
 | Installed server | `/opt/sdv-deployer/` |
-| Config | `/etc/sdv-deployer/config.json` (mode `0600`) |
+| Config | `/etc/sdv-deployer/config.json` (root-owned, service-group-readable, mode `0640`) |
 | Deployed apps | `/home/<pi-user>/sdv-apps/<app-id>/` |
 | Upload staging | `/var/lib/sdv-deployer/staging/` |
 | App logs | `/var/log/sdv-deployer/<app-id>.log` |
@@ -169,7 +171,7 @@ sudo systemctl restart sdv-deployer.service
 Remove the server and stop its apps (config and app files are kept):
 
 ```bash
-sudo bash /tmp/pi-deployment-server/deploy/uninstall.sh
+sudo bash /path/to/private/pi-deployment-server/deploy/uninstall.sh
 ```
 
 ---

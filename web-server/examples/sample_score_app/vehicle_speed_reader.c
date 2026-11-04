@@ -18,13 +18,12 @@ int main(int argc, char* argv[]) {
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
-    printf("[S-CORE Native App] Starting vehicle_speed_reader...\n");
-    printf("[S-CORE Native App] Checking S-CORE mw::com shared memory (/dev/shm)...\n");
+    printf("[S-CORE Simulation] Starting vehicle_speed_reader (locally generated values; no LoLa connection)...\n");
+    printf("[S-CORE Simulation] Checking /dev/shm directory availability only...\n");
 
-    // Check if S-CORE shared memory segments exist
     struct stat st;
     if (stat("/dev/shm", &st) == 0) {
-        printf("[S-CORE Native App] /dev/shm accessible. Looking for active LoLa segments.\n");
+        printf("[S-CORE Simulation] /dev/shm accessible; this does not verify LoLa activity.\n");
     } else {
         printf("[S-CORE Native App] Warning: /dev/shm not mounted or accessible.\n");
     }
@@ -38,7 +37,7 @@ int main(int argc, char* argv[]) {
         if (current_speed < 0) current_speed = 0.0;
         if (current_speed > 160) current_speed = 160.0;
 
-        printf("[S-CORE mw::com] Cycle #%d: Vehicle.Speed = %.2f km/h (LoLa mw::com SHM active)\n", cycle, current_speed);
+        printf("[S-CORE Simulation] Cycle #%d: Simulated Vehicle.Speed = %.2f km/h (local value only)\n", cycle, current_speed);
         fflush(stdout);
 
         sleep(2);

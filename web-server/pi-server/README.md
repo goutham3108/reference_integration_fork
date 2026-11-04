@@ -16,13 +16,13 @@ On the build host, from this folder:
 
 ```bash
 bash package.sh
-scp dist/pi-deployment-server.tar.gz <pi-user>@<pi-ip>:/tmp/
-ssh <pi-user>@<pi-ip>
-cd /tmp
-tar -xzf pi-deployment-server.tar.gz
-cd pi-deployment-server
-sudo bash deploy/install.sh
+target="<pi-user>@<pi-ip>"
+work="$(ssh "$target" 'mktemp -d /tmp/sdv-deployer.XXXXXXXXXX')"
+scp dist/pi-deployment-server.tar.gz "$target:$work/"
+ssh -t "$target" "cd '$work' && tar -xzf pi-deployment-server.tar.gz && cd pi-deployment-server && sudo bash deploy/install.sh"
 ```
+
+Copy and extraction use a private remote directory rather than predictable shared `/tmp` paths. Remove that specific temporary directory after installation.
 
 Run the installer with `sudo` from the regular user that should own the deployment (or set `SDV_USER=<user>`). The archive contains the API, auth/user tools, app runner, the systemd unit, and installer only. It contains no browser UI files. The installer:
 
@@ -30,7 +30,7 @@ Run the installer with `sudo` from the regular user that should own the deployme
 - installs `sdv-deployer.service`, which runs as `<user>` with `MemoryMax` and `CPUQuota` limits (default `512M` and `100%`; override with `SDV_MEMORY_MAX` and `SDV_CPU_QUOTA`, for example `sudo SDV_MEMORY_MAX=768M SDV_CPU_QUOTA=150% bash deploy/install.sh`);
 - enables the service at boot and starts it, bound to `127.0.0.1:8443`.
 
-The installer keeps an existing configured `apps_dir` on upgrades, provided it is inside the service user's home or `/var/lib/sdv-deployer`; it does not switch existing installations to a new empty directory. Configuration is updated atomically with the config directory owned by root, so the service account cannot replace `config.json` with a symlink.
+The installer keeps an existing configured `apps_dir` on upgrades, provided it is inside the service user's home or `/var/lib/sdv-deployer`; it does not switch existing installations to a new empty directory. Configuration is updated atomically with explicit root/group-readable permissions, independent of the caller's umask. Both the configuration and data parent directories are root-owned; staging and log directories are opened without following symlinks before applying ownership and permissions.
 
 Deployed applications are not separate services. The deployer starts each one from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. App process groups are recorded per application so Stop and Remove target the app and its descendants without matching unrelated processes. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
 

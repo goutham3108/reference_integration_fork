@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Sample SDV Python Application
-Connects to KUKSA Databroker (VAL v2 gRPC on 127.0.0.1:55555)
-Subscribes to Vehicle.Speed and toggles Vehicle.Body.Lights.Beam.High.IsOn
+Sample SDV Python simulation with a TCP reachability probe.
+Toggles a local high-beam Boolean; it does not use VAL v2, subscribe to
+Vehicle.Speed, or write signals to KUKSA Databroker.
 """
 
 import os
@@ -35,16 +35,16 @@ def check_kuksa_available(host, port):
 
 def main():
     print("=" * 60)
-    print(" [SDV Python App] KUKSA High-Beam Controller")
-    print(f" Target KUKSA Databroker: {KUKSA_HOST}:{KUKSA_PORT}")
+    print(" [SDV Python Simulation] High-Beam Controller (local state only)")
+    print(f" TCP reachability probe: {KUKSA_HOST}:{KUKSA_PORT} (not a VAL v2 connection)")
     print("=" * 60)
 
     is_connected = check_kuksa_available(KUKSA_HOST, KUKSA_PORT)
     if is_connected:
-        print(f"[SDV Python App] Successfully reached KUKSA Databroker on {KUKSA_HOST}:{KUKSA_PORT}")
+        print(f"[SDV Python Simulation] TCP port reachable at {KUKSA_HOST}:{KUKSA_PORT}; broker protocol not verified.")
     else:
-        print(f"[SDV Python App] Notice: KUKSA Databroker at {KUKSA_HOST}:{KUKSA_PORT} is currently offline.")
-        print("[SDV Python App] Running in simulated mode with internal signal state.")
+        print(f"[SDV Python Simulation] TCP port unreachable at {KUKSA_HOST}:{KUKSA_PORT}.")
+    print("[SDV Python Simulation] Running in simulated mode regardless of TCP reachability; no signals are read or written.")
 
     high_beam_state = False
     cycle = 0
@@ -54,9 +54,9 @@ def main():
         # Toggle high-beam state every 3 cycles
         if cycle % 3 == 0:
             high_beam_state = not high_beam_state
-            print(f"[SDV VAL v2] Actuating signal: Vehicle.Body.Lights.Beam.High.IsOn -> {high_beam_state}")
+            print(f"[SDV Simulation] Local simulated Vehicle.Body.Lights.Beam.High.IsOn -> {high_beam_state} (not written to broker)")
 
-        print(f"[SDV Monitor] Cycle #{cycle}: High.IsOn={high_beam_state}, Broker={'ONLINE' if is_connected else 'OFFLINE'}")
+        print(f"[SDV Simulation] Cycle #{cycle}: Simulated High.IsOn={high_beam_state}, TCP={'REACHABLE' if is_connected else 'UNREACHABLE'}")
         sys.stdout.flush()
 
         time.sleep(2)

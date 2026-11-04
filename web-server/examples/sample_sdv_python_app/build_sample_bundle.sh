@@ -11,9 +11,9 @@ script_hash=$(sha256sum high_beam_kuksa_controller.py | awk '{print $1}')
 cat <<EOF > manifest.json
 {
   "app_id": "kuksa-high-beam-controller",
-  "name": "KUKSA High Beam Controller",
+  "name": "KUKSA High Beam Simulation",
   "version": "1.0.0",
-  "description": "Python SDV application connecting to KUKSA Databroker on 127.0.0.1:55555",
+  "description": "Local high-beam simulation with a TCP reachability probe; no VAL v2 subscriptions or signal writes",
   "runtime": "python",
   "entrypoint": "high_beam_kuksa_controller.py",
   "target_architecture": "aarch64",

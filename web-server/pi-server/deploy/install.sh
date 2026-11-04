@@ -32,25 +32,34 @@ apps_dir="$user_home/sdv-apps"
 systemctl stop 'sdv-app@*.service' 2>/dev/null || true
 rm -f /etc/sudoers.d/sdv-deployer /usr/local/libexec/sdv-appctl /etc/systemd/system/sdv-app@.service
 
-python3 - "$config_dir" <<'PY'
+python3 - "$config_dir" "$install_dir" "$data_dir" "$log_dir" "$sdv_user" "$sdv_group" <<'PY'
+import grp
 import os
+import pwd
 import stat
 import sys
-from pathlib import Path
 
-directory = Path(sys.argv[1])
-try:
-    os.mkdir(directory, 0o755)
-except FileExistsError:
-    pass
+config_dir, install_dir, data_dir, log_dir, user, group = sys.argv[1:7]
+uid = pwd.getpwnam(user).pw_uid
+gid = grp.getgrnam(group).gr_gid
 
-dir_stat = os.lstat(directory)
-if not stat.S_ISDIR(dir_stat.st_mode):
-    raise SystemExit(f"Refusing to use non-directory or symlink config path: {directory}")
-directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+def open_directory(path, owner, group, mode, parent_fd=None):
+    try:
+        os.mkdir(path, mode, dir_fd=parent_fd)
+    except FileExistsError:
+        pass
+    directory_fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                           dir_fd=parent_fd)
+    try:
+        os.fchown(directory_fd, owner, group)
+        os.fchmod(directory_fd, mode)
+    except BaseException:
+        os.close(directory_fd)
+        raise
+    return directory_fd
+
+directory_fd = open_directory(config_dir, 0, 0, 0o755)
 try:
-    os.fchown(directory_fd, 0, 0)
-    os.fchmod(directory_fd, 0o755)
     try:
         config_stat = os.stat("config.json", dir_fd=directory_fd, follow_symlinks=False)
     except FileNotFoundError:
@@ -60,11 +69,16 @@ try:
             raise SystemExit("Refusing to update a non-regular or symlink config.json")
 finally:
     os.close(directory_fd)
+
+os.close(open_directory(install_dir, 0, 0, 0o755))
+data_fd = open_directory(data_dir, 0, 0, 0o755)
+try:
+    os.close(open_directory("staging", uid, gid, 0o750, parent_fd=data_fd))
+finally:
+    os.close(data_fd)
+os.close(open_directory(log_dir, uid, gid, 0o750))
 PY
 
-install -d -o root -g root -m 0755 "$install_dir"
-install -d -o "$sdv_user" -g "$sdv_group" -m 0750 "$log_dir" "$data_dir" "$data_dir/staging"
-chown -R "$sdv_user:$sdv_group" "$log_dir" "$data_dir/staging"
 install -m 0755 "$source_dir/server.py" "$install_dir/server.py"
 install -m 0755 "$source_dir/runner.py" "$install_dir/runner.py"
 
@@ -123,10 +137,11 @@ try:
         config_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
                             0o640, dir_fd=directory_fd)
         with os.fdopen(config_fd, "w", encoding="utf-8") as config_file:
+            os.fchown(config_file.fileno(), 0, grp.getgrnam(group).gr_gid)
+            os.fchmod(config_file.fileno(), 0o640)
             config_file.write(json.dumps(config, indent=2) + "\n")
             config_file.flush()
             os.fsync(config_file.fileno())
-        os.chown(temp_name, 0, grp.getgrnam(group).gr_gid, dir_fd=directory_fd, follow_symlinks=False)
         os.replace(temp_name, "config.json", src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
     finally:
         try:

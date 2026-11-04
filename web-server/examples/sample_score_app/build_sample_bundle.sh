@@ -18,9 +18,9 @@ cfg_hash=$(sha256sum config/mw_com_config.json | awk '{print $1}')
 cat <<EOF > manifest.json
 {
   "app_id": "vehicle-speed-reader",
-  "name": "S-CORE Vehicle Speed Reader",
+  "name": "S-CORE Vehicle Speed Simulation",
   "version": "1.0.0",
-  "description": "Native AArch64 binary consuming S-CORE mw::com vehicle dynamics from /dev/shm",
+  "description": "Native AArch64 simulation generating local vehicle speed values; no LoLa or mw::com connection",
   "runtime": "native",
   "entrypoint": "vehicle_speed_reader",
   "target_architecture": "aarch64",
