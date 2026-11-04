@@ -1,0 +1,13 @@
+{
+  "app_id": "kuksa-high-beam-controller",
+  "name": "KUKSA High Beam Simulation",
+  "version": "1.0.0",
+  "description": "Local high-beam simulation with a TCP reachability probe; no VAL v2 subscriptions or signal writes",
+  "runtime": "python",
+  "entrypoint": "high_beam_kuksa_controller.py",
+  "target_architecture": "aarch64",
+  "author": "Eclipse S-CORE SDV Team",
+  "checksums": {
+    "high_beam_kuksa_controller.py": "52dd91955f8917816004142fa44e1c56f6cc4cd3b918b77cd95c4fe58c7821f5"
+  }
+}

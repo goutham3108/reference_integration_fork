@@ -1,0 +1,13 @@
+{
+  "app_id": "pi-heartbeat-monitor",
+  "name": "Pi Heartbeat Monitor",
+  "version": "1.0.0",
+  "description": "Periodic host uptime, memory, and load logs for deployment testing",
+  "runtime": "python",
+  "entrypoint": "pi_heartbeat.py",
+  "target_architecture": "aarch64",
+  "author": "SDV Deployment Demo",
+  "checksums": {
+    "pi_heartbeat.py": "993e956913d0713cde230f0f55db8d08cd14c00e867d86696e5a0853040361dc"
+  }
+}
