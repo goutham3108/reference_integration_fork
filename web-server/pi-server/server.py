@@ -22,6 +22,13 @@ import hmac
 import signal
 import pwd
 import grp
+import re
+import threading
+import uuid
+import secrets
+import tempfile
+from email.message import Message
+from email import message_from_bytes
 from pathlib import Path
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import urllib.parse
@@ -32,6 +39,14 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 logger = logging.getLogger("sdv-deployer")
+APP_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*\Z")
+VERSION_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+
+
+def validate_app_id(app_id):
+    if not isinstance(app_id, str) or not APP_ID_PATTERN.fullmatch(app_id):
+        raise ValueError("Invalid application ID")
+    return app_id
 
 
 class DeploymentConfig:
@@ -45,7 +60,7 @@ class DeploymentConfig:
         self.use_tls = False
         self.tls_cert_file = str(base_dir / "certs" / "server.crt")
         self.tls_key_file = str(base_dir / "certs" / "server.key")
-        self.auth_token = "sdv-dev-secret-token-2026"
+        self.auth_token = secrets.token_urlsafe(32)
         self.allowed_origins = ["http://localhost:8080"]
         self.app_user = "sdv-apps"
         self.app_group = "sdv-apps"
@@ -54,6 +69,8 @@ class DeploymentConfig:
         self.staging_dir = str(base_dir / "runtime" / "staging")
         self.logs_dir = str(base_dir / "runtime" / "logs")
         self.max_upload_size_mb = 100
+        self.max_expanded_size_mb = 512
+        self.max_archive_members = 10000
         self.smoke_test_seconds = 3
         self.target_architecture = "aarch64"
 
@@ -279,26 +296,48 @@ class BenchmarkValidator:
 
         try:
             with tarfile.open(package_path, "r:*") as tar:
-                # Check for traversal attacks
-                for member in tar.getmembers():
+                members = []
+                expanded_bytes = 0
+                expanded_limit = self.config.max_expanded_size_mb * 1024 * 1024
+                for member in tar:
+                    if len(members) >= self.config.max_archive_members:
+                        results["errors"].append(
+                            f"Archive exceeds the {self.config.max_archive_members} member limit"
+                        )
+                        return results
                     name = member.name
-                    if name.startswith("/") or name.startswith("\\"):
+                    member_path = Path(name)
+                    if member_path.is_absolute() or name.startswith("\\"):
                         results["errors"].append(f"Malicious archive member with absolute path: {name}")
                         return results
-                    if ".." in Path(name).parts:
+                    if "\\" in name or ".." in member_path.parts:
                         results["errors"].append(f"Path traversal detected in archive member: {name}")
                         return results
-                    if member.issym() or member.islnk():
-                        link_target = member.linkname
-                        if link_target.startswith("/") or ".." in Path(link_target).parts:
-                            results["errors"].append(f"Dangerous link target detected: {name} -> {link_target}")
+                    if not (member.isfile() or member.isdir()):
+                        results["errors"].append(
+                            f"Unsupported archive member type: {name}"
+                        )
+                        return results
+                    if member.isfile():
+                        if member.size < 0:
+                            results["errors"].append(f"Invalid archive member size: {name}")
                             return results
-                
-                # Extract safely
+                        expanded_bytes += member.size
+                        if expanded_bytes > expanded_limit:
+                            results["errors"].append(
+                                f"Archive exceeds expanded size limit of "
+                                f"{self.config.max_expanded_size_mb} MB"
+                            )
+                            return results
+                    members.append(member)
+
                 temp_extract_dir.mkdir(parents=True, exist_ok=True)
-                tar.extractall(path=temp_extract_dir)
+                tar.extractall(path=temp_extract_dir, members=members)
                 s1["passed"] = True
-                s1["details"].append(f"Extracted {len(tar.getmembers())} members without path traversal issues")
+                s1["details"].append(
+                    f"Extracted {len(members)} files and directories "
+                    f"({expanded_bytes / (1024 * 1024):.2f} MB expanded)"
+                )
         except Exception as e:
             results["errors"].append(f"Archive decompression failed: {e}")
             return results
@@ -306,8 +345,11 @@ class BenchmarkValidator:
         # ---------------- Stage 2: Manifest & Checksum Benchmark ----------------
         s2 = results["stages"]["stage2_manifest_checksum"]
         manifest_path = temp_extract_dir / "manifest.json"
-        if not manifest_path.exists():
+        if not manifest_path.is_file() or manifest_path.is_symlink():
             results["errors"].append("Missing required manifest.json in package root")
+            return results
+        if manifest_path.stat().st_size > 1024 * 1024:
+            results["errors"].append("manifest.json exceeds the 1 MB size limit")
             return results
 
         try:
@@ -318,6 +360,10 @@ class BenchmarkValidator:
             results["errors"].append(f"Invalid JSON in manifest.json: {e}")
             return results
 
+        if not isinstance(manifest, dict):
+            results["errors"].append("Manifest must contain a JSON object")
+            return results
+
         required_fields = ["app_id", "version", "runtime", "entrypoint"]
         for field in required_fields:
             if field not in manifest or not manifest[field]:
@@ -325,22 +371,42 @@ class BenchmarkValidator:
                 return results
 
         app_id = manifest["app_id"]
-        if not app_id.replace("_", "").replace("-", "").isalnum():
+        if not isinstance(app_id, str) or not APP_ID_PATTERN.fullmatch(app_id):
             results["errors"].append(f"Invalid app_id '{app_id}'. Must be alphanumeric with hyphens or underscores.")
             return results
+        version = manifest["version"]
+        if (not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version)
+                or version in {".", ".."}):
+            results["errors"].append("Invalid version; it must be a safe single path component")
+            return results
 
+        if not isinstance(manifest["runtime"], str):
+            results["errors"].append("Manifest runtime must be a string")
+            return results
         runtime = manifest["runtime"].lower()
         if runtime not in ["native", "python"]:
             results["errors"].append(f"Unsupported runtime '{runtime}'. Supported: 'native', 'python'")
             return results
+        manifest["runtime"] = runtime
+        args = manifest.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+            results["errors"].append("Manifest args must be a list of strings")
+            return results
 
         # Validate checksums if provided
         checksums = manifest.get("checksums", {})
+        if not isinstance(checksums, dict):
+            results["errors"].append("Manifest checksums must be an object")
+            return results
         if checksums:
             for rel_file, expected_hash in checksums.items():
-                target_file = temp_extract_dir / rel_file
-                if not target_file.exists():
+                target_file = self._resolve_bundle_file(temp_extract_dir, rel_file)
+                if target_file is None:
                     results["errors"].append(f"Checksum validation failed: file '{rel_file}' missing from package")
+                    return results
+                if (not isinstance(expected_hash, str)
+                        or not re.fullmatch(r"[0-9a-fA-F]{64}", expected_hash)):
+                    results["errors"].append(f"Invalid SHA-256 checksum for '{rel_file}'")
                     return results
                 actual_hash = self._compute_sha256(target_file)
                 if actual_hash.lower() != expected_hash.lower():
@@ -356,9 +422,8 @@ class BenchmarkValidator:
         # ---------------- Stage 3: Architecture & Binary Compatibility Benchmark ----------------
         s3 = results["stages"]["stage3_compatibility"]
         entrypoint_rel = manifest["entrypoint"]
-        entrypoint_path = temp_extract_dir / entrypoint_rel
-
-        if not entrypoint_path.exists():
+        entrypoint_path = self._resolve_bundle_file(temp_extract_dir, entrypoint_rel)
+        if entrypoint_path is None:
             results["errors"].append(f"Entrypoint '{entrypoint_rel}' not found in package")
             return results
 
@@ -427,6 +492,23 @@ class BenchmarkValidator:
         results["passed"] = True
         return results
 
+    @staticmethod
+    def _resolve_bundle_file(root: Path, relative_path):
+        if not isinstance(relative_path, str) or not relative_path or "\\" in relative_path:
+            return None
+        relative = Path(relative_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None
+        root = root.resolve()
+        candidate = root.joinpath(relative)
+        try:
+            resolved = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            return None
+        if not resolved.is_relative_to(root) or not resolved.is_file() or candidate.is_symlink():
+            return None
+        return resolved
+
     def _compute_sha256(self, file_path: Path):
         h = hashlib.sha256()
         with open(file_path, "rb") as f:
@@ -473,7 +555,7 @@ class BenchmarkValidator:
         except Exception as e:
             return {"valid": False, "error": f"Failed reading binary header: {e}"}
 
-    def run_smoke_test(self, entrypoint_path: Path, runtime: str, args=None):
+    def run_smoke_test(self, entrypoint_path: Path, runtime: str, args=None, cwd=None):
         """Stage 5: Runs the application for a grace period to verify no immediate crash."""
         args = args or []
         if runtime == "python":
@@ -483,79 +565,121 @@ class BenchmarkValidator:
 
         env = os.environ.copy()
         env["SDV_SMOKE_TEST"] = "1"
+        output_tail = bytearray()
+        proc = None
+        reader = None
+
+        def capture_output(pipe):
+            while True:
+                chunk = pipe.read(4096)
+                if not chunk:
+                    return
+                output_tail.extend(chunk)
+                if len(output_tail) > 8192:
+                    del output_tail[:-8192]
+
         try:
             proc = subprocess.Popen(
                 cmd,
-                cwd=str(entrypoint_path.parent),
+                cwd=str(cwd or entrypoint_path.parent),
                 env=env,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
                 preexec_fn=self._drop_privileges
             )
-            # Monitor during grace period
             timeout_sec = self.config.smoke_test_seconds
-            start_time = time.time()
-            crashed = False
-            exit_code = 0
-            stderr_out = ""
+            reader = threading.Thread(target=capture_output, args=(proc.stdout,), daemon=True)
+            reader.start()
+            timed_out = False
+            try:
+                exit_code = proc.wait(timeout=timeout_sec)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                exit_code = None
 
-            while time.time() - start_time < timeout_sec:
-                poll_res = proc.poll()
-                if poll_res is not None:
-                    # Process exited early
-                    exit_code = poll_res
-                    stdout_out, stderr_out = proc.communicate(timeout=1)
-                    if exit_code != 0:
-                        crashed = True
-                    break
-                time.sleep(0.2)
+            self._terminate_process_group(proc.pid)
+            try:
+                proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=1)
+            reader.join(timeout=1)
+            if reader.is_alive() and proc.stdout:
+                proc.stdout.close()
+                reader.join(timeout=0.2)
+            elif proc.stdout:
+                proc.stdout.close()
 
-            if proc.poll() is None:
-                # Still running happily after grace period, terminate smoke test
-                proc.terminate()
-                try:
-                    proc.communicate(timeout=1)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.communicate()
+            if timed_out:
                 return {
                     "passed": True,
                     "details": f"Process remained running cleanly across {timeout_sec}s smoke window"
                 }
-
-            if crashed:
-                if proc.stdout: proc.stdout.close()
-                if proc.stderr: proc.stderr.close()
+            if exit_code != 0:
+                output = output_tail.decode("utf-8", errors="replace")
                 return {
                     "passed": False,
-                    "error": f"Application crashed immediately on startup with exit code {exit_code}. Stderr: {stderr_out.strip()}"
+                    "error": f"Application crashed immediately on startup with exit code {exit_code}. "
+                             f"Output: {output.strip()}"
                 }
-            else:
-                if proc.stdout: proc.stdout.close()
-                if proc.stderr: proc.stderr.close()
-                return {
-                    "passed": True,
-                    "details": f"Application completed execution cleanly with exit code 0"
-                }
+            return {
+                "passed": True,
+                "details": "Application completed execution cleanly with exit code 0"
+            }
 
         except Exception as e:
-            return {"passed": False, "error": f"Failed to execute smoke test: {e}"}
+            cleanup_error = None
+            if proc:
+                try:
+                    self._terminate_process_group(proc.pid)
+                    if proc.poll() is None:
+                        proc.wait(timeout=1)
+                except Exception as error:
+                    cleanup_error = error
+                finally:
+                    if proc.poll() is None:
+                        try:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                            proc.wait(timeout=1)
+                        except ProcessLookupError:
+                            pass
+                    if proc.stdout:
+                        proc.stdout.close()
+                    if reader:
+                        reader.join(timeout=0.2)
+            message = f"Failed to execute smoke test: {e}"
+            if cleanup_error:
+                message += f"; process cleanup failed: {cleanup_error}"
+            return {"passed": False, "error": message}
+
+    @staticmethod
+    def _terminate_process_group(pgid):
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
 
     def _drop_privileges(self):
         if os.geteuid() != 0:
             return None
-        try:
-            account = pwd.getpwnam(self.config.app_user)
-        except KeyError:
-            return None
-
-        def drop_identity():
-            os.initgroups(account.pw_name, account.pw_gid)
-            os.setgid(account.pw_gid)
-            os.setuid(account.pw_uid)
-
-        return drop_identity
+        if not self.config.app_user:
+            raise RuntimeError("An unprivileged app_user must be configured")
+        account = pwd.getpwnam(self.config.app_user)
+        os.initgroups(account.pw_name, account.pw_gid)
+        os.setgid(account.pw_gid)
+        os.setuid(account.pw_uid)
 
 
 class ApplicationManager:
@@ -566,37 +690,143 @@ class ApplicationManager:
         self.logs_dir = Path(config.logs_dir)
         self.app_user = config.app_user
         self.processes = {}
+        self._app_locks = {}
+        self._app_locks_guard = threading.Lock()
 
-    def _find_app_pids(self, app_id: str) -> list[int]:
-        """Find live processes launched from this app's directory, including orphans from earlier API runs."""
-        root = os.path.abspath(str(self.apps_dir / app_id)) + os.sep
-        pids = []
-        for entry in Path("/proc").iterdir():
-            if not entry.name.isdigit() or int(entry.name) == os.getpid():
-                continue
-            try:
-                args = (entry / "cmdline").read_bytes().split(b"\0")
-            except OSError:
-                continue
-            if any(arg.decode(errors="ignore").startswith(root) for arg in args):
-                pids.append(int(entry.name))
-        return pids
+    def _app_lock(self, app_id):
+        validate_app_id(app_id)
+        with self._app_locks_guard:
+            return self._app_locks.setdefault(app_id, threading.RLock())
 
-    def _kill_app_pids(self, app_id: str):
-        pids = self._find_app_pids(app_id)
-        for pid in pids:
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except OSError:
-                pass
+    def _app_dir(self, app_id):
+        app_dir = self.apps_dir / validate_app_id(app_id)
+        try:
+            if app_dir.is_symlink() or not app_dir.resolve().is_relative_to(self.apps_dir.resolve()):
+                raise ValueError("Application directory must remain inside the apps directory")
+        except RuntimeError as error:
+            raise ValueError("Invalid application directory") from error
+        return app_dir
+
+    def _process_record_path(self, app_id):
+        return self._app_dir(app_id) / "process.json"
+
+    @staticmethod
+    def _read_proc_stat(pid):
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            fields = stat[stat.rfind(")") + 2:].split()
+            return {
+                "state": fields[0],
+                "pgrp": int(fields[2]),
+                "session": int(fields[3]),
+                "start_time": fields[19],
+            }
+        except (OSError, ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _boot_id():
+        try:
+            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+        except OSError:
+            return ""
+
+    def _process_group_members(self, record):
+        try:
+            pgid = int(record["pgid"])
+        except (KeyError, TypeError, ValueError):
+            return []
+        if pgid <= 1 or not record.get("boot_id") or record["boot_id"] != self._boot_id():
+            return []
+
+        members = []
+        try:
+            entries = Path("/proc").iterdir()
+            for entry in entries:
+                if not entry.name.isdigit():
+                    continue
+                stat = self._read_proc_stat(int(entry.name))
+                if (not stat or stat["state"] in {"Z", "X"}
+                        or stat["pgrp"] != pgid or stat["session"] != pgid):
+                    continue
+                if int(entry.name) == pgid and stat["start_time"] != record.get("start_time"):
+                    return []
+                members.append(int(entry.name))
+        except OSError:
+            return []
+        return members
+
+    def _read_process_record(self, app_id):
+        path = self._process_record_path(app_id)
+        if not path.exists():
+            return None
+        with path.open("r", encoding="utf-8") as record_file:
+            record = json.load(record_file)
+        if not isinstance(record, dict):
+            raise ValueError(f"Invalid process record for application '{app_id}'")
+        return record
+
+    def _write_process_record(self, app_id, record):
+        path = self._process_record_path(app_id)
+        temp_path = path.with_name(f"{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temp_path.open("w", encoding="utf-8") as record_file:
+                json.dump(record, record_file)
+            os.replace(temp_path, path)
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    def _terminate_app_group(self, app_id, record):
+        members = self._process_group_members(record)
+        if not members:
+            return
+        pgid = int(record["pgid"])
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+
         deadline = time.monotonic() + 3
-        while time.monotonic() < deadline and any(Path(f"/proc/{p}").exists() for p in pids):
+        while time.monotonic() < deadline and self._process_group_members(record):
             time.sleep(0.1)
-        for pid in pids:
+        if self._process_group_members(record):
             try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
+                os.killpg(pgid, signal.SIGKILL)
+            except ProcessLookupError:
+                return
+            deadline = time.monotonic() + 1
+            while time.monotonic() < deadline and self._process_group_members(record):
+                time.sleep(0.05)
+
+    def _set_current_version(self, app_dir, version):
+        self._replace_current_link(app_dir, f"versions/{version}")
+
+    @staticmethod
+    def _replace_current_link(app_dir, target):
+        current_link = app_dir / "current"
+        temp_link = app_dir / f"current.tmp.{uuid.uuid4().hex}"
+        try:
+            temp_link.symlink_to(target)
+            os.replace(temp_link, current_link)
+        finally:
+            temp_link.unlink(missing_ok=True)
+
+    @staticmethod
+    def _write_metadata(meta_file, metadata):
+        temp_file = meta_file.with_name(f"{meta_file.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with temp_file.open("w", encoding="utf-8") as output:
+                json.dump(metadata, output, indent=2)
+            os.replace(temp_file, meta_file)
+        finally:
+            temp_file.unlink(missing_ok=True)
+
+    def _read_metadata(self, app_id):
+        meta_file = self._app_dir(app_id) / "metadata.json"
+        if not meta_file.is_file():
+            return None
+        with meta_file.open("r", encoding="utf-8") as source:
+            return json.load(source)
 
     def list_applications(self):
         apps = []
@@ -616,201 +846,277 @@ class ApplicationManager:
         return apps
 
     def get_application(self, app_id: str):
-        app_dir = self.apps_dir / app_id
-        meta_file = app_dir / "metadata.json"
-        if not meta_file.exists():
-            return None
-        with open(meta_file, "r", encoding="utf-8") as f:
-            meta = json.load(f)
-        meta["status"] = self.get_application_status(app_id)
-        return meta
+        with self._app_lock(app_id):
+            meta = self._read_metadata(app_id)
+            if meta is None:
+                return None
+            meta["status"] = self.get_application_status(app_id)
+            return meta
 
     def get_application_status(self, app_id: str):
-        proc_info = self.processes.get(app_id)
-        if proc_info and proc_info.get("process"):
-            proc = proc_info["process"]
-            if proc.poll() is None:
-                return {"state": "running", "active": True, "pid": proc.pid, "uptime_sec": int(time.time() - proc_info["start_time"]), "mode": "process_runner"}
-            else:
-                exit_code = proc.poll()
-                orphan_pids = self._find_app_pids(app_id)
-                if orphan_pids:
-                    return {"state": "running", "active": True, "pid": orphan_pids[0], "mode": "process_runner"}
-                return {"state": "failed" if exit_code != 0 else "stopped", "active": False, "exit_code": exit_code, "mode": "process_runner"}
+        with self._app_lock(app_id):
+            proc_info = self.processes.get(app_id)
+            record = (proc_info or {}).get("record") or self._read_process_record(app_id)
+            if record and self._process_group_members(record):
+                return {
+                    "state": "running",
+                    "active": True,
+                    "pid": int(record["pgid"]),
+                    "mode": "process_runner"
+                }
 
-        orphan_pids = self._find_app_pids(app_id)
-        if orphan_pids:
-            return {"state": "running", "active": True, "pid": orphan_pids[0], "mode": "process_runner"}
-        return {"state": "stopped", "active": False, "mode": "process_runner"}
+            if record:
+                self._process_record_path(app_id).unlink(missing_ok=True)
+            if proc_info:
+                exit_code = proc_info["process"].poll()
+                if proc_info.get("log_handle"):
+                    proc_info["log_handle"].close()
+                self.processes.pop(app_id, None)
+                if exit_code is not None and exit_code != 0:
+                    return {"state": "failed", "active": False, "exit_code": exit_code, "mode": "process_runner"}
+            return {"state": "stopped", "active": False, "mode": "process_runner"}
 
     def install_and_activate(self, app_id: str, version: str, staging_dir: Path, manifest: dict):
-        app_dir = self.apps_dir / app_id
-        app_dir.mkdir(parents=True, exist_ok=True)
-        version_dir = app_dir / "versions" / version
-        current_symlink = app_dir / "current"
-        meta_file = app_dir / "metadata.json"
+        validate_app_id(app_id)
+        if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
+            raise ValueError("Invalid version; it must be a safe single path component")
+        with self._app_lock(app_id):
+            app_dir = self._app_dir(app_id)
+            meta_file = app_dir / "metadata.json"
+            app_dir.mkdir(parents=True, exist_ok=True)
+            versions_dir = app_dir / "versions"
+            if versions_dir.is_symlink():
+                raise ValueError("Application versions directory cannot be a symbolic link")
+            versions_dir.mkdir(parents=True, exist_ok=True)
+            versions_root = versions_dir.resolve()
+            if not versions_root.is_relative_to(app_dir.resolve()):
+                raise ValueError("Application versions directory must remain inside the app directory")
+            version_dir = versions_dir / version
+            old_metadata = self._read_metadata(app_id)
+            current_link = app_dir / "current"
+            old_target = os.readlink(current_link) if current_link.is_symlink() else None
+            was_running = self.get_application_status(app_id)["state"] == "running"
+            if version_dir.exists() or version_dir.is_symlink():
+                raise ValueError(f"Version '{version}' is already installed and cannot be overwritten")
 
-        # Read existing metadata to preserve previous known good version
-        prev_version = None
-        if meta_file.exists():
+            candidate_dir = versions_dir / f".{version}.staging-{uuid.uuid4().hex}"
             try:
-                with open(meta_file, "r", encoding="utf-8") as f:
-                    old_meta = json.load(f)
-                    prev_version = old_meta.get("active_version")
+                shutil.move(str(staging_dir), str(candidate_dir))
+                os.replace(candidate_dir, version_dir)
             except Exception:
-                pass
-
-        # If previous version exists and differs, store as rollback candidate
-        if version_dir.exists():
-            shutil.rmtree(version_dir)
-        version_dir.parent.mkdir(parents=True, exist_ok=True)
-
-        # Move from staging to permanent version dir
-        shutil.move(str(staging_dir), str(version_dir))
-
-        # Update symlink atomically
-        temp_symlink = app_dir / f"current.tmp.{os.getpid()}"
-        if temp_symlink.exists():
-            temp_symlink.unlink()
-        temp_symlink.symlink_to(f"versions/{version}")
-        os.replace(str(temp_symlink), str(current_symlink))
-
-        # Write metadata
-        metadata = {
-            "app_id": app_id,
-            "name": manifest.get("name", app_id),
-            "description": manifest.get("description", ""),
-            "active_version": version,
-            "previous_known_good_version": prev_version if prev_version != version else None,
-            "runtime": manifest["runtime"],
-            "entrypoint": manifest["entrypoint"],
-            "target_architecture": manifest.get("target_architecture", self.config.target_architecture),
-            "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        }
-        with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
-
-        # Start application
-        self.start_application(app_id)
-        return metadata
+                shutil.rmtree(candidate_dir, ignore_errors=True)
+                raise
+            previous_version = (old_metadata or {}).get("active_version")
+            metadata = {
+                "app_id": app_id,
+                "name": manifest.get("name", app_id),
+                "description": manifest.get("description", ""),
+                "active_version": version,
+                "previous_known_good_version": (
+                    previous_version if previous_version != version else None
+                ),
+                "runtime": manifest["runtime"],
+                "entrypoint": manifest["entrypoint"],
+                "args": manifest.get("args", []),
+                "target_architecture": manifest.get(
+                    "target_architecture", self.config.target_architecture
+                ),
+                "installed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            }
+            try:
+                self._set_current_version(app_dir, version)
+                self._write_metadata(meta_file, metadata)
+                self.start_application(app_id)
+            except Exception:
+                self.stop_application(app_id)
+                if old_target is None:
+                    current_link.unlink(missing_ok=True)
+                else:
+                    self._replace_current_link(app_dir, old_target)
+                if old_metadata is None:
+                    meta_file.unlink(missing_ok=True)
+                else:
+                    self._write_metadata(meta_file, old_metadata)
+                shutil.rmtree(version_dir, ignore_errors=True)
+                if was_running:
+                    self.start_application(app_id)
+                raise
+            return metadata
 
     def start_application(self, app_id: str):
-        app = self.get_application(app_id)
-        if not app:
-            raise ValueError(f"Application '{app_id}' not found")
+        with self._app_lock(app_id):
+            app = self.get_application(app_id)
+            if not app:
+                raise ValueError(f"Application '{app_id}' not found")
 
-        # Never leave a previous instance running
-        self.stop_application(app_id)
-        current_dir = self.apps_dir / app_id / "current"
-        entrypoint = current_dir / app["entrypoint"]
-        runtime = app["runtime"]
+            self.stop_application(app_id)
+            current_dir = self._app_dir(app_id) / "current"
+            entrypoint = BenchmarkValidator._resolve_bundle_file(
+                current_dir, app.get("entrypoint")
+            )
+            if entrypoint is None:
+                raise ValueError("Installed entrypoint is invalid")
+            args = app.get("args", [])
+            if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
+                raise ValueError("Installed application arguments are invalid")
+            cmd = ([sys.executable, str(entrypoint)] if app["runtime"] == "python"
+                   else [str(entrypoint)]) + args
 
-        log_file = self.logs_dir / f"{app_id}.log"
-        out_f = open(log_file, "a", encoding="utf-8")
+            log_file = self.logs_dir / f"{app_id}.log"
+            out_f = open(log_file, "a", encoding="utf-8")
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    cwd=str(current_dir),
+                    stdout=out_f,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                    preexec_fn=self._drop_privileges
+                )
+                stat = self._read_proc_stat(proc.pid)
+                if stat is None:
+                    raise RuntimeError("Unable to record application process identity")
+                record = {
+                    "pgid": proc.pid,
+                    "start_time": stat["start_time"],
+                    "boot_id": self._boot_id()
+                }
+                if not record["boot_id"]:
+                    raise RuntimeError("Unable to record the system boot ID")
+                self._write_process_record(app_id, record)
+            except Exception:
+                out_f.close()
+                if "proc" in locals():
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait(timeout=1)
+                raise
+            self.processes[app_id] = {
+                "process": proc,
+                "start_time": time.time(),
+                "log_handle": out_f,
+                "record": record
+            }
+            logger.info(f"Started application {app_id} via process runner (PID {proc.pid})")
+            return True
 
-        if runtime == "python":
-            cmd = [sys.executable, str(entrypoint)]
-        else:
-            cmd = [str(entrypoint)]
-
-        proc = subprocess.Popen(
-            cmd,
-            cwd=str(current_dir),
-            stdout=out_f,
-            stderr=subprocess.STDOUT,
-            text=True,
-            preexec_fn=self._drop_privileges
-        )
-        self.processes[app_id] = {
-            "process": proc,
-            "start_time": time.time(),
-            "log_handle": out_f
-        }
-        logger.info(f"Started application {app_id} via process runner (PID {proc.pid})")
-        return True
+    def restart_application(self, app_id: str):
+        with self._app_lock(app_id):
+            self.stop_application(app_id)
+            return self.start_application(app_id)
 
     def _drop_privileges(self):
         if os.geteuid() != 0:
             return None
-        try:
-            account = pwd.getpwnam(self.app_user)
-        except KeyError:
-            return None
-
-        def drop_identity():
-            os.initgroups(account.pw_name, account.pw_gid)
-            os.setgid(account.pw_gid)
-            os.setuid(account.pw_uid)
-
-        return drop_identity
+        if not self.app_user:
+            raise RuntimeError("An unprivileged app_user must be configured")
+        account = pwd.getpwnam(self.app_user)
+        os.initgroups(account.pw_name, account.pw_gid)
+        os.setgid(account.pw_gid)
+        os.setuid(account.pw_uid)
 
     def stop_application(self, app_id: str):
-        proc_info = self.processes.get(app_id)
-        if proc_info and proc_info.get("process"):
-            proc = proc_info["process"]
-            proc.terminate()
-            try:
-                proc.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-            if proc_info.get("log_handle"):
-                proc_info["log_handle"].close()
-            del self.processes[app_id]
-        self._kill_app_pids(app_id)
-        logger.info(f"Stopped application {app_id}")
-        return True
+        with self._app_lock(app_id):
+            proc_info = self.processes.get(app_id)
+            record = (proc_info or {}).get("record") or self._read_process_record(app_id)
+            if record:
+                self._terminate_app_group(app_id, record)
+                self._process_record_path(app_id).unlink(missing_ok=True)
+            if proc_info:
+                proc = proc_info["process"]
+                if proc.poll() is None:
+                    proc.wait(timeout=1)
+                if proc_info.get("log_handle"):
+                    proc_info["log_handle"].close()
+                self.processes.pop(app_id, None)
+            logger.info(f"Stopped application {app_id}")
+            return True
 
     def rollback_application(self, app_id: str):
-        app = self.get_application(app_id)
-        if not app:
-            raise ValueError(f"Application '{app_id}' not found")
+        with self._app_lock(app_id):
+            current_metadata = self._read_metadata(app_id)
+            if not current_metadata:
+                raise ValueError(f"Application '{app_id}' not found")
+            prev_version = current_metadata.get("previous_known_good_version")
+            if not isinstance(prev_version, str) or not VERSION_PATTERN.fullmatch(prev_version):
+                raise ValueError("No previous known-good version recorded for rollback")
 
-        prev_version = app.get("previous_known_good_version")
-        if not prev_version:
-            raise ValueError("No previous known-good version recorded for rollback")
+            app_dir = self._app_dir(app_id)
+            versions_dir = app_dir / "versions"
+            target_dir = versions_dir / prev_version
+            manifest_path = target_dir / "manifest.json"
+            if (versions_dir.is_symlink() or target_dir.is_symlink()
+                    or not target_dir.is_dir() or not manifest_path.is_file()
+                    or not target_dir.resolve().is_relative_to(versions_dir.resolve())):
+                raise ValueError(f"Previous version directory '{prev_version}' missing")
+            with manifest_path.open("r", encoding="utf-8") as manifest_file:
+                manifest = json.load(manifest_file)
+            if not isinstance(manifest, dict):
+                raise ValueError(f"Previous version '{prev_version}' has an invalid manifest")
 
-        app_dir = self.apps_dir / app_id
-        target_dir = app_dir / "versions" / prev_version
-        if not target_dir.exists():
-            raise ValueError(f"Previous version directory '{prev_version}' missing")
-
-        self.stop_application(app_id)
-
-        # Switch symlink
-        current_symlink = app_dir / "current"
-        temp_symlink = app_dir / f"current.tmp.{os.getpid()}"
-        temp_symlink.symlink_to(f"versions/{prev_version}")
-        os.replace(str(temp_symlink), str(current_symlink))
-
-        # Update metadata
-        current_active = app["active_version"]
-        app["active_version"] = prev_version
-        app["previous_known_good_version"] = current_active
-        app["rolled_back_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        with open(app_dir / "metadata.json", "w", encoding="utf-8") as f:
-            json.dump(app, f, indent=2)
-
-        self.start_application(app_id)
-        logger.info(f"Rolled back application {app_id} to v{prev_version}")
-        return app
+            old_target = os.readlink(app_dir / "current")
+            was_running = self.get_application_status(app_id)["state"] == "running"
+            metadata = dict(current_metadata)
+            metadata.update({
+                "active_version": prev_version,
+                "previous_known_good_version": current_metadata["active_version"],
+                "runtime": manifest["runtime"],
+                "entrypoint": manifest["entrypoint"],
+                "args": manifest.get("args", []),
+                "target_architecture": manifest.get(
+                    "target_architecture", self.config.target_architecture
+                ),
+                "rolled_back_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            })
+            metadata.pop("status", None)
+            try:
+                self.stop_application(app_id)
+                self._set_current_version(app_dir, prev_version)
+                self._write_metadata(app_dir / "metadata.json", metadata)
+                self.start_application(app_id)
+            except Exception:
+                self.stop_application(app_id)
+                self._replace_current_link(app_dir, old_target)
+                self._write_metadata(app_dir / "metadata.json", current_metadata)
+                if was_running:
+                    self.start_application(app_id)
+                raise
+            logger.info(f"Rolled back application {app_id} to v{prev_version}")
+            return metadata
 
     def remove_application(self, app_id: str):
-        self.stop_application(app_id)
-        app_dir = self.apps_dir / app_id
-        if app_dir.exists():
-            shutil.rmtree(app_dir)
-        (self.logs_dir / f"{app_id}.log").unlink(missing_ok=True)
-        logger.info(f"Removed application {app_id}")
-        return True
+        with self._app_lock(app_id):
+            self.stop_application(app_id)
+            app_dir = self._app_dir(app_id)
+            if app_dir.exists():
+                shutil.rmtree(app_dir)
+            (self.logs_dir / f"{app_id}.log").unlink(missing_ok=True)
+            logger.info(f"Removed application {app_id}")
+            return True
 
     def get_logs(self, app_id: str, lines=100):
-        log_file = self.logs_dir / f"{app_id}.log"
+        log_file = self.logs_dir / f"{validate_app_id(app_id)}.log"
         if log_file.exists():
             try:
-                with open(log_file, "r", encoding="utf-8", errors="replace") as f:
-                    all_lines = f.readlines()
-                    return "".join(all_lines[-lines:])
+                lines = max(1, min(int(lines), 1000))
+                max_bytes = 1024 * 1024
+                chunks = []
+                bytes_read = 0
+                newline_count = 0
+                with log_file.open("rb") as log:
+                    position = log.seek(0, os.SEEK_END)
+                    while position > 0 and newline_count <= lines and bytes_read < max_bytes:
+                        chunk_size = min(8192, position, max_bytes - bytes_read)
+                        position -= chunk_size
+                        log.seek(position)
+                        chunk = log.read(chunk_size)
+                        chunks.append(chunk)
+                        bytes_read += len(chunk)
+                        newline_count += chunk.count(b"\n")
+                content = b"".join(reversed(chunks)).splitlines(keepends=True)[-lines:]
+                return b"".join(content).decode("utf-8", errors="replace")
             except Exception as e:
                 return f"Error reading log file: {e}"
         return "No logs available yet."
@@ -863,6 +1169,19 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
 
         return False
 
+    @staticmethod
+    def _app_route_parts(path, expected_count):
+        parts = path.split("/")
+        if (len(parts) != expected_count
+                or parts[:4] != ["", "api", "v1", "apps"]):
+            return None
+        try:
+            app_id = urllib.parse.unquote(parts[4], errors="strict")
+            validate_app_id(app_id)
+        except (UnicodeDecodeError, ValueError):
+            return None
+        return app_id, parts[5:]
+
     def do_OPTIONS(self):
         origin = self.headers.get("Origin")
         if origin and origin not in self.config.allowed_origins:
@@ -893,15 +1212,19 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
             apps = self.app_manager.list_applications()
             self._send_json(200, {"success": True, "count": len(apps), "data": apps})
 
-        elif path.startswith("/api/v1/apps/") and path.endswith("/logs"):
-            app_id = path.split("/")[4]
+        elif self._app_route_parts(path, 6) and self._app_route_parts(path, 6)[1] == ["logs"]:
+            app_id = self._app_route_parts(path, 6)[0]
             qs = urllib.parse.parse_qs(parsed.query)
-            lines = int(qs.get("lines", ["100"])[0])
+            try:
+                lines = int(qs.get("lines", ["100"])[0])
+            except ValueError:
+                self._send_error_json(400, "Log line count must be an integer")
+                return
             logs = self.app_manager.get_logs(app_id, lines=lines)
             self._send_json(200, {"success": True, "app_id": app_id, "logs": logs})
 
-        elif path.startswith("/api/v1/apps/"):
-            app_id = path.split("/")[4]
+        elif self._app_route_parts(path, 5):
+            app_id = self._app_route_parts(path, 5)[0]
             app = self.app_manager.get_application(app_id)
             if app:
                 self._send_json(200, {"success": True, "data": app})
@@ -922,37 +1245,24 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/apps/upload":
             self._handle_upload()
 
-        elif path.startswith("/api/v1/apps/") and path.endswith("/start"):
-            app_id = path.split("/")[4]
+        elif self._app_route_parts(path, 6):
+            app_id, suffix = self._app_route_parts(path, 6)
+            if len(suffix) != 1 or suffix[0] not in {"start", "stop", "restart", "rollback"}:
+                self._send_error_json(404, "Endpoint not found")
+                return
             try:
-                self.app_manager.start_application(app_id)
-                self._send_json(200, {"success": True, "message": f"Application '{app_id}' started"})
-            except Exception as e:
-                self._send_error_json(400, str(e))
-
-        elif path.startswith("/api/v1/apps/") and path.endswith("/stop"):
-            app_id = path.split("/")[4]
-            try:
-                self.app_manager.stop_application(app_id)
-                self._send_json(200, {"success": True, "message": f"Application '{app_id}' stopped"})
-            except Exception as e:
-                self._send_error_json(400, str(e))
-
-        elif path.startswith("/api/v1/apps/") and path.endswith("/restart"):
-            app_id = path.split("/")[4]
-            try:
-                self.app_manager.stop_application(app_id)
-                time.sleep(0.5)
-                self.app_manager.start_application(app_id)
-                self._send_json(200, {"success": True, "message": f"Application '{app_id}' restarted"})
-            except Exception as e:
-                self._send_error_json(400, str(e))
-
-        elif path.startswith("/api/v1/apps/") and path.endswith("/rollback"):
-            app_id = path.split("/")[4]
-            try:
-                updated = self.app_manager.rollback_application(app_id)
-                self._send_json(200, {"success": True, "message": f"Rolled back to v{updated['active_version']}", "data": updated})
+                if suffix[0] == "start":
+                    self.app_manager.start_application(app_id)
+                    self._send_json(200, {"success": True, "message": f"Application '{app_id}' started"})
+                elif suffix[0] == "stop":
+                    self.app_manager.stop_application(app_id)
+                    self._send_json(200, {"success": True, "message": f"Application '{app_id}' stopped"})
+                elif suffix[0] == "restart":
+                    self.app_manager.restart_application(app_id)
+                    self._send_json(200, {"success": True, "message": f"Application '{app_id}' restarted"})
+                else:
+                    updated = self.app_manager.rollback_application(app_id)
+                    self._send_json(200, {"success": True, "message": f"Rolled back to v{updated['active_version']}", "data": updated})
             except Exception as e:
                 self._send_error_json(400, str(e))
 
@@ -967,8 +1277,9 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
             self._send_error_json(401, "Unauthorized: Invalid or missing Bearer token")
             return
 
-        if path.startswith("/api/v1/apps/"):
-            app_id = path.split("/")[4]
+        route = self._app_route_parts(path, 5)
+        if route:
+            app_id = route[0]
             try:
                 self.app_manager.remove_application(app_id)
                 self._send_json(200, {"success": True, "message": f"Application '{app_id}' removed"})
@@ -979,48 +1290,34 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
 
     def _handle_upload(self):
         content_type = self.headers.get("Content-Type", "")
-        content_length = int(self.headers.get("Content-Length", 0))
-
-        if content_length == 0:
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self._send_error_json(400, "Invalid Content-Length")
+            return
+        if content_length <= 0:
             self._send_error_json(400, "Empty payload")
             return
 
-        staging_id = f"upload_{int(time.time())}_{os.getpid()}"
-        staging_dir = Path(self.config.staging_dir) / staging_id
-        staging_dir.mkdir(parents=True, exist_ok=True)
+        max_upload_bytes = self.config.max_upload_size_mb * 1024 * 1024
+        multipart = content_type.lower().startswith("multipart/form-data")
+        max_request_bytes = max_upload_bytes + (65536 if multipart else 0)
+        if content_length > max_request_bytes:
+            self._send_error_json(413, "Request exceeds the configured upload limit")
+            return
+
+        Path(self.config.staging_dir).mkdir(parents=True, exist_ok=True)
+        staging_dir = Path(tempfile.mkdtemp(
+            prefix="upload_", dir=self.config.staging_dir
+        ))
         archive_path = staging_dir / "package.tar.gz"
         extract_dir = staging_dir / "unpacked"
 
         try:
-            # Read payload
-            if "multipart/form-data" in content_type:
-                # Extract binary body from multipart
-                boundary = content_type.split("boundary=")[-1].encode("utf-8")
-                raw_data = self.rfile.read(content_length)
-                parts = raw_data.split(b"--" + boundary)
-                file_bytes = None
-                for part in parts:
-                    if b'filename="' in part:
-                        header_end = part.find(b"\r\n\r\n")
-                        if header_end != -1:
-                            file_bytes = part[header_end + 4 :].rstrip(b"\r\n")
-                            break
-                if not file_bytes:
-                    self._send_error_json(400, "Could not find file in multipart data")
-                    shutil.rmtree(staging_dir, ignore_errors=True)
-                    return
-                with open(archive_path, "wb") as f:
-                    f.write(file_bytes)
+            if multipart:
+                self._stream_multipart_file(content_type, content_length, archive_path, max_upload_bytes)
             else:
-                # Raw binary stream
-                with open(archive_path, "wb") as f:
-                    remaining = content_length
-                    while remaining > 0:
-                        chunk = self.rfile.read(min(remaining, 65536))
-                        if not chunk:
-                            break
-                        f.write(chunk)
-                        remaining -= len(chunk)
+                self._stream_raw_file(content_length, archive_path, max_upload_bytes)
 
             # ---------------- Run 5-Stage Benchmarks ----------------
             benchmark_results = self.validator.validate_package(archive_path, extract_dir)
@@ -1030,7 +1327,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
                     "stage_failed": "Static Validation",
                     "benchmark_results": benchmark_results
                 })
-                shutil.rmtree(staging_dir, ignore_errors=True)
                 return
 
             manifest = benchmark_results["manifest"]
@@ -1040,7 +1336,9 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
             entrypoint = extract_dir / manifest["entrypoint"]
 
             # Run Stage 5: Startup Smoke Benchmark
-            smoke_res = self.validator.run_smoke_test(entrypoint, runtime, manifest.get("args", []))
+            smoke_res = self.validator.run_smoke_test(
+                entrypoint, runtime, manifest.get("args", []), cwd=extract_dir
+            )
             s5 = benchmark_results["stages"]["stage5_startup_smoke"]
             if not smoke_res["passed"]:
                 s5["passed"] = False
@@ -1053,7 +1351,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
                     "error": smoke_res["error"],
                     "benchmark_results": benchmark_results
                 })
-                shutil.rmtree(staging_dir, ignore_errors=True)
                 return
 
             s5["passed"] = True
@@ -1062,8 +1359,6 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
 
             # ---------------- Promote to Installed Apps ----------------
             app_meta = self.app_manager.install_and_activate(app_id, version, extract_dir, manifest)
-            archive_path.unlink(missing_ok=True)
-            shutil.rmtree(staging_dir, ignore_errors=True)
 
             self._send_json(201, {
                 "success": True,
@@ -1074,8 +1369,106 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
 
         except Exception as e:
             logger.error(f"Upload error: {e}", exc_info=True)
-            self._send_error_json(500, f"Internal deployment error: {e}")
+            self._send_error_json(400 if isinstance(e, ValueError) else 500,
+                                  f"Upload failed: {e}")
+        finally:
             shutil.rmtree(staging_dir, ignore_errors=True)
+
+    def _stream_raw_file(self, content_length, archive_path, max_upload_bytes):
+        written = 0
+        with archive_path.open("wb") as archive:
+            while written < content_length:
+                chunk = self.rfile.read(min(65536, content_length - written))
+                if not chunk:
+                    raise ValueError("Request body ended before Content-Length bytes were received")
+                written += len(chunk)
+                if written > max_upload_bytes:
+                    raise ValueError("Upload exceeds the configured file size limit")
+                archive.write(chunk)
+
+    def _stream_multipart_file(self, content_type, content_length, archive_path, max_upload_bytes):
+        content_header = Message()
+        content_header["content-type"] = content_type
+        boundary = content_header.get_param("boundary", header="content-type")
+        if not isinstance(boundary, str) or not boundary or len(boundary) > 70:
+            raise ValueError("Invalid multipart boundary")
+        try:
+            boundary_bytes = boundary.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("Invalid multipart boundary") from error
+
+        remaining = content_length
+
+        def read_line(limit):
+            nonlocal remaining
+            if remaining <= 0:
+                raise ValueError("Incomplete multipart request")
+            line = self.rfile.readline(min(limit, remaining))
+            if (not line or (len(line) == limit and not line.endswith(b"\r\n"))):
+                raise ValueError("Multipart header exceeds the allowed size")
+            remaining -= len(line)
+            return line
+
+        if read_line(128) != b"--" + boundary_bytes + b"\r\n":
+            raise ValueError("Invalid multipart opening boundary")
+
+        header_bytes = 0
+        header_lines = []
+        while True:
+            line = read_line(8192)
+            header_bytes += len(line)
+            if header_bytes > 16384:
+                raise ValueError("Multipart headers exceed the allowed size")
+            if line == b"\r\n":
+                break
+            header_lines.append(line)
+        part_headers = message_from_bytes(b"".join(header_lines))
+        disposition = part_headers.get("Content-Disposition")
+        if not disposition:
+            raise ValueError("Multipart request does not contain a file")
+        disposition_header = Message()
+        disposition_header["content-disposition"] = disposition
+        if (disposition_header.get_content_disposition() != "form-data"
+                or disposition_header.get_param("filename", header="content-disposition") is None):
+            raise ValueError("Multipart request does not contain a file")
+
+        marker = b"\r\n--" + boundary_bytes + b"--\r\n"
+        buffer = bytearray()
+        written = 0
+        found_end = False
+        with archive_path.open("wb") as archive:
+            while remaining > 0:
+                chunk = self.rfile.read(min(65536, remaining))
+                if not chunk:
+                    raise ValueError("Request body ended before Content-Length bytes were received")
+                remaining -= len(chunk)
+                buffer.extend(chunk)
+                marker_index = buffer.find(marker)
+                if marker_index >= 0:
+                    file_chunk = buffer[:marker_index]
+                    written += len(file_chunk)
+                    if written > max_upload_bytes:
+                        raise ValueError("Upload exceeds the configured file size limit")
+                    archive.write(file_chunk)
+                    trailing = buffer[marker_index + len(marker):]
+                    found_end = True
+                    if trailing:
+                        raise ValueError("Unexpected data after multipart file")
+                    break
+                safe_bytes = len(buffer) - len(marker) + 1
+                if safe_bytes > 0:
+                    written += safe_bytes
+                    if written > max_upload_bytes:
+                        raise ValueError("Upload exceeds the configured file size limit")
+                    archive.write(buffer[:safe_bytes])
+                    del buffer[:safe_bytes]
+
+        if not found_end:
+            raise ValueError("Multipart file boundary is missing")
+        if remaining:
+            raise ValueError("Unexpected additional multipart fields")
+        if written == 0:
+            raise ValueError("Uploaded file is empty")
 
 def run_server(config_file=None):
     cfg = DeploymentConfig(config_file)

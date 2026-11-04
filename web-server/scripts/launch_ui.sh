@@ -61,7 +61,8 @@ if [[ "$target" != "--no-tunnel" ]]; then
         -L "$API_PORT:127.0.0.1:$PI_API_PORT" "$target"
 fi
 
-if curl -fsS --max-time 5 "http://127.0.0.1:$API_PORT/api/v1/session" | grep -q authenticated; then
+if curl -fsS --max-time 5 -H "Origin: http://localhost:$UI_PORT" \
+    -o /dev/null "http://127.0.0.1:$API_PORT/api/v1/apps"; then
     echo "Pi API reachable on http://127.0.0.1:$API_PORT"
 else
     echo "Warning: the Pi API did not answer. Check that sdv-deployer.service is running on the Pi." >&2

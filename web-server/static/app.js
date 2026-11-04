@@ -404,6 +404,13 @@ async function fetchApplications(silent = false) {
 }
 
 function renderAppCard(app) {
+    const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
+    })[character]);
     const status = app.status || {};
     const state = status.state || "unknown";
     let badgeClass = "badge-neutral";
@@ -418,18 +425,20 @@ function renderAppCard(app) {
     }
 
     const hasRollback = !!app.previous_known_good_version;
+    const appId = escapeHtml(app.app_id);
+    const previousVersion = escapeHtml(app.previous_known_good_version);
 
     return `
-        <div class="app-card" data-app-id="${app.app_id}">
+        <div class="app-card" data-app-id="${appId}">
             <div class="app-card-header">
-                <span class="app-title">${app.name || app.app_id}</span>
-                <span class="badge ${badgeClass}">${stateLabel}</span>
+                <span class="app-title">${escapeHtml(app.name || app.app_id)}</span>
+                <span class="badge ${badgeClass}">${escapeHtml(stateLabel)}</span>
             </div>
             <div class="app-meta">
-                <div><strong>ID:</strong> ${app.app_id}</div>
-                <div><strong>Active Version:</strong> v${app.active_version}</div>
-                <div><strong>Runtime:</strong> ${app.runtime} (${app.target_architecture})</div>
-                <div><strong>Previous Good Version:</strong> ${app.previous_known_good_version ? `v${app.previous_known_good_version}` : "None"}</div>
+                <div><strong>ID:</strong> ${appId}</div>
+                <div><strong>Active Version:</strong> v${escapeHtml(app.active_version)}</div>
+                <div><strong>Runtime:</strong> ${escapeHtml(app.runtime)} (${escapeHtml(app.target_architecture)})</div>
+                <div><strong>Previous Good Version:</strong> ${app.previous_known_good_version ? `v${previousVersion}` : "None"}</div>
             </div>
             <div class="app-actions">
                 ${state === "running" 
@@ -437,7 +446,7 @@ function renderAppCard(app) {
                     : `<button class="btn btn-success btn-sm action-btn" data-action="start">Start</button>`
                 }
                 <button class="btn btn-secondary btn-sm action-btn" data-action="restart">Restart</button>
-                ${hasRollback ? `<button class="btn btn-outline btn-sm action-btn" data-action="rollback" title="Rollback to v${app.previous_known_good_version}">Rollback</button>` : ""}
+                ${hasRollback ? `<button class="btn btn-outline btn-sm action-btn" data-action="rollback" title="Rollback to v${previousVersion}">Rollback</button>` : ""}
                 <button class="btn btn-primary btn-sm action-btn" data-action="logs">Logs</button>
                 <button class="btn btn-danger btn-sm action-btn" data-action="delete">Remove</button>
             </div>

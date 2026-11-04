@@ -30,7 +30,7 @@ Run the installer with `sudo` from the regular user that should own the deployme
 - installs `sdv-deployer.service`, which runs as `<user>` with `MemoryMax` and `CPUQuota` limits (default `512M` and `100%`; override with `SDV_MEMORY_MAX` and `SDV_CPU_QUOTA`, for example `sudo SDV_MEMORY_MAX=768M SDV_CPU_QUOTA=150% bash deploy/install.sh`);
 - enables the service at boot and starts it, bound to `127.0.0.1:8443`.
 
-Deployed applications are not separate services. The deployer starts each one as a normal process from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
+Deployed applications are not separate services. The deployer starts each one from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. App process groups are recorded per application so Stop and Remove target the app and its descendants without matching unrelated processes. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
 
 ## Laptop connection using SSH
 
@@ -61,7 +61,7 @@ While the laptop UI's Logs view is open, it polls the selected app's log endpoin
 
 There is no sign-in. The API accepts requests from the configured UI origins (`allowed_origins`) or with the configured Bearer token (`Authorization: Bearer <auth_token>`), and reaches only through the SSH tunnel.
 
-Each upload request installs or updates one `app_id`. Multiple distinct IDs can be installed and run concurrently; uploading another version under an existing ID updates that app. The laptop UI sends selected bundles one at a time. Its Logs view can fetch one app or combine recent logs from all installed apps by requesting each app's log endpoint.
+Each upload request installs or updates one `app_id`. Multiple distinct IDs can be installed and run concurrently; uploading a new version under an existing ID keeps the previous version for Rollback. Installed version directories are immutable, so uploading an already-installed version is rejected. Archives are limited to 100 MB compressed, 512 MB expanded, and 10,000 regular-file/directory members. The laptop UI sends selected bundles one at a time. Its Logs view can fetch one app or combine recent logs from all installed apps by requesting each app's log endpoint.
 
 ## Pi-side storage
 

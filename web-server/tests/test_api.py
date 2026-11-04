@@ -10,11 +10,13 @@ import platform
 import time
 import shutil
 import hashlib
+import re
 import subprocess
 import tarfile
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 import urllib.request
 import urllib.error
 from pathlib import Path
@@ -71,6 +73,8 @@ class TestDeploymentApi(unittest.TestCase):
     def tearDownClass(cls):
         cls.httpd.shutdown()
         cls.httpd.server_close()
+        for app_id in list(cls.app_manager.processes):
+            cls.app_manager.stop_application(app_id)
         shutil.rmtree(cls.test_dir, ignore_errors=True)
 
     def _request(self, method, path, body=None, token="test-token-12345", origin=None, content_type="application/json"):
@@ -153,6 +157,62 @@ class TestDeploymentApi(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(data["count"], 0)
 
+    def test_invalid_delete_route_does_not_remove_apps_directory(self):
+        apps_dir = Path(self.config.apps_dir)
+        sentinel = apps_dir / "keep.txt"
+        sentinel.write_text("keep", encoding="utf-8")
+        try:
+            for path in ("/api/v1/apps/", "/api/v1/apps/..", "/api/v1/apps/../other"):
+                status, _ = self._request("DELETE", path)
+                self.assertEqual(status, 404)
+            self.assertTrue(sentinel.exists())
+        finally:
+            sentinel.unlink(missing_ok=True)
+
+    def test_upload_rejects_oversized_request_before_body_processing(self):
+        previous_limit = self.config.max_upload_size_mb
+        self.config.max_upload_size_mb = 0
+        try:
+            status, data = self._request(
+                "POST", "/api/v1/apps/upload", body=b"x",
+                content_type="application/gzip"
+            )
+        finally:
+            self.config.max_upload_size_mb = previous_limit
+        self.assertEqual(status, 413)
+        self.assertFalse(data["success"])
+
+    def test_multipart_upload_streams_a_single_file_bundle(self):
+        package_dir = self.test_dir / "multipart_pkg"
+        package_dir.mkdir()
+        (package_dir / "manifest.json").write_text(json.dumps({
+            "app_id": "multipart-app",
+            "version": "1.0.0",
+            "runtime": "python",
+            "entrypoint": "main.py",
+        }), encoding="utf-8")
+        (package_dir / "main.py").write_text("print('multipart bundle')\n", encoding="utf-8")
+        archive_path = self.test_dir / "multipart.tar.gz"
+        with tarfile.open(archive_path, "w:gz") as archive:
+            archive.add(package_dir / "manifest.json", arcname="manifest.json")
+            archive.add(package_dir / "main.py", arcname="main.py")
+
+        boundary = "test-upload-boundary"
+        body = (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="package"; filename="bundle.tar.gz"\r\n'
+            "Content-Type: application/gzip\r\n\r\n"
+        ).encode() + archive_path.read_bytes() + f"\r\n--{boundary}--\r\n".encode()
+        try:
+            status, data = self._request(
+                "POST", "/api/v1/apps/upload", body=body,
+                content_type=f"multipart/form-data; boundary={boundary}"
+            )
+            self.assertEqual(status, 201, data)
+            self.assertEqual(data["app"]["app_id"], "multipart-app")
+        finally:
+            self._request("DELETE", "/api/v1/apps/multipart-app")
+
     def test_04_multiple_applications_and_individual_logs(self):
         examples = SERVER_ROOT / "examples"
         package_paths = [
@@ -195,23 +255,33 @@ class TestDeploymentApi(unittest.TestCase):
         pkg_dir = self.test_dir / "sample_pkg"
         pkg_dir.mkdir(parents=True, exist_ok=True)
 
-        py_content = "import time\nprint('App active')\ntime.sleep(30)\n"
+        py_content = (
+            "import json, subprocess, sys, time\n"
+            "settings = json.load(open('settings.json', encoding='utf-8'))\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            "print('App active', settings['mode'], sys.argv[1], 'child', child.pid, flush=True)\n"
+            "time.sleep(30)\n"
+        )
         py_hash = hashlib.sha256(py_content.encode("utf-8")).hexdigest()
         manifest = {
             "app_id": "test-pilot-app",
             "name": "Pilot App",
             "version": "1.0.0",
             "runtime": "python",
-            "entrypoint": "app.py",
-            "checksums": {"app.py": py_hash}
+            "entrypoint": "bin/app.py",
+            "args": ["hello"],
+            "checksums": {"bin/app.py": py_hash}
         }
         tar_path = self.test_dir / "pilot.tar.gz"
         (pkg_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        (pkg_dir / "app.py").write_text(py_content, encoding="utf-8")
+        (pkg_dir / "bin").mkdir(exist_ok=True)
+        (pkg_dir / "bin" / "app.py").write_text(py_content, encoding="utf-8")
+        (pkg_dir / "settings.json").write_text('{"mode": "root-cwd"}', encoding="utf-8")
 
         with tarfile.open(tar_path, "w:gz") as tar:
             tar.add(pkg_dir / "manifest.json", arcname="manifest.json")
-            tar.add(pkg_dir / "app.py", arcname="app.py")
+            tar.add(pkg_dir / "bin" / "app.py", arcname="bin/app.py")
+            tar.add(pkg_dir / "settings.json", arcname="settings.json")
 
         with open(tar_path, "rb") as f:
             tar_bytes = f.read()
@@ -220,6 +290,80 @@ class TestDeploymentApi(unittest.TestCase):
         self.assertEqual(status, 201)
         self.assertTrue(data["success"])
         self.assertEqual(data["app"]["app_id"], "test-pilot-app")
+
+        status, _ = self._request(
+            "POST", "/api/v1/apps/upload", body=tar_bytes,
+            content_type="application/gzip"
+        )
+        self.assertEqual(status, 400)
+
+        second_manifest = dict(manifest)
+        second_manifest.update({
+            "version": "2.0.0",
+            "entrypoint": "worker.py",
+            "args": ["world"],
+            "checksums": {}
+        })
+        second_script = (
+            "import json, subprocess, sys, time\n"
+            "settings = json.load(open('settings.json', encoding='utf-8'))\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            "print('App v2', settings['mode'], sys.argv[1], 'child', child.pid, flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        second_pkg = self.test_dir / "pilot-v2"
+        second_pkg.mkdir()
+        (second_pkg / "manifest.json").write_text(json.dumps(second_manifest), encoding="utf-8")
+        (second_pkg / "worker.py").write_text(second_script, encoding="utf-8")
+        (second_pkg / "settings.json").write_text('{"mode": "root-cwd-v2"}', encoding="utf-8")
+        second_tar = self.test_dir / "pilot-v2.tar.gz"
+        with tarfile.open(second_tar, "w:gz") as tar:
+            for name in ("manifest.json", "worker.py", "settings.json"):
+                tar.add(second_pkg / name, arcname=name)
+        status, data = self._request(
+            "POST", "/api/v1/apps/upload", body=second_tar.read_bytes(),
+            content_type="application/gzip"
+        )
+        self.assertEqual(status, 201, data)
+        self.assertEqual(data["app"]["active_version"], "2.0.0")
+        log_file = Path(self.config.logs_dir) / "test-pilot-app.log"
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and "root-cwd-v2 world" not in log_file.read_text():
+            time.sleep(0.05)
+        self.assertIn("root-cwd-v2 world", log_file.read_text())
+
+        failed_staging = self.test_dir / "failed-activation"
+        failed_staging.mkdir()
+        (failed_staging / "manifest.json").write_text(json.dumps({
+            "app_id": "test-pilot-app",
+            "version": "3.0.0",
+            "runtime": "python",
+            "entrypoint": "does-not-matter.py",
+        }), encoding="utf-8")
+        previous_start = self.app_manager.start_application
+        activation_calls = 0
+
+        def fail_then_restore(app_id):
+            nonlocal activation_calls
+            activation_calls += 1
+            if activation_calls == 1:
+                raise RuntimeError("activation failed")
+            return previous_start(app_id)
+
+        with patch.object(self.app_manager, "start_application", side_effect=fail_then_restore):
+            with self.assertRaisesRegex(RuntimeError, "activation failed"):
+                self.app_manager.install_and_activate(
+                    "test-pilot-app", "3.0.0", failed_staging,
+                    json.loads((second_pkg / "manifest.json").read_text())
+                )
+        self.assertEqual(
+            os.readlink(Path(self.config.apps_dir) / "test-pilot-app" / "current"),
+            "versions/2.0.0"
+        )
+        self.assertEqual(
+            self.app_manager.get_application("test-pilot-app")["active_version"],
+            "2.0.0"
+        )
 
         # Verify listed in apps
         status, data = self._request("GET", "/api/v1/apps")
@@ -247,31 +391,59 @@ class TestDeploymentApi(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("logs", data)
 
-        # Simulate an orphan left by an earlier API run: forget the tracked process.
+        status, data = self._request("POST", "/api/v1/apps/test-pilot-app/rollback")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["data"]["active_version"], "1.0.0")
+        self.assertEqual(data["data"]["entrypoint"], "bin/app.py")
+        self.assertEqual(data["data"]["args"], ["hello"])
+
+        unrelated = subprocess.Popen(
+            [
+                sys.executable, "-c", "import time; time.sleep(30)",
+                str(Path(self.config.apps_dir) / "test-pilot-app" / "current" / "unrelated.py")
+            ],
+            start_new_session=True
+        )
+
+        def cleanup_unrelated():
+            if unrelated.poll() is None:
+                unrelated.terminate()
+            unrelated.wait(timeout=2)
+
+        self.addCleanup(cleanup_unrelated)
+
+        # Simulate a process surviving an API restart: forget its in-memory handle.
         orphaned_process = self.app_manager.processes.pop("test-pilot-app")
         process = orphaned_process["process"]
         log_handle = orphaned_process["log_handle"]
+        app_log = Path(self.config.logs_dir) / "test-pilot-app.log"
+        deadline = time.monotonic() + 2
+        log_text = app_log.read_text()
+        while time.monotonic() < deadline and "child " not in log_text:
+            time.sleep(0.05)
+            log_text = app_log.read_text()
+        child_pid = int(re.findall(r"child (\d+)", log_text)[-1])
 
         def cleanup_orphaned_process():
             try:
-                if process.poll() is None:
-                    try:
-                        process.terminate()
-                    except ProcessLookupError:
-                        pass
-                    try:
-                        process.wait(timeout=2)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                self.app_manager.stop_application("test-pilot-app")
+                process.wait(timeout=2)
             finally:
-                log_handle.close()
+                if not log_handle.closed:
+                    log_handle.close()
 
         self.addCleanup(cleanup_orphaned_process)
-        self.assertEqual(len(self.app_manager._find_app_pids("test-pilot-app")), 1)
+        self.assertIn(process.pid, self.app_manager._process_group_members(orphaned_process["record"]))
         status, _ = self._request("POST", "/api/v1/apps/test-pilot-app/stop")
         self.assertEqual(status, 200)
-        self.assertEqual(self.app_manager._find_app_pids("test-pilot-app"), [])
+        self.assertFalse((Path(self.config.apps_dir) / "test-pilot-app" / "process.json").exists())
+        self.assertIsNone(unrelated.poll())
+        deadline = time.monotonic() + 2
+        child_stat = self.app_manager._read_proc_stat(child_pid)
+        while child_stat and child_stat["state"] not in {"Z", "X"} and time.monotonic() < deadline:
+            time.sleep(0.05)
+            child_stat = self.app_manager._read_proc_stat(child_pid)
+        self.assertTrue(child_stat is None or child_stat["state"] in {"Z", "X"})
 
         # Delete removes the app directory, processes and log file.
         status, data = self._request("DELETE", "/api/v1/apps/test-pilot-app")

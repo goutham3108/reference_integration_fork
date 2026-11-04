@@ -68,6 +68,45 @@ class TestValidationBenchmarks(unittest.TestCase):
         self.assertFalse(res["passed"])
         self.assertTrue(any("not a valid" in err.lower() for err in res["errors"]))
 
+    def test_stage1_expanded_size_limit_rejected_before_extraction(self):
+        self.config.max_expanded_size_mb = 0
+        tar_path = self._create_tar({
+            "manifest.json": "{}",
+            "large.txt": "x" * 4096,
+        })
+        extract_dir = self.test_dir / "extract_expanded_limit"
+
+        result = self.validator.validate_package(tar_path, extract_dir)
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("expanded size limit" in error for error in result["errors"]))
+        self.assertFalse(extract_dir.exists())
+
+    def test_stage1_member_count_limit_rejected(self):
+        self.config.max_archive_members = 1
+        tar_path = self._create_tar({
+            "first.txt": "one",
+            "second.txt": "two",
+        })
+
+        result = self.validator.validate_package(tar_path, self.test_dir / "extract_member_limit")
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("member limit" in error.lower() for error in result["errors"]))
+
+    def test_stage1_fifo_member_rejected(self):
+        tar_path = self.test_dir / "fifo.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tar:
+            member = tarfile.TarInfo("manifest.json")
+            member.type = tarfile.FIFOTYPE
+            tar.addfile(member)
+
+        result = self.validator.validate_package(tar_path, self.test_dir / "extract_fifo")
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("unsupported archive member type" in error.lower()
+                            for error in result["errors"]))
+
     # ------------ Stage 2: Manifest & Checksum Benchmark ------------
     def test_stage2_missing_manifest_rejected(self):
         tar_path = self._create_tar({"payload.txt": "hello world"})
@@ -101,6 +140,46 @@ class TestValidationBenchmarks(unittest.TestCase):
         res = self.validator.validate_package(tar_path, extract_dir)
         self.assertFalse(res["passed"])
         self.assertTrue(any("checksum mismatch" in err.lower() for err in res["errors"]))
+
+    def test_stage2_checksum_path_outside_bundle_rejected(self):
+        manifest = {
+            "app_id": "test-app",
+            "version": "1.0.0",
+            "runtime": "python",
+            "entrypoint": "main.py",
+            "checksums": {"/etc/passwd": "0" * 64}
+        }
+        tar_path = self._create_tar({
+            "manifest.json": json.dumps(manifest),
+            "main.py": "print('safe')\n",
+        })
+
+        result = self.validator.validate_package(tar_path, self.test_dir / "extract_checksum_path")
+
+        self.assertFalse(result["passed"])
+        self.assertTrue(any("checksum validation failed" in error.lower()
+                            for error in result["errors"]))
+
+    def test_stage2_unsafe_manifest_version_and_entrypoint_rejected(self):
+        for field, value in (("version", "../outside"), ("entrypoint", "../../etc/passwd")):
+            with self.subTest(field=field):
+                manifest = {
+                    "app_id": "test-app",
+                    "version": "1.0.0",
+                    "runtime": "python",
+                    "entrypoint": "main.py",
+                }
+                manifest[field] = value
+                tar_path = self._create_tar({
+                    "manifest.json": json.dumps(manifest),
+                    "main.py": "print('safe')\n",
+                }, tar_name=f"unsafe-{field}.tar.gz")
+
+                result = self.validator.validate_package(
+                    tar_path, self.test_dir / f"extract_unsafe_{field}"
+                )
+
+                self.assertFalse(result["passed"])
 
     # ------------ Stage 3: Compatibility Benchmark ------------
     def test_stage3_python_syntax_error_rejected(self):
@@ -160,6 +239,18 @@ class TestValidationBenchmarks(unittest.TestCase):
         smoke_res = self.validator.run_smoke_test(crashing_script, "python")
         self.assertFalse(smoke_res["passed"])
         self.assertTrue("crashed immediately" in smoke_res["error"].lower())
+
+    def test_stage5_smoke_test_drains_noisy_failure_with_bounded_output(self):
+        noisy_script = self.test_dir / "noisy.py"
+        noisy_script.write_text(
+            "import os, sys\nos.write(1, b'x' * 1000000)\nsys.exit(1)\n",
+            encoding="utf-8"
+        )
+
+        smoke_res = self.validator.run_smoke_test(noisy_script, "python")
+
+        self.assertFalse(smoke_res["passed"])
+        self.assertLessEqual(len(smoke_res["error"]), 8300)
 
     def test_stage5_smoke_test_healthy_app_passes(self):
         healthy_script = self.test_dir / "healthy.py"

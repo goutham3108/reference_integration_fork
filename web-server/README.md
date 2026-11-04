@@ -18,9 +18,11 @@ Deploy and run applications on a Raspberry Pi from a browser. The Pi runs a smal
 
 - The deployer is one systemd service, `sdv-deployer.service`. It runs as your Pi user, starts at boot, and has a memory and CPU limit (default `512M`, `100%`).
 - Apps are plain processes started by the deployer, not separate services. Each app lives in `/home/<user>/sdv-apps/<app-id>/` and logs to `/var/log/sdv-deployer/<app-id>.log`.
+- Apps run in tracked process groups so Stop and Remove target the app and its child processes, including after a deployer restart.
 - The service limit covers the deployer and its apps together.
 - Running apps survive a restart of the deployer.
 - Apps do not start by themselves after a Pi reboot. Press Start in the UI.
+- `web-server/deploy/install.sh` delegates to the supported non-root Pi installer in `pi-server/deploy/`.
 
 Requirements: Pi with Python 3.10+, `aarch64`, systemd, SSH access. Laptop with `python3` and `ssh`.
 
@@ -93,7 +95,7 @@ python3 -m http.server 8080 --bind 127.0.0.1 --directory web-server/laptop-ui
 4. **Logs**: choose one app. The log follows new lines every 2 seconds.
 5. **Deployed Applications**: Stop, Start, Restart, Rollback or Remove each app.
 
-Each app needs a unique `app_id`. Uploading an existing ID updates that app and keeps the previous version for Rollback.
+Each app needs a unique `app_id`. Uploading a new version for an existing ID keeps the previous version for Rollback. Installed version directories are immutable; uploading an already-installed version is rejected.
 
 ---
 
@@ -108,6 +110,7 @@ A `.tar.gz` with a `manifest.json` at its root:
   "version": "1.0.0",
   "runtime": "python",
   "entrypoint": "pi_heartbeat.py",
+  "args": [],
   "target_architecture": "aarch64",
   "checksums": { "pi_heartbeat.py": "<sha256 of the file>" }
 }
@@ -117,6 +120,7 @@ A `.tar.gz` with a `manifest.json` at its root:
 |---|---|
 | `runtime` | `python` or `native` (an AArch64 ELF binary) |
 | `entrypoint` | File to run, relative to the bundle root |
+| `args` | Optional list of string arguments passed to the application |
 | `checksums` | SHA-256 of each listed file, verified on the Pi |
 
 Create one:
@@ -132,7 +136,7 @@ Samples: `examples/hello-app` (Python heartbeat), `examples/sample_sdv_python_ap
 
 | Stage | Checks |
 |---|---|
-| 1. Archive safety | Valid tar, under 100 MB, no `..`, absolute paths or unsafe links |
+| 1. Archive safety | Compressed archive under 100 MB, expanded files under 512 MB, at most 10,000 regular files/directories, and no absolute paths or links |
 | 2. Manifest and checksums | Required fields, valid `app_id` and runtime, SHA-256 of every listed file |
 | 3. Compatibility | Native: AArch64 ELF header. Python: syntax compiles |
 | 4. Permissions and security | No setuid/setgid bits, entrypoint made executable |

@@ -20,6 +20,7 @@ import py_compile
 import subprocess
 import hmac
 import secrets
+import secrets
 from http.cookies import SimpleCookie
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -40,12 +41,12 @@ class DeploymentConfig:
         default_config_path = base_dir / "config.json"
         target_path = Path(config_path) if config_path else default_config_path
 
-        self.host = "0.0.0.0"
+        self.host = "127.0.0.1"
         self.port = 8443
         self.use_tls = False
         self.tls_cert_file = str(base_dir / "certs" / "server.crt")
         self.tls_key_file = str(base_dir / "certs" / "server.key")
-        self.auth_token = "sdv-dev-secret-token-2026"
+        self.auth_token = secrets.token_urlsafe(32)
         self.users = []
         self.data_dir = str(base_dir / "runtime" / "data")
         self.apps_dir = str(base_dir / "runtime" / "apps")

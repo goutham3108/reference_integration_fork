@@ -36,6 +36,15 @@ class TestApplicationLogs(unittest.TestCase):
     def test_missing_log_file_returns_empty_message(self):
         self.assertEqual(self.manager.get_logs("missing-app"), "No logs available yet.")
 
+    def test_large_log_read_is_bounded_and_returns_tail(self):
+        log_file = self.manager.logs_dir / "sample-app.log"
+        log_file.write_bytes(b"x" * (2 * 1024 * 1024) + b"\nlast line\n")
+
+        logs = self.manager.get_logs("sample-app", lines=1)
+
+        self.assertLessEqual(len(logs.encode("utf-8")), 1024 * 1024)
+        self.assertTrue(logs.endswith("last line\n"))
+
 
 if __name__ == "__main__":
     unittest.main()
