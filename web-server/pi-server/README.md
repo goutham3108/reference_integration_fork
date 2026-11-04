@@ -32,7 +32,7 @@ Run the installer with `sudo` from the regular user that should own the deployme
 
 The installer keeps an existing configured `apps_dir` on upgrades, provided it is inside the service user's home or `/var/lib/sdv-deployer`; it does not switch existing installations to a new empty directory. Configuration is updated atomically with explicit root/group-readable permissions, independent of the caller's umask. Both the configuration and data parent directories are root-owned; staging and log directories are opened without following symlinks before applying ownership and permissions.
 
-Deployed applications are not separate services. The deployer starts each one from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. App process groups are recorded per application so Stop and Remove target the app and its descendants without matching unrelated processes. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
+Deployed applications are not separate services. The deployer starts each one from `<apps_dir>/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. App process groups are recorded per application so Stop and Remove target the app and its descendants without matching unrelated processes. `KillMode=process` lets installed apps survive a service restart. Smoke-test groups are separately recorded, cleaned on service stop, and recovered at the next startup. The service's CPU and memory limits apply to the deployer and the apps it starts together.
 
 ## Laptop connection using SSH
 

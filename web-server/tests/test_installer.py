@@ -62,6 +62,24 @@ class TestInstallerSafety(unittest.TestCase):
         finally:
             os.umask(previous_umask)
         self.assertEqual(stat.S_IMODE((self.root / "config/config.json").stat().st_mode), 0o640)
+        apps_dir = self.root / "apps"
+        self.assertEqual(stat.S_IMODE(apps_dir.stat().st_mode), 0o750)
+        self.assertEqual(apps_dir.stat().st_uid, os.getuid())
+        self.assertEqual(apps_dir.stat().st_gid, os.getgid())
+
+    def test_apps_dir_symlink_is_rejected_before_config_publish(self):
+        self._prepare_directories()
+        target = self.root / "outside"
+        target.mkdir()
+        (self.root / "apps").symlink_to(target)
+        args = ["installer", str(self.root / "config"),
+                str(ROOT / "pi-server/config.example.json"), self.user, self.group,
+                str(self.root), str(self.root / "apps"), str(self.root / "data"),
+                str(self.root / "logs")]
+        with patch.object(sys, "argv", args), patch("os.fchown"):
+            with self.assertRaises(OSError):
+                exec(compile(INSTALLER_BLOCKS[1], "installer config", "exec"), {})
+        self.assertFalse((self.root / "config/config.json").exists())
 
     def test_remote_copy_install_and_cleanup_use_the_same_private_directory(self):
         commands = self.root / "commands"

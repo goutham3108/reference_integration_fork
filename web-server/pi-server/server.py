@@ -249,6 +249,73 @@ class BenchmarkValidator:
     """Executes the 5-Stage validation benchmark on uploaded packages."""
     def __init__(self, config):
         self.config = config
+        self.smoke_test_dir = Path(config.staging_dir) / "smoke-tests"
+        self.smoke_test_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    @staticmethod
+    def _read_process_identity(pid):
+        try:
+            raw = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            fields = raw[raw.rfind(")") + 2:].split()
+            return {
+                "state": fields[0],
+                "pgrp": int(fields[2]),
+                "session": int(fields[3]),
+                "start_time": fields[19],
+            }
+        except (OSError, ValueError, IndexError):
+            return None
+
+    @staticmethod
+    def _current_boot_id():
+        try:
+            return Path("/proc/sys/kernel/random/boot_id").read_text(encoding="ascii").strip()
+        except OSError:
+            return ""
+
+    def _smoke_group_matches(self, record):
+        try:
+            pgid = int(record["pgid"])
+        except (KeyError, TypeError, ValueError):
+            return False
+        if pgid <= 1 or record.get("boot_id") != self._current_boot_id():
+            return False
+        leader = self._read_process_identity(pgid)
+        return bool(
+            leader and leader["state"] not in {"Z", "X"}
+            and leader["pgrp"] == pgid and leader["session"] == pgid
+            and leader["start_time"] == record.get("start_time")
+        )
+
+    def _register_smoke_process(self, proc):
+        identity = self._read_process_identity(proc.pid)
+        boot_id = self._current_boot_id()
+        if not identity or not boot_id:
+            raise RuntimeError("Unable to record smoke-test process identity")
+        record = {"pgid": proc.pid, "start_time": identity["start_time"], "boot_id": boot_id}
+        record_path = self.smoke_test_dir / f"{uuid.uuid4().hex}.json"
+        fd = os.open(record_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as record_file:
+            json.dump(record, record_file)
+            record_file.flush()
+            os.fsync(record_file.fileno())
+        return record_path
+
+    def cleanup_smoke_tests(self):
+        for record_path in self.smoke_test_dir.glob("*.json"):
+            try:
+                fd = os.open(record_path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(fd, "r", encoding="utf-8") as record_file:
+                    record = json.load(record_file)
+                if self._smoke_group_matches(record):
+                    self._terminate_process_group(int(record["pgid"]))
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                logger.warning("Could not clean smoke-test record %s: %s", record_path, error)
+            finally:
+                try:
+                    record_path.unlink()
+                except FileNotFoundError:
+                    pass
 
     def validate_package(self, package_path: Path, temp_extract_dir: Path):
         results = self._run_static_stages(package_path, temp_extract_dir)
@@ -568,6 +635,7 @@ class BenchmarkValidator:
         output_tail = bytearray()
         proc = None
         reader = None
+        record_path = None
 
         def capture_output(pipe):
             while True:
@@ -588,6 +656,7 @@ class BenchmarkValidator:
                 start_new_session=True,
                 preexec_fn=self._drop_privileges
             )
+            record_path = self._register_smoke_process(proc)
             timeout_sec = self.config.smoke_test_seconds
             reader = threading.Thread(target=capture_output, args=(proc.stdout,), daemon=True)
             reader.start()
@@ -652,6 +721,9 @@ class BenchmarkValidator:
             if cleanup_error:
                 message += f"; process cleanup failed: {cleanup_error}"
             return {"passed": False, "error": message}
+        finally:
+            if record_path:
+                record_path.unlink(missing_ok=True)
 
     @staticmethod
     def _terminate_process_group(pgid):
@@ -1474,6 +1546,7 @@ def run_server(config_file=None):
     cfg = DeploymentConfig(config_file)
     inspector = EnvironmentInspector(cfg)
     validator = BenchmarkValidator(cfg)
+    validator.cleanup_smoke_tests()
     app_manager = ApplicationManager(cfg)
     DeploymentRequestHandler.config = cfg
     DeploymentRequestHandler.inspector = inspector
@@ -1504,9 +1577,15 @@ def run_server(config_file=None):
         httpd.serve_forever()
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
+    finally:
+        validator.cleanup_smoke_tests()
         httpd.server_close()
 
 
 if __name__ == "__main__":
-    config_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    run_server(config_arg)
+    if len(sys.argv) > 1 and sys.argv[1] == "--cleanup-smoke-tests":
+        config_arg = sys.argv[2] if len(sys.argv) > 2 else None
+        BenchmarkValidator(DeploymentConfig(config_arg)).cleanup_smoke_tests()
+    else:
+        config_arg = sys.argv[1] if len(sys.argv) > 1 else None
+        run_server(config_arg)

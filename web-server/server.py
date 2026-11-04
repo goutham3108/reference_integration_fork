@@ -225,6 +225,23 @@ class BenchmarkValidator:
         self.config = config
 
     def validate_package(self, package_path: Path, temp_extract_dir: Path):
+        results = self._run_static_stages(package_path, temp_extract_dir)
+        failed_seen = False
+        for stage in results["stages"].values():
+            if stage["passed"]:
+                stage["status"] = "passed"
+            elif failed_seen:
+                stage["status"] = "not_run"
+                stage["details"] = []
+            elif results["passed"]:
+                stage["status"] = "pending"
+            else:
+                failed_seen = True
+                stage["status"] = "failed"
+                stage["error"] = "; ".join(results["errors"]) or "Validation failed"
+        return results
+
+    def _run_static_stages(self, package_path: Path, temp_extract_dir: Path):
         results = {
             "passed": False,
             "stages": {
@@ -1376,6 +1393,8 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
             s5 = benchmark_results["stages"]["stage5_startup_smoke"]
             if not smoke_res["passed"]:
                 s5["passed"] = False
+                s5["status"] = "failed"
+                s5["error"] = smoke_res["error"]
                 s5["details"].append(smoke_res["error"])
                 self._send_json(422, {
                     "success": False,
@@ -1387,6 +1406,7 @@ class DeploymentRequestHandler(BaseHTTPRequestHandler):
                 return
 
             s5["passed"] = True
+            s5["status"] = "passed"
             s5["details"].append(smoke_res["details"])
 
             # ---------------- Promote to Installed Apps ----------------

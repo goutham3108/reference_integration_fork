@@ -8,6 +8,7 @@ User=@SDV_USER@
 Group=@SDV_GROUP@
 WorkingDirectory=/opt/sdv-deployer
 ExecStart=/usr/bin/python3 /opt/sdv-deployer/server.py /etc/sdv-deployer/config.json
+ExecStopPost=/usr/bin/python3 /opt/sdv-deployer/server.py --cleanup-smoke-tests /etc/sdv-deployer/config.json
 Restart=on-failure
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1

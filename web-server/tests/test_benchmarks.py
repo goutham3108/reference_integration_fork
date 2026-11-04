@@ -9,6 +9,7 @@ import json
 import shutil
 import tarfile
 import hashlib
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -257,6 +258,20 @@ class TestValidationBenchmarks(unittest.TestCase):
         healthy_script.write_text("import time\ntime.sleep(2)\n", encoding="utf-8")
         smoke_res = self.validator.run_smoke_test(healthy_script, "python")
         self.assertTrue(smoke_res["passed"])
+
+    def test_startup_cleanup_terminates_registered_smoke_test_group(self):
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            start_new_session=True,
+        )
+        record_path = self.validator._register_smoke_process(process)
+        self.assertTrue(record_path.exists())
+
+        self.validator.cleanup_smoke_tests()
+
+        process.wait(timeout=2)
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(record_path.exists())
 
 
 if __name__ == "__main__":

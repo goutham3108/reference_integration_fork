@@ -18,6 +18,15 @@ SPEC.loader.exec_module(legacy_server)
 
 class TestLegacyServerReviewFixes(unittest.TestCase):
     def setUp(self):
+        systemctl_which = legacy_server.shutil.which
+        self.systemctl_patch = patch.object(
+            legacy_server.shutil,
+            "which",
+            side_effect=lambda executable: None if executable == "systemctl"
+            else systemctl_which(executable)
+        )
+        self.systemctl_patch.start()
+        self.addCleanup(self.systemctl_patch.stop)
         self.root = Path(tempfile.mkdtemp(prefix="legacy_deployer_test_"))
         self.config = legacy_server.DeploymentConfig()
         self.config.apps_dir = str(self.root / "apps")
@@ -73,6 +82,17 @@ class TestLegacyServerReviewFixes(unittest.TestCase):
         self.assertIsNone(legacy_server.DeploymentRequestHandler._app_route(
             "/api/v1/apps/sample/extra/delete"
         ))
+
+    def test_validation_marks_later_stages_not_run(self):
+        validator = legacy_server.BenchmarkValidator(self.config)
+        archive = self._archive([("payload.txt", b"no manifest")])
+        result = validator.validate_package(archive, self.root / "no-manifest")
+        stages = result["stages"]
+        self.assertEqual(stages["stage1_archive_safety"]["status"], "passed")
+        self.assertEqual(stages["stage2_manifest_checksum"]["status"], "failed")
+        for key in ("stage3_compatibility", "stage4_security_permissions", "stage5_startup_smoke"):
+            self.assertEqual(stages[key]["status"], "not_run")
+            self.assertEqual(stages[key]["details"], [])
 
     def _make_version(self, version, script, args):
         staging = self.root / f"staging-{version}"

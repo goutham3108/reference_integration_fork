@@ -86,6 +86,7 @@ python3 - "$config_dir" "$source_dir/config.example.json" "$sdv_user" "$sdv_grou
 import json
 import grp
 import os
+import pwd
 import secrets
 import stat
 import sys
@@ -94,6 +95,29 @@ from pathlib import Path
 directory = Path(sys.argv[1])
 template_path = Path(sys.argv[2])
 user, group, user_home, default_apps_dir, data_dir, log_dir = sys.argv[3:9]
+uid = pwd.getpwnam(user).pw_uid
+gid = grp.getgrnam(group).gr_gid
+
+def provision_apps_dir(path):
+    directory_fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
+    parts = Path(path).parts[1:]
+    try:
+        for index, part in enumerate(parts):
+            final = index == len(parts) - 1
+            try:
+                os.mkdir(part, 0o750 if final else 0o755, dir_fd=directory_fd)
+            except FileExistsError:
+                pass
+            next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                              dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+            if final:
+                os.fchown(directory_fd, uid, gid)
+                os.fchmod(directory_fd, 0o750)
+    finally:
+        os.close(directory_fd)
+
 directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 try:
     try:
@@ -115,14 +139,14 @@ try:
         configured_path = Path(configured_apps_dir)
         if not configured_path.is_absolute() or ".." in configured_path.parts:
             raise SystemExit("Configured apps_dir must be an absolute path without '..' components")
-        resolved_apps_dir = configured_path.resolve()
-        allowed_roots = (Path(user_home).resolve(), Path(data_dir).resolve())
-        if not any(resolved_apps_dir.is_relative_to(root) and resolved_apps_dir != root
+        allowed_roots = (Path(user_home), Path(data_dir))
+        if not any(configured_path.is_relative_to(root) and configured_path != root
                    for root in allowed_roots):
             raise SystemExit("Configured apps_dir must be inside the service user's home or deployer data directory")
-        apps_dir = str(resolved_apps_dir)
+        apps_dir = str(configured_path)
     else:
-        apps_dir = default_apps_dir
+        apps_dir = str(Path(default_apps_dir))
+    provision_apps_dir(apps_dir)
 
     config.update({
         "app_user": user,
@@ -152,12 +176,6 @@ finally:
     os.close(directory_fd)
 PY
 apps_dir="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["apps_dir"])' "$config_dir/config.json")"
-if [[ "$apps_dir" != /* || -L "$apps_dir" ]]; then
-    echo "Refusing to use an invalid or symlink apps_dir: $apps_dir" >&2
-    exit 1
-fi
-runuser -u "$sdv_user" -- install -d -m 0750 "$apps_dir"
-
 sed -e "s|@SDV_USER@|$sdv_user|g" \
     -e "s|@SDV_GROUP@|$sdv_group|g" \
     -e "s|@SDV_MEMORY_MAX@|$memory_max|g" \
