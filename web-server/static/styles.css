@@ -568,7 +568,6 @@ body {
 
 .benchmark-step.not-run {
     border-left: 3px solid var(--text-secondary);
-    opacity: 0.75;
 }
 
 .empty-state {

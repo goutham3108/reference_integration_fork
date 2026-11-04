@@ -279,10 +279,14 @@ class TestValidationBenchmarks(unittest.TestCase):
         record_path = None
         try:
             deadline = time.monotonic() + 2
-            while not child_pid_file.exists() and time.monotonic() < deadline:
-                time.sleep(0.01)
-            self.assertTrue(child_pid_file.exists(), "Smoke-test child did not start")
-            child_pid = int(child_pid_file.read_text())
+            child_pid = None
+            while time.monotonic() < deadline:
+                try:
+                    child_pid = int(child_pid_file.read_text(encoding="ascii").strip())
+                    break
+                except (FileNotFoundError, ValueError):
+                    time.sleep(0.01)
+            self.assertIsNotNone(child_pid, "Smoke-test child did not publish its PID")
             record_path = self.validator._register_smoke_process(process)
             self.assertTrue(record_path.exists())
 

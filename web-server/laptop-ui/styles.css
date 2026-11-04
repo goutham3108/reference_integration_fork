@@ -469,7 +469,7 @@ body {
 }
 
 .benchmark-step.not-run {
-    opacity: 0.6;
+    border-left: 3px solid var(--text-secondary);
 }
 
 .empty-state {
