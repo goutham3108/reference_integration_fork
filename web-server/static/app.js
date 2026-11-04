@@ -310,12 +310,13 @@ async function executeUploadAndValidation(file) {
 
         const json = await res.json();
 
-        if (json.benchmark_results) {
-            updateBenchmarkUI(json.benchmark_results);
+        const benchmarks = json.benchmark_results || json.benchmarks;
+        if (benchmarks) {
+            updateBenchmarkUI(benchmarks);
         }
 
         if (!res.ok || !json.success) {
-            const err = json.error || (json.benchmark_results?.errors || []).join("; ") || "Validation failed";
+            const err = json.error || (benchmarks?.errors || []).join("; ") || "Validation failed";
             errorEl.textContent = `❌ ${err}`;
             errorEl.style.display = "block";
             setUploadFeedback("Validation failed. Review the checks below, then try again.", "error");

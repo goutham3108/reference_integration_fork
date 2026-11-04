@@ -10,7 +10,6 @@ import platform
 import time
 import shutil
 import hashlib
-import re
 import subprocess
 import tarfile
 import tempfile
@@ -239,13 +238,19 @@ class TestDeploymentApi(unittest.TestCase):
             for app_id in expected_ids:
                 deadline = time.monotonic() + 2
                 logs = ""
-                while time.monotonic() < deadline and not logs.strip():
+                while time.monotonic() < deadline:
                     status, response = self._request("GET", f"/api/v1/apps/{app_id}/logs?lines=20")
                     self.assertEqual(status, 200)
                     logs = response["logs"]
-                    if not logs.strip():
-                        time.sleep(0.1)
-                self.assertTrue(logs.strip(), f"Expected logs for {app_id}")
+                    if (logs.strip() and "No logs available yet." not in logs
+                            and "Error reading log file:" not in logs):
+                        break
+                    time.sleep(0.1)
+                self.assertTrue(
+                    logs.strip() and "No logs available yet." not in logs
+                    and "Error reading log file:" not in logs,
+                    f"Expected application output logs for {app_id}, got {logs!r}"
+                )
         finally:
             for app_id in expected_ids:
                 self._request("DELETE", f"/api/v1/apps/{app_id}")
@@ -416,14 +421,6 @@ class TestDeploymentApi(unittest.TestCase):
         orphaned_process = self.app_manager.processes.pop("test-pilot-app")
         process = orphaned_process["process"]
         log_handle = orphaned_process["log_handle"]
-        app_log = Path(self.config.logs_dir) / "test-pilot-app.log"
-        deadline = time.monotonic() + 2
-        log_text = app_log.read_text()
-        while time.monotonic() < deadline and "child " not in log_text:
-            time.sleep(0.05)
-            log_text = app_log.read_text()
-        child_pid = int(re.findall(r"child (\d+)", log_text)[-1])
-
         def cleanup_orphaned_process():
             try:
                 self.app_manager.stop_application("test-pilot-app")
@@ -433,17 +430,25 @@ class TestDeploymentApi(unittest.TestCase):
                     log_handle.close()
 
         self.addCleanup(cleanup_orphaned_process)
-        self.assertIn(process.pid, self.app_manager._process_group_members(orphaned_process["record"]))
+        group_members = self.app_manager._process_group_members(orphaned_process["record"])
+        deadline = time.monotonic() + 2
+        while len(group_members) < 2 and time.monotonic() < deadline:
+            time.sleep(0.05)
+            group_members = self.app_manager._process_group_members(orphaned_process["record"])
+        self.assertIn(process.pid, group_members)
+        child_pids = [pid for pid in group_members if pid != process.pid]
+        self.assertTrue(child_pids, "Expected a child in the current app process group")
         status, _ = self._request("POST", "/api/v1/apps/test-pilot-app/stop")
         self.assertEqual(status, 200)
         self.assertFalse((Path(self.config.apps_dir) / "test-pilot-app" / "process.json").exists())
         self.assertIsNone(unrelated.poll())
         deadline = time.monotonic() + 2
-        child_stat = self.app_manager._read_proc_stat(child_pid)
-        while child_stat and child_stat["state"] not in {"Z", "X"} and time.monotonic() < deadline:
-            time.sleep(0.05)
+        for child_pid in child_pids:
             child_stat = self.app_manager._read_proc_stat(child_pid)
-        self.assertTrue(child_stat is None or child_stat["state"] in {"Z", "X"})
+            while child_stat and child_stat["state"] not in {"Z", "X"} and time.monotonic() < deadline:
+                time.sleep(0.05)
+                child_stat = self.app_manager._read_proc_stat(child_pid)
+            self.assertTrue(child_stat is None or child_stat["state"] in {"Z", "X"})
 
         # Delete removes the app directory, processes and log file.
         status, data = self._request("DELETE", "/api/v1/apps/test-pilot-app")

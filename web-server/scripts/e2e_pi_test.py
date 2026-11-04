@@ -24,6 +24,7 @@ BUNDLES = {
 ORIGIN = "http://127.0.0.1:8080"
 
 failures = []
+LOG_SENTINELS = ("No logs available yet.", "Error reading log file:")
 
 
 class Client:
@@ -68,8 +69,9 @@ def read_logs(client, app_id, seconds=15):
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         status, data = client.request("GET", f"/api/v1/apps/{app_id}/logs?lines=50")
-        if status == 200 and data.get("logs", "").strip():
-            return data["logs"]
+        logs = data.get("logs", "").strip()
+        if status == 200 and logs and not any(sentinel in logs for sentinel in LOG_SENTINELS):
+            return logs
         time.sleep(1)
     return ""
 
@@ -100,6 +102,11 @@ def main():
     status, data = client.request("GET", "/api/v1/apps")
     if not check("Pi API reachable from the UI origin", status == 200, data.get("error", "")):
         return 1
+    existing = {app.get("app_id") for app in data.get("data", [])}
+    conflicts = sorted(existing.intersection(BUNDLES))
+    if conflicts:
+        check("test app IDs are unused before deployment", False, ", ".join(conflicts))
+        return 1
 
     status, data = client.request("GET", "/api/v1/environment")
     env = data.get("data", {}) if status == 200 else {}
@@ -118,10 +125,14 @@ def main():
           status == 422 and stages.get("stage2_manifest_checksum", {}).get("status") == "failed"
           and stages.get("stage3_compatibility", {}).get("status") == "not_run")
 
+    installed_by_this_run = set()
     try:
         for app_id, path in BUNDLES.items():
             status, data = upload(client, path.read_bytes())
-            check(f"deploy {app_id}", status == 201 and data.get("success"), data.get("error", ""))
+            uploaded = status == 201 and data.get("success")
+            check(f"deploy {app_id}", uploaded, data.get("error", ""))
+            if uploaded:
+                installed_by_this_run.add(app_id)
 
         status, data = client.request("GET", "/api/v1/apps")
         listed = {app["app_id"]: app for app in data.get("data", [])}
@@ -143,12 +154,13 @@ def main():
         check("restarted app reports running", wait_state(client, target, "running"))
     finally:
         if not args.keep:
-            for app_id in BUNDLES:
+            for app_id in installed_by_this_run:
                 client.request("DELETE", f"/api/v1/apps/{app_id}")
 
     if not args.keep:
         status, data = client.request("GET", "/api/v1/apps")
-        remaining = [app["app_id"] for app in data.get("data", []) if app["app_id"] in BUNDLES]
+        remaining = [app["app_id"] for app in data.get("data", [])
+                     if app["app_id"] in installed_by_this_run]
         check("removed apps are gone from the server", status == 200 and not remaining, ", ".join(remaining))
 
     print(f"\n{len(failures)} check(s) failed" if failures else "\nAll checks passed")
