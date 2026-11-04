@@ -266,6 +266,7 @@ async function executeUploadAndValidation(files) {
     const packageQueue = Array.isArray(files) ? files : [files];
     const deployed = [];
     const failed = [];
+    let outcomeUnknown = false;
 
     benchmarkPanel.style.display = "block";
     errorEl.style.display = "none";
@@ -302,26 +303,30 @@ async function executeUploadAndValidation(files) {
                 if (benchmarkResults) updateBenchmarkUI(benchmarkResults);
                 if (!response.ok || !result.success) {
                     const message = result.error || (benchmarkResults?.errors || []).join("; ") || "Validation failed";
-                    failed.push(`${file.name}: ${message}`);
+                    failed.push({ file, message: `${file.name}: ${message}` });
                 } else {
                     deployed.push(`${result.app?.name || result.app?.app_id || file.name} v${result.app?.active_version || ""}`);
                 }
             } catch (error) {
-                failed.push(`${file.name}: ${error.message}`);
+                outcomeUnknown = true;
+                failed.push({
+                    file,
+                    message: `${file.name}: deployment outcome unknown (${error.message}); refresh the application list before retrying`
+                });
             }
         }
 
         if (deployed.length > 0) {
             successEl.textContent = `Deployed ${deployed.length} of ${packageQueue.length}: ${deployed.join(", ")}`;
             successEl.style.display = "block";
-            fetchApplications();
         }
         if (failed.length > 0) {
-            errorEl.textContent = `Failed ${failed.length} of ${packageQueue.length}: ${failed.join("; ")}`;
+            errorEl.textContent = `Failed or unconfirmed ${failed.length} of ${packageQueue.length}: ${failed.map((item) => item.message).join("; ")}`;
             errorEl.style.display = "block";
         }
 
-        selectedFiles = failed.length ? packageQueue.filter((file) => failed.some((item) => item.startsWith(`${file.name}:`))) : [];
+        selectedFiles = failed.length ? getFailedFiles(packageQueue, failed) : [];
+        if (deployed.length > 0 || outcomeUnknown) fetchApplications();
         if (selectedFiles.length === 0) {
             fileInput.value = "";
             fileInfo.style.display = "none";
@@ -329,7 +334,10 @@ async function executeUploadAndValidation(files) {
             setUploadFeedback(`Deployment finished: ${deployed.length} of ${packageQueue.length} succeeded.`, failed.length ? "error" : "success");
         } else {
             renderSelectedFiles(selectedFiles);
-            setUploadFeedback(`${deployed.length} deployed; ${failed.length} failed. Failed packages remain selected for retry.`, "error");
+            const retryMessage = outcomeUnknown
+                ? "Refresh the application list before retrying."
+                : "Failed packages remain selected for retry.";
+            setUploadFeedback(`${deployed.length} deployed; ${failed.length} failed or unconfirmed. ${retryMessage}`, "error");
         }
     } finally {
         uploadBtn.disabled = false;
@@ -337,6 +345,11 @@ async function executeUploadAndValidation(files) {
         browseBtn.disabled = false;
         fileInput.disabled = false;
     }
+}
+
+function getFailedFiles(packageQueue, failedUploads) {
+    const failedFiles = new Set(failedUploads.map((upload) => upload.file));
+    return packageQueue.filter((file) => failedFiles.has(file));
 }
 
 function renderSelectedFiles(files) {
@@ -377,7 +390,10 @@ function updateBenchmarkUI(benchmarks) {
         const stage = stages[item.key];
         if (!stage) return;
 
-        let status = stage.status || (stage.passed ? "passed" : "failed");
+        let status = stage.status;
+        if (!status) {
+            status = blocker ? "not_run" : (stage.passed ? "passed" : "failed");
+        }
         if (blocker && status !== "passed") status = "not_run";
         if (status === "failed" && !blocker) {
             blocker = { number: index + 1, name: stage.name || el.querySelector("strong").textContent, error: stage.error || fallbackError };

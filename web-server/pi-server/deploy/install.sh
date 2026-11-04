@@ -32,38 +32,116 @@ apps_dir="$user_home/sdv-apps"
 systemctl stop 'sdv-app@*.service' 2>/dev/null || true
 rm -f /etc/sudoers.d/sdv-deployer /usr/local/libexec/sdv-appctl /etc/systemd/system/sdv-app@.service
 
+python3 - "$config_dir" <<'PY'
+import os
+import stat
+import sys
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+try:
+    os.mkdir(directory, 0o755)
+except FileExistsError:
+    pass
+
+dir_stat = os.lstat(directory)
+if not stat.S_ISDIR(dir_stat.st_mode):
+    raise SystemExit(f"Refusing to use non-directory or symlink config path: {directory}")
+directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    os.fchown(directory_fd, 0, 0)
+    os.fchmod(directory_fd, 0o755)
+    try:
+        config_stat = os.stat("config.json", dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        pass
+    else:
+        if not stat.S_ISREG(config_stat.st_mode):
+            raise SystemExit("Refusing to update a non-regular or symlink config.json")
+finally:
+    os.close(directory_fd)
+PY
+
 install -d -o root -g root -m 0755 "$install_dir"
-install -d -o "$sdv_user" -g "$sdv_group" -m 0750 "$config_dir" "$log_dir" "$data_dir" "$data_dir/staging" "$apps_dir"
+install -d -o "$sdv_user" -g "$sdv_group" -m 0750 "$log_dir" "$data_dir" "$data_dir/staging"
 chown -R "$sdv_user:$sdv_group" "$log_dir" "$data_dir/staging"
 install -m 0755 "$source_dir/server.py" "$install_dir/server.py"
 install -m 0755 "$source_dir/runner.py" "$install_dir/runner.py"
 
-if [[ ! -f "$config_dir/config.json" ]]; then
-    install -o "$sdv_user" -g "$sdv_group" -m 0600 "$source_dir/config.example.json" "$config_dir/config.json"
-fi
-python3 - "$config_dir/config.json" "$sdv_user" "$sdv_group" "$apps_dir" "$data_dir" "$log_dir" <<'PY'
+python3 - "$config_dir" "$source_dir/config.example.json" "$sdv_user" "$sdv_group" "$user_home" "$apps_dir" "$data_dir" "$log_dir" <<'PY'
 import json
+import grp
+import os
 import secrets
+import stat
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
-user, group, apps_dir, data_dir, log_dir = sys.argv[2:7]
-config = json.loads(path.read_text(encoding="utf-8"))
-if not config.get("auth_token") or config["auth_token"].startswith("replace-with"):
-    config["auth_token"] = secrets.token_urlsafe(32)
-config.update({
-    "app_user": user,
-    "app_group": group,
-    "apps_dir": apps_dir,
-    "data_dir": data_dir,
-    "staging_dir": f"{data_dir}/staging",
-    "logs_dir": log_dir,
-})
-path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-path.chmod(0o600)
+directory = Path(sys.argv[1])
+template_path = Path(sys.argv[2])
+user, group, user_home, default_apps_dir, data_dir, log_dir = sys.argv[3:9]
+directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    try:
+        file_stat = os.stat("config.json", dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        config = json.loads(template_path.read_text(encoding="utf-8"))
+    else:
+        if not stat.S_ISREG(file_stat.st_mode):
+            raise SystemExit("Refusing to read a non-regular or symlink config.json")
+        config_fd = os.open("config.json", os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+        with os.fdopen(config_fd, "r", encoding="utf-8") as config_file:
+            config = json.load(config_file)
+
+    token = config.get("auth_token")
+    if not isinstance(token, str) or not token or token.startswith("replace-with"):
+        config["auth_token"] = secrets.token_urlsafe(32)
+    configured_apps_dir = config.get("apps_dir")
+    if configured_apps_dir:
+        configured_path = Path(configured_apps_dir)
+        if not configured_path.is_absolute() or ".." in configured_path.parts:
+            raise SystemExit("Configured apps_dir must be an absolute path without '..' components")
+        resolved_apps_dir = configured_path.resolve()
+        allowed_roots = (Path(user_home).resolve(), Path(data_dir).resolve())
+        if not any(resolved_apps_dir.is_relative_to(root) and resolved_apps_dir != root
+                   for root in allowed_roots):
+            raise SystemExit("Configured apps_dir must be inside the service user's home or deployer data directory")
+        apps_dir = str(resolved_apps_dir)
+    else:
+        apps_dir = default_apps_dir
+
+    config.update({
+        "app_user": user,
+        "app_group": group,
+        "apps_dir": apps_dir,
+        "data_dir": data_dir,
+        "staging_dir": f"{data_dir}/staging",
+        "logs_dir": log_dir,
+    })
+    temp_name = f".config.json.{secrets.token_hex(8)}.tmp"
+    try:
+        config_fd = os.open(temp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o640, dir_fd=directory_fd)
+        with os.fdopen(config_fd, "w", encoding="utf-8") as config_file:
+            config_file.write(json.dumps(config, indent=2) + "\n")
+            config_file.flush()
+            os.fsync(config_file.fileno())
+        os.chown(temp_name, 0, grp.getgrnam(group).gr_gid, dir_fd=directory_fd, follow_symlinks=False)
+        os.replace(temp_name, "config.json", src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+    finally:
+        try:
+            os.unlink(temp_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+finally:
+    os.close(directory_fd)
 PY
-chown "$sdv_user:$sdv_group" "$config_dir/config.json"
+apps_dir="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["apps_dir"])' "$config_dir/config.json")"
+if [[ "$apps_dir" != /* || -L "$apps_dir" ]]; then
+    echo "Refusing to use an invalid or symlink apps_dir: $apps_dir" >&2
+    exit 1
+fi
+runuser -u "$sdv_user" -- install -d -m 0750 "$apps_dir"
 
 sed -e "s|@SDV_USER@|$sdv_user|g" \
     -e "s|@SDV_GROUP@|$sdv_group|g" \

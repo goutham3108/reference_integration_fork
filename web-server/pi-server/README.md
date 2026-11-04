@@ -30,6 +30,8 @@ Run the installer with `sudo` from the regular user that should own the deployme
 - installs `sdv-deployer.service`, which runs as `<user>` with `MemoryMax` and `CPUQuota` limits (default `512M` and `100%`; override with `SDV_MEMORY_MAX` and `SDV_CPU_QUOTA`, for example `sudo SDV_MEMORY_MAX=768M SDV_CPU_QUOTA=150% bash deploy/install.sh`);
 - enables the service at boot and starts it, bound to `127.0.0.1:8443`.
 
+The installer keeps an existing configured `apps_dir` on upgrades, provided it is inside the service user's home or `/var/lib/sdv-deployer`; it does not switch existing installations to a new empty directory. Configuration is updated atomically with the config directory owned by root, so the service account cannot replace `config.json` with a symlink.
+
 Deployed applications are not separate services. The deployer starts each one from `/home/<user>/sdv-apps/<app-id>/current/`, running as `<user>`, and writes its output to `/var/log/sdv-deployer/<app-id>.log`. App process groups are recorded per application so Stop and Remove target the app and its descendants without matching unrelated processes. `KillMode=process` lets running apps survive a restart of the deployer service. The service's CPU and memory limits apply to the deployer and the apps it starts together.
 
 ## Laptop connection using SSH
@@ -67,6 +69,6 @@ Each upload request installs or updates one `app_id`. Multiple distinct IDs can 
 
 - Configuration: `/etc/sdv-deployer/config.json`
 - Application staging and state: `/var/lib/sdv-deployer/`
-- Deployed applications and their versions: `/home/<user>/sdv-apps/<app-id>/`
+- Deployed applications and their versions: `<apps_dir>/<app-id>/` (new installs default to `/home/<user>/sdv-apps/`)
 - Service logs: systemd journal (`journalctl -u sdv-deployer.service`)
 - Application logs: `/var/log/sdv-deployer/<app-id>.log`
