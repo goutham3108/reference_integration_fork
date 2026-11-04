@@ -273,19 +273,30 @@ class BenchmarkValidator:
         except OSError:
             return ""
 
-    def _smoke_group_matches(self, record):
+    def _smoke_group_members(self, record):
         try:
             pgid = int(record["pgid"])
         except (KeyError, TypeError, ValueError):
-            return False
+            return []
         if pgid <= 1 or record.get("boot_id") != self._current_boot_id():
-            return False
-        leader = self._read_process_identity(pgid)
-        return bool(
-            leader and leader["state"] not in {"Z", "X"}
-            and leader["pgrp"] == pgid and leader["session"] == pgid
-            and leader["start_time"] == record.get("start_time")
-        )
+            return []
+
+        members = []
+        try:
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit():
+                    continue
+                pid = int(entry.name)
+                identity = self._read_process_identity(pid)
+                if (not identity or identity["state"] in {"Z", "X"}
+                        or identity["pgrp"] != pgid or identity["session"] != pgid):
+                    continue
+                if pid == pgid and identity["start_time"] != record.get("start_time"):
+                    return []
+                members.append(pid)
+        except OSError:
+            return []
+        return members
 
     def _register_smoke_process(self, proc):
         identity = self._read_process_identity(proc.pid)
@@ -307,15 +318,31 @@ class BenchmarkValidator:
                 fd = os.open(record_path, os.O_RDONLY | os.O_NOFOLLOW)
                 with os.fdopen(fd, "r", encoding="utf-8") as record_file:
                     record = json.load(record_file)
-                if self._smoke_group_matches(record):
-                    self._terminate_process_group(int(record["pgid"]))
+                if not isinstance(record, dict):
+                    raise ValueError("Smoke-test record must be a JSON object")
             except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
                 logger.warning("Could not clean smoke-test record %s: %s", record_path, error)
-            finally:
                 try:
                     record_path.unlink()
                 except FileNotFoundError:
                     pass
+                continue
+
+            members = self._smoke_group_members(record)
+            if members:
+                try:
+                    self._terminate_process_group(int(record["pgid"]))
+                except (OSError, ValueError, TypeError) as error:
+                    logger.warning("Could not terminate smoke-test group %s: %s", record_path, error)
+                    continue
+                if self._smoke_group_members(record):
+                    logger.warning("Smoke-test process group remains active; retaining %s", record_path)
+                    continue
+
+            try:
+                record_path.unlink()
+            except FileNotFoundError:
+                pass
 
     def validate_package(self, package_path: Path, temp_extract_dir: Path):
         results = self._run_static_stages(package_path, temp_extract_dir)
@@ -723,25 +750,45 @@ class BenchmarkValidator:
             return {"passed": False, "error": message}
         finally:
             if record_path:
-                record_path.unlink(missing_ok=True)
+                try:
+                    fd = os.open(record_path, os.O_RDONLY | os.O_NOFOLLOW)
+                    with os.fdopen(fd, "r", encoding="utf-8") as record_file:
+                        record = json.load(record_file)
+                    if self._smoke_group_members(record):
+                        logger.warning(
+                            "Smoke-test process group remains active; retaining %s",
+                            record_path,
+                        )
+                    else:
+                        record_path.unlink(missing_ok=True)
+                except (OSError, ValueError, TypeError, json.JSONDecodeError) as error:
+                    logger.warning("Could not verify smoke-test cleanup for %s: %s", record_path, error)
 
     @staticmethod
     def _terminate_process_group(pgid):
         try:
             os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
-            return
+            return True
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
             try:
                 os.killpg(pgid, 0)
             except ProcessLookupError:
-                return
+                return True
             time.sleep(0.05)
         try:
             os.killpg(pgid, signal.SIGKILL)
         except ProcessLookupError:
-            pass
+            return True
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            try:
+                os.killpg(pgid, 0)
+            except ProcessLookupError:
+                return True
+            time.sleep(0.05)
+        return False
 
     def _drop_privileges(self):
         if os.geteuid() != 0:

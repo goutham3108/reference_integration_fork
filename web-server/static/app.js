@@ -359,23 +359,38 @@ function updateBenchmarkUI(benchmarks) {
         { id: "step5", key: "stage5_startup_smoke" }
     ];
 
-    stageMap.forEach(item => {
+    let failedStage = null;
+    stageMap.forEach((item, index) => {
         const el = document.getElementById(item.id);
         const stage = stages[item.key];
         if (!stage) return;
 
-        if (stage.passed) {
-            el.className = "benchmark-step passed";
-            el.querySelector(".step-icon").textContent = "✅";
-            if (stage.details.length > 0) {
-                el.querySelector(".step-desc").textContent = stage.details.join(" | ");
-            }
-        } else {
-            el.className = "benchmark-step failed";
-            el.querySelector(".step-icon").textContent = "❌";
-            if (stage.details.length > 0) {
-                el.querySelector(".step-desc").textContent = stage.details.join(" | ");
-            }
+        let status = stage.status;
+        if (!["passed", "failed", "not_run", "pending"].includes(status)) {
+            status = failedStage ? "not_run" : (stage.passed ? "passed" : "failed");
+        }
+        if (failedStage && status === "pending") status = "not_run";
+
+        const icons = { passed: "✅", failed: "❌", not_run: "⏭️", pending: "⏳" };
+        el.className = `benchmark-step ${status.replace("_", "-")}`;
+        el.querySelector(".step-icon").textContent = icons[status];
+
+        const details = Array.isArray(stage.details) ? stage.details : [];
+        const errors = Array.isArray(benchmarks.errors) ? benchmarks.errors : [];
+        if (status === "failed" && !failedStage) {
+            failedStage = {
+                index,
+                message: stage.error || details.join(" | ") || errors.join("; ") || "Validation failed"
+            };
+        }
+        if (status === "not_run") {
+            el.querySelector(".step-desc").textContent =
+                `Not run: stage ${failedStage ? failedStage.index + 1 : "validation"} failed` +
+                (failedStage ? ` (${failedStage.message})` : ".");
+        } else if (details.length > 0) {
+            el.querySelector(".step-desc").textContent = details.join(" | ");
+        } else if (status === "failed") {
+            el.querySelector(".step-desc").textContent = failedStage.message;
         }
     });
 }

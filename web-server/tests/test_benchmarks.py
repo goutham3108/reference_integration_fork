@@ -11,7 +11,9 @@ import tarfile
 import hashlib
 import subprocess
 import tempfile
+import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 # Add web-server root to python path
@@ -260,18 +262,50 @@ class TestValidationBenchmarks(unittest.TestCase):
         self.assertTrue(smoke_res["passed"])
 
     def test_startup_cleanup_terminates_registered_smoke_test_group(self):
+        child_pid_file = self.test_dir / "smoke-child.pid"
+        child_code = (
+            "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(30)"
+        )
+        parent_code = (
+            "import subprocess, sys, time; "
+            f"child = subprocess.Popen([sys.executable, '-c', {child_code!r}]); "
+            f"open({str(child_pid_file)!r}, 'w').write(str(child.pid)); "
+            "time.sleep(30)"
+        )
         process = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(30)"],
+            [sys.executable, "-c", parent_code],
             start_new_session=True,
         )
-        record_path = self.validator._register_smoke_process(process)
-        self.assertTrue(record_path.exists())
+        record_path = None
+        try:
+            deadline = time.monotonic() + 2
+            while not child_pid_file.exists() and time.monotonic() < deadline:
+                time.sleep(0.01)
+            self.assertTrue(child_pid_file.exists(), "Smoke-test child did not start")
+            child_pid = int(child_pid_file.read_text())
+            record_path = self.validator._register_smoke_process(process)
+            self.assertTrue(record_path.exists())
 
-        self.validator.cleanup_smoke_tests()
+            with mock.patch.object(self.validator, "_terminate_process_group"):
+                self.validator.cleanup_smoke_tests()
+            self.assertTrue(record_path.exists(), "Active smoke-test record must be retained")
 
-        process.wait(timeout=2)
-        self.assertIsNotNone(process.poll())
-        self.assertFalse(record_path.exists())
+            self.validator.cleanup_smoke_tests()
+
+            process.wait(timeout=2)
+            child_stat = self.validator._read_process_identity(child_pid)
+            deadline = time.monotonic() + 2
+            while child_stat and child_stat["state"] not in {"Z", "X"} and time.monotonic() < deadline:
+                time.sleep(0.05)
+                child_stat = self.validator._read_process_identity(child_pid)
+            self.assertTrue(child_stat is None or child_stat["state"] in {"Z", "X"})
+            self.assertFalse(record_path.exists())
+        finally:
+            if process.poll() is None:
+                self.validator._terminate_process_group(process.pid)
+                process.wait(timeout=2)
+            if record_path and record_path.exists():
+                self.validator.cleanup_smoke_tests()
 
 
 if __name__ == "__main__":
