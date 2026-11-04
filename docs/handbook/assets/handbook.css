@@ -1,9 +1,0 @@
-.handbook-breadcrumbs { font-size: .7rem; margin-bottom: 1.2rem; }
-.md-tabs__list { width: max-content; }
-.md-tabs { overflow-x: auto; scrollbar-width: thin; }
-.md-tabs__link { white-space: nowrap; }
-.md-typeset table:not([class]) { font-size: .68rem; }
-.md-typeset pre { max-height: 30rem; }
-@media screen and (max-width: 76.234375em) {
-  .md-tabs { display: block; position: sticky; top: 2.4rem; z-index: 3; }
-}

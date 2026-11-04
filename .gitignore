@@ -23,6 +23,18 @@ ubproject.toml
 /docs/_collections
 /tests-report
 
+# Private local integration handbook (keep inherited Sphinx docs tracked)
+/docs/document.md
+/docs/handbook/
+/docs/handbook_theme/
+/docs/mkdocs.yml
+/docs/requirements-handbook.txt
+/docs/package.json
+/docs/package-lock.json
+/docs/tools/
+/docs/.venv-handbook/
+/docs/_handbook_site/
+
 # Workspace files
 /score_*/
 /.gita/

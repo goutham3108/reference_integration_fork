@@ -1,8 +1,0 @@
-{
-  "name": "score-sdv-integration-handbook",
-  "private": true,
-  "description": "Locally served diagram renderer for the integration handbook",
-  "dependencies": {
-    "mermaid": "11.12.1"
-  }
-}
