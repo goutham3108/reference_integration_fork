@@ -104,14 +104,18 @@ def provision_apps_dir(path):
     try:
         for index, part in enumerate(parts):
             final = index == len(parts) - 1
+            created = False
             try:
                 os.mkdir(part, 0o750 if final else 0o755, dir_fd=directory_fd)
+                created = True
             except FileExistsError:
                 pass
             next_fd = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
                               dir_fd=directory_fd)
             os.close(directory_fd)
             directory_fd = next_fd
+            if created and not final:
+                os.fchmod(directory_fd, 0o755)
             if final:
                 os.fchown(directory_fd, uid, gid)
                 os.fchmod(directory_fd, 0o750)

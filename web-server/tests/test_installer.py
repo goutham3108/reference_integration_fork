@@ -81,6 +81,27 @@ class TestInstallerSafety(unittest.TestCase):
                 exec(compile(INSTALLER_BLOCKS[1], "installer config", "exec"), {})
         self.assertFalse((self.root / "config/config.json").exists())
 
+    def test_nested_apps_dir_parents_are_traversable_under_restrictive_umask(self):
+        self._prepare_directories()
+        nested_apps = self.root / "data/custom/apps"
+        config = json.loads((ROOT / "pi-server/config.example.json").read_text())
+        config["apps_dir"] = str(nested_apps)
+        (self.root / "config/config.json").write_text(json.dumps(config))
+        args = ["installer", str(self.root / "config"),
+                str(ROOT / "pi-server/config.example.json"), self.user, self.group,
+                str(self.root), str(self.root / "apps"), str(self.root / "data"),
+                str(self.root / "logs")]
+        previous_umask = os.umask(0o077)
+        try:
+            with patch.object(sys, "argv", args), patch("os.fchown"):
+                exec(compile(INSTALLER_BLOCKS[1], "installer config", "exec"), {})
+        finally:
+            os.umask(previous_umask)
+
+        self.assertEqual(stat.S_IMODE((self.root / "data/custom").stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(nested_apps.stat().st_mode), 0o750)
+        self.assertTrue(os.access(self.root / "data/custom/apps", os.X_OK))
+
     def test_remote_copy_install_and_cleanup_use_the_same_private_directory(self):
         commands = self.root / "commands"
         commands.mkdir()

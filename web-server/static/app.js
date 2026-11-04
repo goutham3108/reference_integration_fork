@@ -330,9 +330,10 @@ async function executeUploadAndValidation(file) {
             fetchApplications();
         }
     } catch (err) {
-        errorEl.textContent = `❌ Upload failed: ${err.message}`;
+        errorEl.textContent = `❌ Deployment outcome unknown: ${err.message}. Refresh the application list before retrying.`;
         errorEl.style.display = "block";
-        setUploadFeedback("Upload failed. The active application was not replaced.", "error");
+        setUploadFeedback("Deployment outcome unknown. Refresh the application list before retrying.", "error");
+        fetchApplications();
     } finally {
         uploadBtn.disabled = false;
         uploadBtn.textContent = "Validate & Deploy";
