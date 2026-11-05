@@ -21,12 +21,191 @@ Vehicle.speed
 Vehicle.speedAck
 ```
 
-The vehicle application provides a menu for publishing high-beam booleans or
-speed values. By default its high-beam commands go through KUKSA VAL v2
-actuation; the KUKSA provider is the sole high-beam MW::COM Tx publisher.
-Speed continues to use the existing vehicle publisher. The remote endpoint acknowledges configured non-high-beam
-payloads, so `speed` returns as `speedAck`. New route entries can be added to
-`signal_routes.json` without changing the UDP frame implementation.
+The standard vehicle application menu publishes the high-beam boolean and
+`Vehicle.speed`; it is not a general-purpose selector for every VSS signal.
+For all 44 configured body, door, and powertrain routes, the separate
+`body_signal_test_app` publishes datatype-appropriate test values and checks
+for their return samples when run in `VEHICLE_APP_MODE=signals`. That mode
+skips KUKSA and is a transport test, not an interactive arbitrary-value
+publisher. In the normal combined profile, high-beam commands use KUKSA VAL v2
+actuation and the KUKSA provider owns the body Tx service. Only actuator or
+bidirectional mappings accept KUKSA actuation; sensor-only mappings are
+receive-only. Speed continues to use the existing VehicleDynamics mw::com
+publisher, and the remote endpoint returns it as `speedAck`. New route entries
+can be added to `signal_routes.json` without changing the UDP frame
+implementation.
+
+## Databroker to Bridge Signal Flow
+
+The following describes the gateway profile started by
+[start-vehicle.sh](deploy/start-vehicle.sh) with `VEHICLE_APP_MODE=combined`.
+Everything inside the vehicle boundary runs on one Raspberry Pi, without VMs.
+The `databroker-mw-com` executable contains both the Databroker and its mw::com provider;
+the provider runs in a worker thread with its own async runtime, not in a
+separate process and not through a localhost gRPC connection to the broker.
+External clients use KUKSA gRPC to reach the broker.
+
+```mermaid
+flowchart TB
+   subgraph Vehicle[Vehicle Raspberry Pi]
+      Client["KUKSA client: actuate horn = true"]
+      subgraph Composition[databroker-mw-com process]
+        Broker["Databroker: registered ActuationProvider"]
+        Mapper["MwComMapper: VSS signal ID to Tx binding"]
+        Worker["Actuation queue and provider worker"]
+        Transport["ScoreBindingTransport: resolve generated binding"]
+        Adapter["GatewayScoreRuntimeAdapter: publish typed sample"]
+      end
+      LoLa["SCORE mw::com / LoLa shared memory: local_tx / horn_state"]
+      Gateway["gatewayd: GenericProxy receives sample; serializer produces bytes"]
+      Someip["someipd: SOME/IP event delivery"]
+      Bridge["vehicle_high_beam_bridge: route lookup and UDP encoding"]
+      Client -->|gRPC actuator target| Broker
+      Broker -->|actuate| Mapper
+      Mapper -->|MwComMessage| Worker
+      Worker -->|send_actuation| Transport
+      Transport --> Adapter
+      Adapter -->|publish| LoLa
+      LoLa -->|subscribe| Gateway
+      Gateway -->|SOCom IPC: someipd_gatewayd_ipc| Someip
+      Someip -->|local vsomeip event| Bridge
+   end
+   Remote["Remote Raspberry Pi: vehicle_high_beam_remote_app"]
+   Bridge -->|UDP: remote port 35001| Remote
+   Remote -->|UDP feedback: vehicle port 35000| Bridge
+```
+
+The remote launcher [start-remote.sh](deploy/start-remote.sh) starts the remote
+app directly. The remote app handles UDP receive/send itself; this deployment
+does not start a second bridge or a remote `someipd` process.
+
+### Concrete Example: Horn Actuation
+
+Request `Vehicle.Body.Horn.IsActive = true` using the actuator-target API, for
+example `databroker-cli actuate Vehicle.Body.Horn.IsActive true`. Updating only
+the current datapoint is not equivalent to requesting outbound actuation.
+
+1. The broker calls `QueuedActuationProvider::actuate()` in
+  [provider.rs](../kuksa-databroker/mw_com_provider/src/provider.rs).
+2. `MwComMapper::actuation_to_message()` in
+  [mapper.rs](../kuksa-databroker/mw_com_provider/src/mapper.rs) selects the
+  mapping's `actuation_binding`, rather than its feedback binding. It creates
+  an `MwComMessage` containing `/body_control_module_tx`, `local_tx`,
+  `horn_state`, and `MwComValue::Bool(true)`.
+3. The callback queues that message. The worker calls `send_actuation()` on
+  [ScoreBindingTransport](../kuksa-databroker/mw_com_provider/src/score_bindings.rs),
+  which resolves the service/instance/member against generated metadata.
+4. [GatewayScoreRuntimeAdapter](../kuksa-databroker/mw_com_provider/src/gateway_adapter.rs)
+  uses the `HighBeamTxInterface` producer to publish a `HighBeamCommand` sample
+  on `/body_control_module/local_tx`. SCORE mw::com supplies the LoLa runtime,
+  discovery, publisher/subscriber API, and shared-memory sample storage.
+5. `gatewayd` consumes `horn_state` with a generic proxy. Its serializer turns
+  the pre-serialized sample into one payload byte, `0x01`. The native sample
+  is 32 bytes including storage metadata/alignment; those 32 bytes are not
+  sent as the horn's network payload.
+6. `gatewayd` passes the event to `someipd` through SOCom IPC. `someipd` delivers
+  the SOME/IP event to the local bridge via vsomeip.
+7. The bridge matches the numeric event to the horn route, encodes a UDP frame,
+  and sends it to the remote app. Receiving at the bridge does not by itself
+  prove that the remote app received or applied the command.
+
+### Event Names and IDs
+
+These identifiers belong to different layers; they are mapped explicitly,
+not derived from the Rust type name.
+
+| Layer | Horn Command | Horn Feedback | Configuration |
+| --- | --- | --- | --- |
+| VSS path | `Vehicle.Body.Horn.IsActive` | Same path, current value | [gateway_provider_config.json](config/gateway_provider_config.json) |
+| Provider signal ID | `2` | `2` | Same provider config; not a SOME/IP ID |
+| Provider service / instance | `/body_control_module_tx` / `local_tx` | `/body_control_module_rx` / `network_rx` | Mapping's `actuation_binding` / receive binding |
+| LoLa instance specifier | `/body_control_module/local_tx` | `/body_control_module/network_rx` | [mw_com_config.json](../inc_someip_gateway/score/gatewayd/etc/mw_com_config.json) |
+| Event member | `horn_state` | `horn_state` | Generated bindings and gateway event names |
+| LoLa event ID | `2119` | `2120` | Same LoLa manifest; independent of network IDs |
+| SOME/IP service ID | `0x4300` (17152) | `0x4300` (17152) | [mw_someip_config.json](config/mw_someip_config.json) |
+| SOME/IP instance ID | `0x1000` (4096) | `0x1001` (4097) | Same gateway config |
+| SOME/IP event / eventgroup ID | `0x8434` (33844) | `0x8435` (33845) | [signal_routes.json](signal_routes.json) and gateway config |
+| Payload | One byte: `0x01` or `0x00` | One byte: `0x01` or `0x00` | Tx `NullSerializerConfig`; Rx `BooleanSerializerConfig` |
+
+`local_service_instances` tells gatewayd which local LoLa offers to consume
+and forward outward. `remote_service_instances` tells it which incoming
+network services to expose locally using generic skeletons. Separate Tx/Rx
+service types avoid a connector ownership conflict. SOME/IP carries numeric
+service, instance, and event IDs, not the text `body_control_module_tx`.
+The BCM naming migration preserves existing event IDs and payload formats;
+it does not replace the gateway samples with the standalone BCM typed model.
+
+### Feedback into Databroker
+
+```mermaid
+flowchart LR
+   Remote[Remote app] -->|UDP feedback| Bridge[Vehicle bridge]
+   Bridge -->|SOME/IP: 0x4300 / 0x1001 / 0x8435| Someip[someipd]
+   Someip -->|SOCom IPC| Gateway["gatewayd: deserialize and publish Rx"]
+   Gateway -->|LoLa network_rx / horn_state| Adapter["GatewaySubscription::Bool: poll sample"]
+   Adapter -->|MwComMessage| Mapper["message_to_update: validate and convert"]
+   Mapper -->|update_entries_from_provider| Broker[Databroker current value]
+   Broker -->|gRPC subscription update| Client[KUKSA client]
+```
+
+The provider polls its typed subscriptions; it does not receive these values
+through a separate gRPC provider connection. Its mapper checks direction,
+datatype, quality, age, and configured bounds before updating the broker.
+An actuation request being queued is not the same as receiving feedback.
+The provider and vehicle app can consume gateway Rx samples locally; gatewayd
+offers the network Rx instance, rather than the vehicle app offering it.
+
+### Vehicle-Dynamics Example and Speed
+
+The [vehicle-dynamics example](../communication/score/mw/com/example/vehicle-dynamics-example/BUILD)
+provides shared API definitions and build/link dependencies. Its
+[vehicle_gen.h](../communication/score/mw/com/example/vehicle-dynamics-example/com-api-gen/vehicle_gen.h)
+declares the C++ `HighBeamTx`, `VehicleHighBeamRx`, and `VehicleDynamicsService`
+interfaces. The provider's generated Rust gateway interfaces use compatible
+sample layouts, defined in
+[gateway_samples.rs](../kuksa-databroker/mw_com_provider/src/gateway_samples.rs).
+
+The standalone Rust [main.rs](../communication/score/mw/com/example/vehicle-dynamics-example/main.rs)
+publishes and consumes speed at `/Vehicle/Service1/Instance`. Building/linking
+against its dependencies does not run this executable inside the Databroker.
+The combined launcher runs the legacy C++ vehicle app separately.
+
+`Vehicle.Speed` remains an additional read-only provider mapping on
+`VehicleDynamicsService`, `/Vehicle/Service2/Instance`, member `speed`.
+`GatewaySubscription::Speed` holds a `Subscription<SpeedSample>` and decodes
+both its `f64` value and quality field. This differs from generic body float
+payloads. Its serializer uses a nine-byte wire payload (big-endian double plus
+quality), while the native sample occupies 16 bytes. Outgoing vehicle speed
+uses `/Vehicle/Service1/Instance`; incoming network speed uses Service2.
+
+### Files Used by the Flow
+
+| File | Responsibility |
+| --- | --- |
+| [body_signals.json](config/body_signals.json) | Source of truth for the 44 body signal paths, datatypes, names, and event IDs |
+| [configure_signals.py](configure_signals.py) | Synchronizes gateway/LoLa/vsomeip configs, routes, and C++ event declarations |
+| [gateway_provider_codegen.py](gateway_provider_codegen.py) | Generates provider mappings and Rust gateway interfaces/binding metadata, including speed |
+| [gateway_runtime.rs](../kuksa-databroker/mw_com_provider/generated/gateway_runtime.rs) / [gateway_bindings.rs](../kuksa-databroker/mw_com_provider/generated/gateway_bindings.rs) | Typed Rust events and service/instance/member metadata |
+| [composition main.rs](../kuksa-databroker/databroker-mw-com/src/main.rs) | Starts broker and provider worker; selects gateway adapter for this profile |
+| [null_serializer.cpp](../inc_someip_gateway/score/serializer/null_serializer.cpp) / [serializer_shim.cpp](serializer/serializer_shim.cpp) | Converts native samples to/from wire payloads; shim aliases the speed Rx service name |
+| [vsomeip-gateway-services.json](../inc_someip_gateway/tests/integration/vsomeip-gateway-services.json) | vsomeip routing/application configuration and eventgroups |
+| [bridge main.cpp](bridge/main.cpp) | Receives local SOME/IP events and relays route payloads over UDP in both directions |
+| [remote_app main.cpp](remote_app/main.cpp) | Remote UDP signal source/sink and feedback handling |
+| [start-vehicle.sh](deploy/start-vehicle.sh) / [start-remote.sh](deploy/start-remote.sh) | Launch the respective physical Pi profiles |
+| [package-aarch64.sh](package-aarch64.sh) | Copies binaries, generated configs, routes, and launchers into deployment archives |
+
+The packaged launcher reads `mw_someip_config.bin`, compiled from the demo's
+gateway JSON, and a packaged `mw_com_config.json`. Paths inside the archive
+therefore differ from the source paths above. Regenerate, rebuild, package,
+and redeploy matching artifacts together after changing the signal contract.
+
+[start-body-control.sh](deploy/start-body-control.sh) is an isolated alternative:
+it starts the broker/provider with `mw_com_provider_config.json` and
+`bcm_config_lola_config.json`, plus `body-control-module-example`. It does not
+start gatewayd, someipd, or the bridge and is not needed for the flow above.
+Consolidating that standalone BCM profile into the gateway package remains
+separate work. The generic `communication/score/mw/com/gateway` inter-domain
+gateway is also not part of this launcher.
 
 ## Body and Door Signals
 
@@ -178,17 +357,17 @@ still runs in `VEHICLE_APP_MODE=signals` without KUKSA.
 
 ```text
 Vehicle RPi: 10.56.121.101
-  score_app
+  vehicle_high_beam_mw_com
         -> mw::com SHM(accessed by mw::com proxy of gatewayd)
   gatewayd
         -> gateway IPC
   someipd
         -> SOME/IP event 0x8430
-  udp_bridge
+  vehicle_high_beam_bridge
       -> UDP 10.56.121.79:35001
 
 Remote RPi: 10.56.121.79
-  remote_app
+  vehicle_high_beam_remote_app
         -> UDP 10.56.121.101:35000
 ```
 
@@ -200,7 +379,7 @@ Vehicle app publishes High.IsOn
   -> gatewayd GenericProxy
   -> someipd
   -> SOME/IP service 0x4300, instance 0x1000, event 0x8430
-  -> udp_bridge
+  -> vehicle_high_beam_bridge
   -> UDP port 35001 on the Remote RPi
   -> remote sensor application
 ```
@@ -210,7 +389,7 @@ Vehicle app publishes High.IsOn
 ```text
 Remote sensor application
   -> UDP port 35000 on the Vehicle RPi
-  -> udp_bridge
+  -> vehicle_high_beam_bridge
   -> SOME/IP service 0x4300, instance 0x1001, event 0x8431
   -> someipd
   -> gatewayd GenericSkeleton
@@ -222,11 +401,11 @@ Remote sensor application
 
 | Component | Role |
 | --- | --- |
-| `score_app` | Vehicle-side publisher and subscriber using `mw::com`. |
+| `vehicle_high_beam_mw_com` | Vehicle-side publisher and subscriber using `mw::com`. |
 | `gatewayd` | Uses `GenericProxy` for the local Tx service and `GenericSkeleton` for the local Rx service. |
 | `someipd` | Owns the local SOME/IP/vSomeIP binding and gateway IPC connection. |
-| `udp_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
-| `remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
+| `vehicle_high_beam_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
+| `vehicle_high_beam_remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
 
 ## Prerequisites
 
@@ -248,7 +427,7 @@ default without passing a C-only standard flag to C++ tools. For a native
 bridge build from the workspace root:
 
 ```bash
-bazel build --config=sdv-demo //sdv-hack-demo/bridge:udp_bridge
+bazel build --config=sdv-demo //sdv-hack-demo/bridge:vehicle_high_beam_bridge
 ```
 
 ### Raspberry Pis
@@ -336,9 +515,9 @@ deliberately **not** taken because they change the LoLa runtime that KUKSA also 
 `target_compatible_with`; re-enable them only when `communication/` and the gateway are upgraded
 together and the whole flow is re-validated.
 
-The vehicle archive includes the gateway executables and runfiles, `udp_bridge`,
-`databroker-mw-com-demo`, `databroker-cli`, the KUKSA provider configuration
-files, legacy `score_app` app and its runfiles, serializer, and
+The vehicle archive includes the gateway executables and runfiles, bridge,
+`databroker-mw-com`, `databroker-cli`, the KUKSA provider configuration
+files, legacy `vehicle_high_beam_mw_com` app and its runfiles, serializer, and
 launch/configuration files. It excludes `kuksa_high_beam_udp_provider`, which
 is separate from the bridge and unnecessary for the KUKSA-to-mw::com path. The
 remote archive includes the remote app and its runfiles and
@@ -420,10 +599,10 @@ nano ~/sdv-demo/network.env
 ```
 
 ```bash
-export SDV_VEHICLE_IP=10.56.121.101
-export SDV_REMOTE_IP=10.56.121.79
-export SDV_BRIDGE_UDP_PORT=35000
-export SDV_REMOTE_UDP_PORT=35001
+export HIGH_BEAM_VEHICLE_IP=10.56.121.101
+export HIGH_BEAM_REMOTE_IP=10.56.121.79
+export HIGH_BEAM_BRIDGE_UDP_PORT=35000
+export HIGH_BEAM_REMOTE_UDP_PORT=35001
 ```
 
 Verify that required libraries were extracted:
@@ -434,16 +613,15 @@ find ~/sdv-demo -name 'libvsomeip3.so.3' -type f -print
 
 ## Run the Demo
 
-The vehicle launcher stops stale `someipd`, `gatewayd`, `udp_bridge`, and
-`score_app` processes; the remote launcher stops stale `remote_app` processes.
-Both remove any leftover `/tmp/vsomeip*.lck` file before starting, and refuse
-to start if UDP port 35000/35001 is still in use. If you ever start the apps
-manually (not via the launcher), clean up first:
+Both launchers automatically stop stale `someipd`/`gatewayd`/`vehicle_high_beam*`
+processes and remove any leftover `/tmp/vsomeip*.lck` file before starting, and
+they refuse to start if UDP port 35000/35001 is still in use. If you ever start
+the apps manually (not via the launcher), clean up first:
 
 ```bash
-pkill -TERM -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 sleep 1
-pkill -KILL -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
@@ -721,7 +899,7 @@ capture that output to a file as well while still seeing it live, restart with
 Check whether the background processes are still running:
 
 ```bash
-pgrep -af 'someipd|gatewayd|udp_bridge|score_app'
+pgrep -af 'someipd|gatewayd|vehicle_high_beam'
 ```
 
 ## Inspect and Troubleshoot
@@ -818,18 +996,18 @@ find ~/sdv-demo -name 'score_com_serializer.so' -type f -print
 On the Vehicle RPi:
 
 ```bash
-pkill -TERM -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 sleep 1
-pkill -KILL -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
 On the Remote RPi:
 
 ```bash
-pkill -TERM -x remote_app 2>/dev/null || true
+pkill -TERM -f vehicle_high_beam_remote_app 2>/dev/null || true
 sleep 1
-pkill -KILL -x remote_app 2>/dev/null || true
+pkill -KILL -f vehicle_high_beam_remote_app 2>/dev/null || true
 ```
 
 Always clear the lock file and stop both daemons before extracting a new
@@ -850,3 +1028,181 @@ sdv-hack-demo/
   vehicle_app/                  Vehicle `mw::com` application source
   architecture.drawio           Editable architecture diagram
 ```
+
+## Developer Guide: Add a SOME/IP Signal or Service
+
+First decide whether the addition is **another event on the existing body
+service** (`0x4300`) or a **new SOME/IP service** (a new service ID/type). The
+body-signal generator only knows the existing service and its Tx/Rx instances;
+adding a row to `body_signals.json` does not define an arbitrary new service.
+
+### Add an Event to the Existing Body Service
+
+This is the normal path for a new body, door, or powertrain VSS signal:
+
+1. Add one entry to [config/body_signals.json](config/body_signals.json). Give
+  it a unique `apiName`, `name`, and even `vehicleEvent`; set `datatype` to a
+  supported value (`boolean`, `uint8`, `int16`, `float`, `float_array`, or
+  `string`). `float_array` also needs `maxElements` from 1 to 8. `type` controls
+  the Databroker direction: `sensor` is receive-only, `actuator` is commandable,
+  and an omitted type is bidirectional.
+2. From the workspace root, run the synchronizer and its regression checks:
+
+  ```bash
+  python3 sdv-hack-demo/configure_signals.py --write
+  python3 sdv-hack-demo/configure_signals.py
+  python3 sdv-hack-demo/configure_signals_test.py
+  ```
+
+  This regenerates the two demo/gateway SOME/IP JSON configs, gatewayd's
+  LoLa manifest, vsomeip service/eventgroup registrations, `signal_routes.json`,
+  the vehicle-dynamics example's body event declarations and LoLa config, the
+  KUKSA `gateway_provider_config.json`, and Rust `gateway_bindings.rs` and
+  `gateway_runtime.rs`. Treat these as generated outputs; update the source
+  entry and generator when the data model changes.
+3. If the datatype is one of the six supported types, check its existing payload
+  codec/test values in `sdv-hack-demo/include/high_beam_udp_protocol.h`,
+  `sdv-hack-demo/remote_app/`, and
+  `sdv-hack-demo/vehicle_app/signal_test_values.h`. A genuinely new datatype
+  needs matching encode/decode and test-value support on both endpoints, plus
+  serializer configuration. UDP frames have a fixed 32-byte payload ceiling.
+4. Choose direction deliberately. The generator emits Tx and Rx wire events,
+  but the provider only registers KUKSA actuation for `actuator` and
+  `bidirectional` mappings. Sensor mappings can update current VSS values but
+  cannot be commanded through KUKSA.
+5. Build, package, and redeploy both Pi archives together:
+
+  ```bash
+  cd sdv-hack-demo
+  bash build-aarch64.sh
+  bash package-aarch64.sh
+  ```
+
+  The route table, compiled `mw_someip_config.bin`, gatewayd manifest, and
+  remote app route file must describe the same event IDs and payload format.
+
+### Add a New SOME/IP Service
+
+Do not put a new service into `body_signals.json` and expect the current script
+to create it. The generator hardcodes service ID `17152` (`0x4300`), service
+types `body_control_module_tx` / `body_control_module_rx`, instances `4096` /
+`4097`, and the body's paired event-ID convention. A new service needs a
+separate model/generator path or explicit coordinated edits to the following
+modules.
+
+| Module / owner | Files to update | What must agree |
+| --- | --- | --- |
+| Signal model and generator (`sdv-hack-demo`) | `config/` model, `configure_signals.py`, `gateway_provider_codegen.py` | New service ID, directional instances, event IDs, route metadata, payload limit, and optional KUKSA mapping. Keep generated outputs reproducible instead of hand-editing snapshots only. |
+| SOME/IP gateway config (`sdv-hack-demo`) | `config/mw_someip_config.json`, `BUILD.bazel` | Define service type(s), service/version IDs, events, eventgroups, serializers, and local/remote instance bindings; compile the packaged binary config. |
+| SOME/IP daemon and vsomeip (`inc_someip_gateway`) | `score/config/mw_someip_config.json`, `score/gatewayd/etc/mw_com_config.json`, `tests/integration/vsomeip-gateway-services.json` | gatewayd's SOME/IP event definitions must match someipd's service/instance/event/eventgroup registrations and serializer configuration. |
+| LoLa service API (`communication`) | `score/mw/com/example/vehicle-dynamics-example/com-api-gen/`, `etc/mw_com_config.json`, app source/BUILD | Define the new mw::com interface and payload types, assign LoLa instance specifiers, and implement the producer/consumer. Keep distinct service types for gateway Tx and Rx roles; gateway connectors cannot use one type for both directions. |
+| Databroker provider (`kuksa-databroker`) | `mw_com_provider` config/codegen, generated gateway bindings/runtime, `src/gateway_adapter.rs`, `src/gateway_samples.rs`, compatibility tests | Add VSS path/direction/type mappings if exposed to KUKSA, generated metadata, payload conversion, discovery/subscription/publish handling, and validation tests. The current gateway adapter has explicit body and speed handling, not arbitrary services. |
+| Serializer (`inc_someip_gateway` / demo plugin) | `score/serializer/null_serializer.cpp`, `sdv-hack-demo/serializer/` | Use existing raw/boolean configs only if their byte representation fits. For a new structured payload, implement and test serialization/deserialization and keep native sample size distinct from on-wire payload size. Speed already has a special double-plus-quality path. |
+| Vehicle bridge (`sdv-hack-demo/bridge`) | `main.cpp`, `service_registration.*`, UDP protocol header if needed | The bridge reads routes and registers events generically, so a supported service/event/payload may need only a route. Change bridge/protocol code for new frame semantics, payloads over 32 bytes, or different networking behavior. |
+| Remote endpoint (`sdv-hack-demo/remote_app`) | `main.cpp`, payload helpers/tests, route config | Route lookup is generic, but application behavior and test publishing include signal-specific handling. Add the new service's producer/consumer behavior and tests; do not assume a route alone gives the remote app meaning for a new signal. |
+| Build and deployment (`sdv-hack-demo`) | `build-aarch64.sh`, `package-aarch64.sh`, `deploy/*.sh`, tests | Build every changed binary/config, include new runtime files in the right archive, pass matching manifests at startup, and redeploy both Pis from the same build. |
+
+For every event, keep the full chain consistent:
+
+```text
+VSS path and direction
+  -> provider mapping (optional if Databroker is not involved)
+  -> mw::com service type / instance specifier / event member
+  -> gatewayd service type and event serialization
+  -> SOME/IP service ID / instance ID / event ID / eventgroup
+  -> signal_routes.json service / instance / event / datatype
+  -> UDP payload and remote application behavior
+```
+
+IDs are not inferred from names. Allocate unused SOME/IP IDs within the chosen
+service/instance, make eventgroup membership match the event config, and assign
+valid LoLa IDs independently. For a distinct service, choose a service ID and
+instance layout that do not collide with existing services. If the service is
+also exposed through KUKSA, ensure its metadata and provider direction match
+the VSS entry; `Actuate` is for actuator targets, while current-value updates
+come from received provider samples.
+
+After changes, run the config synchronizer/checks, focused unit tests for the
+generator and payload codecs, build the affected host targets, then run
+`bash build-aarch64.sh && bash package-aarch64.sh`. Test the end-to-end route on
+both devices and verify the observed payload at the application boundary; a
+bridge `notify()` or accepted KUKSA actuation alone is not proof of remote
+receipt or physical actuation. The standalone
+`BodyControlModuleService` package is a separate LoLa/KUKSA example and is not
+automatically part of this SOME/IP gateway flow.
+
+## Currently Supported VSS Signals
+
+The gateway-compatible KUKSA provider currently has **45 VSS mappings**: the
+44 body, door, and powertrain signals in
+[body_signals.json](config/body_signals.json), plus `Vehicle.Speed`. The
+body-signal direction and datatype below come from that manifest; `Vehicle.Speed`
+comes from [gateway_provider_config.json](config/gateway_provider_config.json).
+
+### Bidirectional Body Signals
+
+These 37 signals can receive current values and accept KUKSA actuation targets.
+
+| VSS path | Datatype |
+| --- | --- |
+| `Vehicle.Body.Lights.Beam.High.IsOn` | boolean |
+| `Vehicle.Body.Horn.IsActive` | boolean |
+| `Vehicle.Body.Lights.IsHighBeamSwitchOn` | boolean |
+| `Vehicle.Body.Lights.Parking.IsOn` | boolean |
+| `Vehicle.Body.Lights.Running.IsOn` | boolean |
+| `Vehicle.Body.Lights.Fog.Front.IsOn` | boolean |
+| `Vehicle.Body.Lights.Fog.Rear.IsOn` | boolean |
+| `Vehicle.Body.Lights.Hazard.IsSignaling` | boolean |
+| `Vehicle.Body.Lights.DirectionIndicator.Left.IsSignaling` | boolean |
+| `Vehicle.Body.Lights.DirectionIndicator.Right.IsSignaling` | boolean |
+| `Vehicle.Body.Lights.Brake.IsActive` | boolean |
+| `Vehicle.Body.Hood.IsOpen` | boolean |
+| `Vehicle.Body.Trunk.Rear.IsOpen` | boolean |
+| `Vehicle.Body.Trunk.Rear.IsLocked` | boolean |
+| `Vehicle.Body.Trunk.Rear.Position` | uint8 |
+| `Vehicle.Body.Mirrors.DriverSide.IsFolded` | boolean |
+| `Vehicle.Body.Mirrors.PassengerSide.IsFolded` | boolean |
+| `Vehicle.Body.Mirrors.DriverSide.IsHeatingOn` | boolean |
+| `Vehicle.Body.Mirrors.PassengerSide.IsHeatingOn` | boolean |
+| `Vehicle.Body.Windshield.Front.Wiping.Mode` | string |
+| `Vehicle.Body.Windshield.Front.Wiping.Intensity` | uint8 |
+| `Vehicle.Body.Windshield.Front.WasherFluid.Level` | uint8 |
+| `Vehicle.Body.Windshield.Front.WasherFluid.IsLevelLow` | boolean |
+| `Vehicle.Body.Raindetection.Intensity` | uint8 |
+| `Vehicle.Body.Windshield.Front.IsHeatingOn` | boolean |
+| `Vehicle.Body.Windshield.Rear.IsHeatingOn` | boolean |
+| `Vehicle.Cabin.Door.Row1.DriverSide.IsLocked` | boolean |
+| `Vehicle.Cabin.Door.Row1.DriverSide.IsOpen` | boolean |
+| `Vehicle.Cabin.Door.Row1.DriverSide.Window.Position` | uint8 |
+| `Vehicle.Cabin.Door.Row1.DriverSide.IsChildLockActive` | boolean |
+| `Vehicle.Cabin.Door.Row1.PassengerSide.IsLocked` | boolean |
+| `Vehicle.Cabin.Door.Row1.PassengerSide.IsOpen` | boolean |
+| `Vehicle.Cabin.Door.Row1.PassengerSide.Window.Position` | uint8 |
+| `Vehicle.Cabin.Door.Row2.DriverSide.IsLocked` | boolean |
+| `Vehicle.Cabin.Door.Row2.DriverSide.IsOpen` | boolean |
+| `Vehicle.Cabin.Door.Row2.PassengerSide.IsLocked` | boolean |
+| `Vehicle.Cabin.Door.Row2.PassengerSide.IsOpen` | boolean |
+
+### Receive-Only Body Signals
+
+These six sensor signals update their current VSS value from received samples;
+they do not accept KUKSA actuation targets.
+
+| VSS path | Datatype |
+| --- | --- |
+| `Vehicle.Powertrain.CombustionEngine.IsRunning` | boolean |
+| `Vehicle.OBD.OilTemperature` | int16 |
+| `Vehicle.Powertrain.TractionBattery.CellVoltage.CellVoltages` | float_array (up to 8 elements) |
+| `Vehicle.Acceleration.Vertical` | float |
+| `Vehicle.Chassis.Brake.PedalPosition` | uint8 |
+| `Vehicle.Powertrain.FuelSystem.IsEngineStopStartEnabled` | boolean |
+
+### Command-Only and Vehicle-Dynamics Signals
+
+| VSS path | Datatype | Direction / binding |
+| --- | --- | --- |
+| `Vehicle.Powertrain.Transmission.PerformanceMode` | string | Actuator-only; KUKSA commands go to the body Tx event |
+| `Vehicle.Speed` | double | Receive-only; `VehicleDynamicsService` / `network_rx` / `speed` |
+
+`Vehicle.speedAck` is a VehicleDynamics mw::com acknowledgement event, not a
+separate VSS mapping in the KUKSA provider configuration.
