@@ -11,7 +11,7 @@ KUKSA client          vehicle app
 Databroker + mw_com_provider (Pi A)
     ^
     | mw::com / LoLa
-gatewayd <- someipd <- vehicle_high_beam_bridge
+gatewayd <- someipd <- udp_bridge
                             ^
                             | UDP across the network
                        remote app (Pi B)
@@ -139,7 +139,7 @@ The build command compiles these ARM64 outputs:
 - KUKSA `databroker`, `databroker-cli`, `mw_com_provider`, and
   `databroker-mw-com`.
 - The existing `gatewayd`, `someipd`, serializer, UDP bridge, remote
-  application, and legacy `vehicle_high_beam_mw_com` app.
+  application, and legacy `score_app` app.
 - Communication vehicle-dynamics Bazel artifacts used while building the
   KUKSA mw::com integration.
 
@@ -215,9 +215,9 @@ inc_someip_gateway/bazel-bin/score/someipd/someipd
 bazel-bin/sdv-hack-demo/mw_someip_config.bin
 bazel-bin/sdv-hack-demo/serializer/score_com_serializer.so
 bazel-bin/sdv-hack-demo/serializer/score_com_serializer_base.so
-bazel-bin/sdv-hack-demo/vehicle_app/vehicle_high_beam_mw_com
-bazel-bin/sdv-hack-demo/bridge/vehicle_high_beam_bridge
-bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
+bazel-bin/sdv-hack-demo/vehicle_app/score_app
+bazel-bin/sdv-hack-demo/bridge/udp_bridge
+bazel-bin/sdv-hack-demo/remote_app/remote_app
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-cli
 kuksa-databroker/target/aarch64-unknown-linux-gnu/release/mw_com_provider
@@ -234,7 +234,7 @@ demo and remote executables manually:
 
 ```sh
 file kuksa-databroker/target/aarch64-unknown-linux-gnu/release/databroker-mw-com
-file bazel-bin/sdv-hack-demo/remote_app/vehicle_high_beam_remote_app
+file bazel-bin/sdv-hack-demo/remote_app/remote_app
 ```
 
 Both should report AArch64 executables. The Bazel outputs also include their
@@ -249,9 +249,9 @@ bash sdv-hack-demo/package-aarch64.sh
 ```
 
 The package step creates `vehicle-aarch64.tar.gz` and `remote-aarch64.tar.gz`.
-The vehicle archive includes the gateway daemons, bridge, KUKSA
+The vehicle archive includes the gateway daemons, `udp_bridge`, KUKSA
 `databroker-mw-com`, `databroker-cli`, both provider JSON configs, and the
-legacy `vehicle_high_beam_mw_com` app with its runfiles. It excludes
+legacy `score_app` app with its runfiles. It excludes
 `kuksa_high_beam_udp_provider`, which is a separate adapter and is not needed
 for the KUKSA-to-mw::com bridge path. The remote archive and app are unchanged.
 `scp` only transfers the completed archives:
@@ -295,10 +295,10 @@ nano ~/sdv-demo/network.env
 Use the actual addresses assigned by your network:
 
 ```bash
-export HIGH_BEAM_VEHICLE_IP=<Pi-1-LAN-IP>
-export HIGH_BEAM_REMOTE_IP=<Pi-2-LAN-IP>
-export HIGH_BEAM_BRIDGE_UDP_PORT=35000
-export HIGH_BEAM_REMOTE_UDP_PORT=35001
+export SDV_VEHICLE_IP=<Pi-1-LAN-IP>
+export SDV_REMOTE_IP=<Pi-2-LAN-IP>
+export SDV_BRIDGE_UDP_PORT=35000
+export SDV_REMOTE_UDP_PORT=35001
 ```
 
 On **Pi 2 (remote)**, start its service first:

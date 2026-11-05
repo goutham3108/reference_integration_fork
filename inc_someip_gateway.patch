@@ -15705,11 +15705,11 @@ index 00000000..29a33584
 +
 +
 +#endif /* B0724761_709C_465F_AFC7_8603DC93DFAC */
-diff --git a/tests/integration/vehicle_high_beam_bridge/BUILD.bazel b/tests/integration/vehicle_high_beam_bridge/BUILD.bazel
+diff --git a/tests/integration/udp_bridge/BUILD.bazel b/tests/integration/udp_bridge/BUILD.bazel
 new file mode 100644
 index 00000000..6ff3f40a
 --- /dev/null
-+++ b/tests/integration/vehicle_high_beam_bridge/BUILD.bazel
++++ b/tests/integration/udp_bridge/BUILD.bazel
 @@ -0,0 +1,19 @@
 +# *******************************************************************************
 +# Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -15720,7 +15720,7 @@ index 00000000..6ff3f40a
 +load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 +
 +cc_binary(
-+    name = "vehicle_high_beam_bridge",
++    name = "udp_bridge",
 +    srcs = ["main.cpp"],
 +    visibility = ["//visibility:public"],
 +    deps = [
@@ -15730,11 +15730,11 @@ index 00000000..6ff3f40a
 +        "@vsomeip",
 +    ],
 +)
-diff --git a/tests/integration/vehicle_high_beam_bridge/main.cpp b/tests/integration/vehicle_high_beam_bridge/main.cpp
+diff --git a/tests/integration/udp_bridge/main.cpp b/tests/integration/udp_bridge/main.cpp
 new file mode 100644
 index 00000000..c2d7b730
 --- /dev/null
-+++ b/tests/integration/vehicle_high_beam_bridge/main.cpp
++++ b/tests/integration/udp_bridge/main.cpp
 @@ -0,0 +1,213 @@
 +/********************************************************************************
 + * Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -15843,15 +15843,15 @@ index 00000000..c2d7b730
 +    }
 +
 +    auto vehicle_side = vsomeip::runtime::get()->create_application(
-+        "vehicle_high_beam_bridge_vehicle_side", vehicle_domain_config);
++        "udp_bridge_vehicle_side", vehicle_domain_config);
 +    if (!vehicle_side || !vehicle_side->init()) {
 +        score::mw::log::LogError() << "Failed to initialize bridge SOME/IP applications";
 +        return 1;
 +    }
-+    const std::uint16_t bridge_port = ResolvePort("HIGH_BEAM_BRIDGE_UDP_PORT", kDefaultBridgePort);
-+    const std::uint16_t remote_port = ResolvePort("HIGH_BEAM_REMOTE_UDP_PORT", kDefaultRemotePort);
-+    const std::string bind_ip = ResolveAddress("HIGH_BEAM_BIND_IP", "0.0.0.0");
-+    const std::string remote_ip = ResolveAddress("HIGH_BEAM_REMOTE_IP", "127.0.0.1");
++    const std::uint16_t bridge_port = ResolvePort("SDV_BRIDGE_UDP_PORT", kDefaultBridgePort);
++    const std::uint16_t remote_port = ResolvePort("SDV_REMOTE_UDP_PORT", kDefaultRemotePort);
++    const std::string bind_ip = ResolveAddress("SDV_BIND_IP", "0.0.0.0");
++    const std::string remote_ip = ResolveAddress("SDV_REMOTE_IP", "127.0.0.1");
 +    const int udp_socket = CreateUdpSocket(bridge_port, bind_ip);
 +    if (udp_socket < 0) {
 +        score::mw::log::LogError() << "Failed to bind bridge UDP port " << bridge_port;
@@ -15860,7 +15860,7 @@ index 00000000..c2d7b730
 +    sockaddr_in remote_address{};
 +    remote_address.sin_family = AF_INET;
 +    if (!SetAddress(remote_address, remote_ip)) {
-+        score::mw::log::LogError() << "Invalid HIGH_BEAM_REMOTE_IP: " << remote_ip;
++        score::mw::log::LogError() << "Invalid SDV_REMOTE_IP: " << remote_ip;
 +        close(udp_socket);
 +        return 1;
 +    }
@@ -15949,11 +15949,11 @@ index 00000000..c2d7b730
 +    close(udp_socket);
 +    return 0;
 +}
-diff --git a/tests/integration/vehicle_high_beam_remote_app/BUILD.bazel b/tests/integration/vehicle_high_beam_remote_app/BUILD.bazel
+diff --git a/tests/integration/remote_app/BUILD.bazel b/tests/integration/remote_app/BUILD.bazel
 new file mode 100644
 index 00000000..1ec5dfb6
 --- /dev/null
-+++ b/tests/integration/vehicle_high_beam_remote_app/BUILD.bazel
++++ b/tests/integration/remote_app/BUILD.bazel
 @@ -0,0 +1,20 @@
 +# *******************************************************************************
 +# Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -15964,7 +15964,7 @@ index 00000000..1ec5dfb6
 +load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 +
 +cc_binary(
-+    name = "vehicle_high_beam_remote_app",
++    name = "remote_app",
 +    srcs = ["main.cpp"],
 +    visibility = ["//visibility:public"],
 +    deps = [
@@ -15975,11 +15975,11 @@ index 00000000..1ec5dfb6
 +        "@vsomeip",
 +    ],
 +)
-diff --git a/tests/integration/vehicle_high_beam_remote_app/main.cpp b/tests/integration/vehicle_high_beam_remote_app/main.cpp
+diff --git a/tests/integration/remote_app/main.cpp b/tests/integration/remote_app/main.cpp
 new file mode 100644
 index 00000000..56e95d82
 --- /dev/null
-+++ b/tests/integration/vehicle_high_beam_remote_app/main.cpp
++++ b/tests/integration/remote_app/main.cpp
 @@ -0,0 +1,194 @@
 +/********************************************************************************
 + * Copyright (c) 2026 Contributors to the Eclipse Foundation
@@ -16075,7 +16075,7 @@ index 00000000..56e95d82
 +}  // namespace
 +
 +int main() {
-+    const char* const configured_kvs_dir = std::getenv("HIGH_BEAM_KVS_DIR");
++    const char* const configured_kvs_dir = std::getenv("SDV_KVS_DIR");
 +    const std::string kvs_dir = configured_kvs_dir != nullptr && configured_kvs_dir[0] != '\0'
 +                                    ? configured_kvs_dir
 +                                    : "/tmp/score_high_beam_sensor";
@@ -16095,10 +16095,10 @@ index 00000000..56e95d82
 +    auto sensor_store = std::make_shared<score::mw::per::kvs::Kvs>(std::move(kvs_result).value());
 +    std::atomic<bool> sensor_state{false};
 +
-+    const std::uint16_t bridge_port = ResolvePort("HIGH_BEAM_BRIDGE_UDP_PORT", kDefaultBridgePort);
-+    const std::uint16_t remote_port = ResolvePort("HIGH_BEAM_REMOTE_UDP_PORT", kDefaultRemotePort);
-+    const std::string bind_ip = ResolveAddress("HIGH_BEAM_BIND_IP", "0.0.0.0");
-+    const std::string bridge_ip = ResolveAddress("HIGH_BEAM_BRIDGE_IP", "127.0.0.1");
++    const std::uint16_t bridge_port = ResolvePort("SDV_BRIDGE_UDP_PORT", kDefaultBridgePort);
++    const std::uint16_t remote_port = ResolvePort("SDV_REMOTE_UDP_PORT", kDefaultRemotePort);
++    const std::string bind_ip = ResolveAddress("SDV_BIND_IP", "0.0.0.0");
++    const std::string bridge_ip = ResolveAddress("SDV_BRIDGE_IP", "127.0.0.1");
 +    const int udp_socket = CreateUdpSocket(remote_port, bind_ip);
 +    if (udp_socket < 0) {
 +        score::mw::log::LogError() << "Failed to bind remote UDP port " << remote_port;
@@ -16107,7 +16107,7 @@ index 00000000..56e95d82
 +    sockaddr_in bridge_address{};
 +    bridge_address.sin_family = AF_INET;
 +    if (!SetAddress(bridge_address, bridge_ip)) {
-+        score::mw::log::LogError() << "Invalid HIGH_BEAM_BRIDGE_IP: " << bridge_ip;
++        score::mw::log::LogError() << "Invalid SDV_BRIDGE_IP: " << bridge_ip;
 +        close(udp_socket);
 +        return 1;
 +    }
@@ -16193,7 +16193,7 @@ index 00000000..1bd5f85d
 +            "id": "0x0100"
 +        },
 +        {
-+            "name": "vehicle_high_beam_bridge_vehicle_side",
++            "name": "udp_bridge_vehicle_side",
 +            "id": "0x0204"
 +        }
 +    ],

@@ -92,7 +92,7 @@ int CreateUdpSocket(const std::uint16_t port, const std::string& bind_ip) {
 }  // namespace
 
 int main() {
-    const char* const configured_kvs_dir = std::getenv("HIGH_BEAM_KVS_DIR");
+    const char* const configured_kvs_dir = std::getenv("SDV_KVS_DIR");
     const std::string kvs_dir = configured_kvs_dir != nullptr && configured_kvs_dir[0] != '\0'
                                     ? configured_kvs_dir
                                     : "/tmp/score_high_beam_sensor";
@@ -112,10 +112,10 @@ int main() {
     auto sensor_store = std::make_shared<score::mw::per::kvs::Kvs>(std::move(kvs_result).value());
     std::atomic<bool> sensor_state{false};
 
-    const std::uint16_t bridge_port = ResolvePort("HIGH_BEAM_BRIDGE_UDP_PORT", kDefaultBridgePort);
-    const std::uint16_t remote_port = ResolvePort("HIGH_BEAM_REMOTE_UDP_PORT", kDefaultRemotePort);
-    const std::string bind_ip = ResolveAddress("HIGH_BEAM_BIND_IP", "0.0.0.0");
-    const std::string bridge_ip = ResolveAddress("HIGH_BEAM_BRIDGE_IP", "127.0.0.1");
+    const std::uint16_t bridge_port = ResolvePort("SDV_BRIDGE_UDP_PORT", kDefaultBridgePort);
+    const std::uint16_t remote_port = ResolvePort("SDV_REMOTE_UDP_PORT", kDefaultRemotePort);
+    const std::string bind_ip = ResolveAddress("SDV_BIND_IP", "0.0.0.0");
+    const std::string bridge_ip = ResolveAddress("SDV_BRIDGE_IP", "127.0.0.1");
     const int udp_socket = CreateUdpSocket(remote_port, bind_ip);
     if (udp_socket < 0) {
         score::mw::log::LogError() << "Failed to bind remote UDP port " << remote_port;
@@ -124,7 +124,7 @@ int main() {
     sockaddr_in bridge_address{};
     bridge_address.sin_family = AF_INET;
     if (!SetAddress(bridge_address, bridge_ip)) {
-        score::mw::log::LogError() << "Invalid HIGH_BEAM_BRIDGE_IP: " << bridge_ip;
+        score::mw::log::LogError() << "Invalid SDV_BRIDGE_IP: " << bridge_ip;
         close(udp_socket);
         return 1;
     }

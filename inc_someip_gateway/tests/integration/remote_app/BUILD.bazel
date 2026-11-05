@@ -7,13 +7,14 @@
 load("@rules_cc//cc:cc_binary.bzl", "cc_binary")
 
 cc_binary(
-    name = "vehicle_high_beam_bridge",
+    name = "remote_app",
     srcs = ["main.cpp"],
     visibility = ["//visibility:public"],
     deps = [
         "@score_lifecycle//score/launch_manager:lifecycle_cc",
         "//tests/integration:high_beam_udp_protocol",
         "@score_logging//score/mw/log:log",
+        "@score_persistency//:kvs_cpp",
         "@vsomeip",
     ],
 )

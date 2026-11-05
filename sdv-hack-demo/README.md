@@ -178,17 +178,17 @@ still runs in `VEHICLE_APP_MODE=signals` without KUKSA.
 
 ```text
 Vehicle RPi: 10.56.121.101
-  vehicle_high_beam_mw_com
+  score_app
         -> mw::com SHM(accessed by mw::com proxy of gatewayd)
   gatewayd
         -> gateway IPC
   someipd
         -> SOME/IP event 0x8430
-  vehicle_high_beam_bridge
+  udp_bridge
       -> UDP 10.56.121.79:35001
 
 Remote RPi: 10.56.121.79
-  vehicle_high_beam_remote_app
+  remote_app
         -> UDP 10.56.121.101:35000
 ```
 
@@ -200,7 +200,7 @@ Vehicle app publishes High.IsOn
   -> gatewayd GenericProxy
   -> someipd
   -> SOME/IP service 0x4300, instance 0x1000, event 0x8430
-  -> vehicle_high_beam_bridge
+  -> udp_bridge
   -> UDP port 35001 on the Remote RPi
   -> remote sensor application
 ```
@@ -210,7 +210,7 @@ Vehicle app publishes High.IsOn
 ```text
 Remote sensor application
   -> UDP port 35000 on the Vehicle RPi
-  -> vehicle_high_beam_bridge
+  -> udp_bridge
   -> SOME/IP service 0x4300, instance 0x1001, event 0x8431
   -> someipd
   -> gatewayd GenericSkeleton
@@ -222,11 +222,11 @@ Remote sensor application
 
 | Component | Role |
 | --- | --- |
-| `vehicle_high_beam_mw_com` | Vehicle-side publisher and subscriber using `mw::com`. |
+| `score_app` | Vehicle-side publisher and subscriber using `mw::com`. |
 | `gatewayd` | Uses `GenericProxy` for the local Tx service and `GenericSkeleton` for the local Rx service. |
 | `someipd` | Owns the local SOME/IP/vSomeIP binding and gateway IPC connection. |
-| `vehicle_high_beam_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
-| `vehicle_high_beam_remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
+| `udp_bridge` | Converts vehicle SOME/IP events to UDP and remote UDP frames to vehicle SOME/IP events. |
+| `remote_app` | Remote sensor state machine; receives/sends UDP frames and publishes state every two seconds. |
 
 ## Prerequisites
 
@@ -248,7 +248,7 @@ default without passing a C-only standard flag to C++ tools. For a native
 bridge build from the workspace root:
 
 ```bash
-bazel build --config=sdv-demo //sdv-hack-demo/bridge:vehicle_high_beam_bridge
+bazel build --config=sdv-demo //sdv-hack-demo/bridge:udp_bridge
 ```
 
 ### Raspberry Pis
@@ -336,9 +336,9 @@ deliberately **not** taken because they change the LoLa runtime that KUKSA also 
 `target_compatible_with`; re-enable them only when `communication/` and the gateway are upgraded
 together and the whole flow is re-validated.
 
-The vehicle archive includes the gateway executables and runfiles, bridge,
+The vehicle archive includes the gateway executables and runfiles, `udp_bridge`,
 `databroker-mw-com-demo`, `databroker-cli`, the KUKSA provider configuration
-files, legacy `vehicle_high_beam_mw_com` app and its runfiles, serializer, and
+files, legacy `score_app` app and its runfiles, serializer, and
 launch/configuration files. It excludes `kuksa_high_beam_udp_provider`, which
 is separate from the bridge and unnecessary for the KUKSA-to-mw::com path. The
 remote archive includes the remote app and its runfiles and
@@ -420,10 +420,10 @@ nano ~/sdv-demo/network.env
 ```
 
 ```bash
-export HIGH_BEAM_VEHICLE_IP=10.56.121.101
-export HIGH_BEAM_REMOTE_IP=10.56.121.79
-export HIGH_BEAM_BRIDGE_UDP_PORT=35000
-export HIGH_BEAM_REMOTE_UDP_PORT=35001
+export SDV_VEHICLE_IP=10.56.121.101
+export SDV_REMOTE_IP=10.56.121.79
+export SDV_BRIDGE_UDP_PORT=35000
+export SDV_REMOTE_UDP_PORT=35001
 ```
 
 Verify that required libraries were extracted:
@@ -434,15 +434,16 @@ find ~/sdv-demo -name 'libvsomeip3.so.3' -type f -print
 
 ## Run the Demo
 
-Both launchers automatically stop stale `someipd`/`gatewayd`/`vehicle_high_beam*`
-processes and remove any leftover `/tmp/vsomeip*.lck` file before starting, and
-they refuse to start if UDP port 35000/35001 is still in use. If you ever start
-the apps manually (not via the launcher), clean up first:
+The vehicle launcher stops stale `someipd`, `gatewayd`, `udp_bridge`, and
+`score_app` processes; the remote launcher stops stale `remote_app` processes.
+Both remove any leftover `/tmp/vsomeip*.lck` file before starting, and refuse
+to start if UDP port 35000/35001 is still in use. If you ever start the apps
+manually (not via the launcher), clean up first:
 
 ```bash
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
 sleep 1
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
@@ -720,7 +721,7 @@ capture that output to a file as well while still seeing it live, restart with
 Check whether the background processes are still running:
 
 ```bash
-pgrep -af 'someipd|gatewayd|vehicle_high_beam'
+pgrep -af 'someipd|gatewayd|udp_bridge|score_app'
 ```
 
 ## Inspect and Troubleshoot
@@ -817,18 +818,18 @@ find ~/sdv-demo -name 'score_com_serializer.so' -type f -print
 On the Vehicle RPi:
 
 ```bash
-pkill -TERM -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -TERM -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
 sleep 1
-pkill -KILL -f 'someipd|gatewayd|vehicle_high_beam' 2>/dev/null || true
+pkill -KILL -f 'someipd|gatewayd|(^|/)udp_bridge([[:space:]]|$)|(^|/)score_app([[:space:]]|$)' 2>/dev/null || true
 rm -f /tmp/vsomeip*.lck
 ```
 
 On the Remote RPi:
 
 ```bash
-pkill -TERM -f vehicle_high_beam_remote_app 2>/dev/null || true
+pkill -TERM -x remote_app 2>/dev/null || true
 sleep 1
-pkill -KILL -f vehicle_high_beam_remote_app 2>/dev/null || true
+pkill -KILL -x remote_app 2>/dev/null || true
 ```
 
 Always clear the lock file and stop both daemons before extracting a new
